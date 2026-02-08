@@ -1,0 +1,5 @@
+{"type":"tool_use","id":"tool-1","name":"Read"}
+{"type":"tool_use","id":"tool-2","name":"Write"}
+{"type":"tool_use","id":"tool-3","name":"Bash"}
+{"type":"tool_use","id":"tool-4","name":"Search"}
+{"type":"tool_use","id":"tool-5","name":"Edit"}

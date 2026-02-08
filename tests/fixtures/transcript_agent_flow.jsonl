@@ -1,0 +1,4 @@
+{"type":"Task","task_id":"agent-1","name":"Indexer","status":"running"}
+{"type":"Task","task_id":"agent-2","name":"Planner","status":"running"}
+{"type":"Task","task_id":"agent-3","name":"Reviewer","status":"running"}
+{"type":"Task","task_id":"agent-2","name":"Planner","status":"completed"}

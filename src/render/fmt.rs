@@ -1,0 +1,115 @@
+pub fn format_number(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k", n as f64 / 1_000.0)
+    } else {
+        n.to_string()
+    }
+}
+
+pub fn format_duration(minutes: u64) -> String {
+    if minutes == 0 {
+        return "<1m".to_string();
+    }
+
+    let days = minutes / 1440;
+    let hours = (minutes % 1440) / 60;
+    let mins = minutes % 60;
+
+    if days > 0 {
+        if hours > 0 {
+            format!("{}d {}h", days, hours)
+        } else {
+            format!("{}d", days)
+        }
+    } else if hours > 0 {
+        if mins > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}h", hours)
+        }
+    } else {
+        format!("{}m", mins)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_zero() {
+        assert_eq!(format_number(0), "0");
+    }
+
+    #[test]
+    fn formats_below_thousand() {
+        assert_eq!(format_number(999), "999");
+    }
+
+    #[test]
+    fn formats_at_thousand_boundary() {
+        assert_eq!(format_number(1000), "1.0k");
+    }
+
+    #[test]
+    fn formats_with_decimal_k() {
+        assert_eq!(format_number(1500), "1.5k");
+    }
+
+    #[test]
+    fn formats_200k() {
+        assert_eq!(format_number(200_000), "200.0k");
+    }
+
+    #[test]
+    fn formats_just_below_million() {
+        assert_eq!(format_number(999_999), "1000.0k");
+    }
+
+    #[test]
+    fn formats_at_million_boundary() {
+        assert_eq!(format_number(1_000_000), "1.0M");
+    }
+
+    #[test]
+    fn formats_above_million() {
+        assert_eq!(format_number(1_500_000), "1.5M");
+    }
+
+    #[test]
+    fn duration_zero_minutes() {
+        assert_eq!(format_duration(0), "<1m");
+    }
+
+    #[test]
+    fn duration_minutes_only() {
+        assert_eq!(format_duration(45), "45m");
+    }
+
+    #[test]
+    fn duration_exactly_one_hour() {
+        assert_eq!(format_duration(60), "1h");
+    }
+
+    #[test]
+    fn duration_hours_and_minutes() {
+        assert_eq!(format_duration(90), "1h 30m");
+    }
+
+    #[test]
+    fn duration_exactly_one_day() {
+        assert_eq!(format_duration(1440), "1d");
+    }
+
+    #[test]
+    fn duration_days_and_hours() {
+        assert_eq!(format_duration(1500), "1d 1h");
+    }
+
+    #[test]
+    fn duration_days_only_no_leftover_hours() {
+        assert_eq!(format_duration(2880), "2d");
+    }
+}

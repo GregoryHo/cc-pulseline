@@ -1,0 +1,30 @@
+{
+  "session_id": "stub-session",
+  "cwd": "/Users/gregho/GitHub/AI/cc-pulseline",
+  "model": {
+    "id": "claude-opus-4-6",
+    "display_name": "Opus 4.6"
+  },
+  "workspace": {
+    "current_dir": "/Users/gregho/GitHub/AI/cc-pulseline"
+  },
+  "output_style": {
+    "name": "explanatory"
+  },
+  "version": "2.1.37",
+  "context_window": {
+    "context_window_size": 200000,
+    "used_percentage": 43,
+    "current_usage": {
+      "input_tokens": 1,
+      "output_tokens": 8,
+      "cache_creation_input_tokens": 5655,
+      "cache_read_input_tokens": 114510
+    }
+  },
+  "cost": {
+    "total_cost_usd": 4.5575465,
+    "total_duration_ms": 3712191
+  },
+  "transcript_path": "/Users/gregho/.claude/projects/example/session.jsonl"
+}
