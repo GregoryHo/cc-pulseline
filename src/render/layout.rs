@@ -58,15 +58,15 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
     let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), STABLE_BLUE, color);
     let model_val = colorize(&frame.line1.model, STABLE_BLUE, color);
 
-    // Style/Version/Project: icon + value both structural
-    let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.structural, color);
-    let style_val = colorize(&frame.line1.output_style, tier.structural, color);
+    // Style/Version/Project: icon + value both secondary (promoted from structural)
+    let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
+    let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
 
-    let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), tier.structural, color);
-    let version_val = colorize(&frame.line1.claude_code_version, tier.structural, color);
+    let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), tier.secondary, color);
+    let version_val = colorize(&frame.line1.claude_code_version, tier.secondary, color);
 
-    let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), tier.structural, color);
-    let project_val = colorize(&frame.line1.project_path, tier.structural, color);
+    let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), tier.secondary, color);
+    let project_val = colorize(&frame.line1.project_path, tier.secondary, color);
 
     // Git: icon + value both STABLE_GREEN (icon matches value)
     let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);

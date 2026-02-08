@@ -75,8 +75,9 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 The project uses a 256-color ANSI palette with semantic color constants. See `docs/color-spec.md` for the full specification. Key principles:
 
-- **Emphasis tiers** (Emphasis/Muted/Subdued) replace DIM and vary by dark/light theme via `EmphasisTier`
-- **Semantic colors** (MODEL_BLUE, GIT_GREEN, COST_GOLD, etc.) are fixed across themes
+- **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light theme via `EmphasisTier`
+- **Semantic colors** (STABLE_BLUE, GIT_GREEN, etc.) are fixed across themes
 - **Icon color = value color** — icons are never independently dimmed
+- **L1 hierarchy**: model/git use semantic colors; style/version/project use tier.secondary (promoted from structural)
 - Theme is controlled via `PULSELINE_THEME=light` env var (default: dark)
 - Color constants live in `render/color.rs`; theme logic uses `emphasis_for_theme()`
