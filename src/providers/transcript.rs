@@ -10,12 +10,13 @@ use serde_json::Value;
 use crate::{
     config::RenderConfig,
     state::SessionState,
-    types::{AgentSummary, StdinPayload, TodoSummary, ToolSummary},
+    types::{AgentSummary, CompletedToolCount, StdinPayload, TodoSummary, ToolSummary},
 };
 
 #[derive(Debug, Clone, Default)]
 pub struct TranscriptSnapshot {
     pub tools: Vec<ToolSummary>,
+    pub completed_counts: Vec<CompletedToolCount>,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
 }
@@ -66,6 +67,7 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.last_transcript_offset = 0;
             state.active_tools.clear();
             state.active_agents.clear();
+            state.completed_tool_counts.clear();
             state.todo = None;
         }
 
@@ -139,7 +141,250 @@ fn read_new_lines(path: &Path, start_offset: u64) -> Result<Vec<String>, String>
         .collect())
 }
 
+// ── Three-path event dispatcher ──────────────────────────────────────
+
 fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
+    // Path 1: Nested content[] blocks (real Claude Code transcript format)
+    // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
+    // Or:           { "role": "user", "content": [{...}] }
+    if let Some(content_blocks) = extract_content_blocks(raw_event) {
+        for block in content_blocks {
+            apply_content_block(state, block);
+        }
+        return;
+    }
+
+    // Path 2: Progress events (agent_progress)
+    // { "type": "progress", "data": { "type": "agent_progress", ... } }
+    if let Some(event_type) = raw_event.get("type").and_then(Value::as_str) {
+        if event_type == "progress" {
+            if let Some(data) = raw_event.get("data") {
+                if data.get("type").and_then(Value::as_str) == Some("agent_progress") {
+                    handle_agent_progress(state, data);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Path 3: Flat format fallback (existing test fixtures / simple formats)
+    apply_flat_event(state, raw_event);
+}
+
+/// Extract content[] blocks from nested transcript events.
+/// Checks both `raw_event.message.content` and `raw_event.content`.
+fn extract_content_blocks(raw_event: &Value) -> Option<Vec<&Value>> {
+    // Check message.content[] first (assistant messages)
+    let content = raw_event
+        .get("message")
+        .and_then(|msg| msg.get("content"))
+        .and_then(Value::as_array)
+        // Then check top-level content[] (user messages with tool_result)
+        .or_else(|| raw_event.get("content").and_then(Value::as_array));
+
+    let blocks = content?;
+
+    // Only use this path if content has typed blocks (not plain text strings)
+    let has_typed_blocks = blocks
+        .iter()
+        .any(|block| block.get("type").and_then(Value::as_str).is_some());
+
+    if has_typed_blocks {
+        Some(blocks.iter().collect())
+    } else {
+        None
+    }
+}
+
+/// Process a single content block from a message's content[] array.
+fn apply_content_block(state: &mut SessionState, block: &Value) {
+    let block_type = match block.get("type").and_then(Value::as_str) {
+        Some(t) => t,
+        None => return,
+    };
+
+    match block_type {
+        "tool_use" => {
+            let name = block
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+
+            let id = block
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown-id")
+                .to_string();
+
+            // Task tool → agent tracking
+            if name == "Task" {
+                let input = block.get("input");
+                let description = input
+                    .and_then(|i| {
+                        i.get("description")
+                            .or_else(|| i.get("prompt"))
+                            .and_then(Value::as_str)
+                    })
+                    .unwrap_or("Task")
+                    .to_string();
+                let agent_type = input
+                    .and_then(|i| i.get("subagent_type").and_then(Value::as_str))
+                    .map(ToString::to_string);
+                state.upsert_agent(id, description, agent_type);
+                return;
+            }
+
+            // TodoWrite/TaskUpdate → todo tracking
+            if name == "TodoWrite" || name == "TaskUpdate" {
+                if let Some(todo) = extract_todo_summary(block) {
+                    state.set_todo(Some(todo));
+                }
+                return;
+            }
+
+            // Extract target from input
+            let target = extract_target(&name, block);
+            state.upsert_tool(id, name, target);
+        }
+        "tool_result" => {
+            if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
+                state.remove_tool(id);
+                state.remove_agent(id);
+            }
+
+            // Check for todo data in result
+            if let Some(todo) = extract_todo_summary(block) {
+                state.set_todo(Some(todo));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Handle agent_progress events from the progress stream.
+fn handle_agent_progress(state: &mut SessionState, data: &Value) {
+    let agent_id = data
+        .get("agentId")
+        .or_else(|| data.get("agent_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("agent")
+        .to_string();
+
+    let status = data
+        .get("status")
+        .or_else(|| data.get("state"))
+        .and_then(Value::as_str)
+        .unwrap_or("running");
+
+    if is_terminal_status(status) {
+        state.remove_agent(&agent_id);
+        return;
+    }
+
+    let description = data
+        .get("description")
+        .or_else(|| data.get("prompt"))
+        .or_else(|| data.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("Agent")
+        .to_string();
+
+    let agent_type = data
+        .get("agentType")
+        .or_else(|| data.get("subagent_type"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
+    state.upsert_agent(agent_id, description, agent_type);
+}
+
+// ── Target extraction (Stage 4) ──────────────────────────────────────
+
+/// Extract a human-readable target from a tool_use block's input field.
+fn extract_target(name: &str, block: &Value) -> Option<String> {
+    let input = block.get("input")?;
+
+    match name {
+        "Read" | "Write" | "Edit" | "NotebookEdit" => {
+            let path = input.get("file_path").and_then(Value::as_str)?;
+            Some(truncate_path(path, 30))
+        }
+        "Bash" => {
+            let cmd = input.get("command").and_then(Value::as_str)?;
+            Some(truncate_str(cmd, 30))
+        }
+        "Glob" => {
+            let pattern = input.get("pattern").and_then(Value::as_str)?;
+            Some(truncate_str(pattern, 20))
+        }
+        "Grep" => {
+            let pattern = input.get("pattern").and_then(Value::as_str)?;
+            Some(truncate_str(pattern, 20))
+        }
+        "WebFetch" => {
+            let url = input.get("url").and_then(Value::as_str)?;
+            Some(truncate_str(url, 30))
+        }
+        "WebSearch" => {
+            let query = input.get("query").and_then(Value::as_str)?;
+            Some(truncate_str(query, 30))
+        }
+        "Task" => None, // Task → agent, not tool
+        _ => {
+            // Generic fallback: try file_path → command → pattern
+            input
+                .get("file_path")
+                .and_then(Value::as_str)
+                .map(|p| truncate_path(p, 30))
+                .or_else(|| {
+                    input
+                        .get("command")
+                        .and_then(Value::as_str)
+                        .map(|c| truncate_str(c, 30))
+                })
+                .or_else(|| {
+                    input
+                        .get("pattern")
+                        .and_then(Value::as_str)
+                        .map(|p| truncate_str(p, 20))
+                })
+        }
+    }
+}
+
+/// Truncate a file path for display: show `.../{filename}` if too long.
+fn truncate_path(path: &str, max_len: usize) -> String {
+    if path.len() <= max_len {
+        return path.to_string();
+    }
+
+    // Extract filename from path
+    if let Some(filename) = path.rsplit('/').next() {
+        let prefix = ".../";
+        if filename.len() + prefix.len() <= max_len {
+            return format!("{prefix}{filename}");
+        }
+        return truncate_str(filename, max_len);
+    }
+
+    truncate_str(path, max_len)
+}
+
+/// Truncate a string with ellipsis if too long.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    if max_len <= 3 {
+        return s[..max_len].to_string();
+    }
+    format!("{}...", &s[..max_len - 3])
+}
+
+// ── Flat format fallback (Path 3) ────────────────────────────────────
+
+fn apply_flat_event(state: &mut SessionState, raw_event: &Value) {
     let event = if let Some(message) = raw_event.get("message").filter(|value| value.is_object()) {
         message
     } else {
@@ -150,8 +395,8 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         .or_else(|| find_string(raw_event, &["type", "event", "event_type"]));
 
     match event_type.as_deref() {
-        Some("tool_use") => handle_tool_use(state, event, raw_event),
-        Some("tool_result") => handle_tool_result(state, event, raw_event),
+        Some("tool_use") => handle_flat_tool_use(state, event, raw_event),
+        Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
         Some("Task") => handle_task_event(state, event),
         Some("TodoWrite") | Some("TaskUpdate") => {
             state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
@@ -160,7 +405,7 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     }
 }
 
-fn handle_tool_use(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_flat_tool_use(state: &mut SessionState, event: &Value, raw_event: &Value) {
     let name = find_string(event, &["name", "tool_name", "tool"])
         .or_else(|| find_string(raw_event, &["name", "tool_name", "tool"]))
         .unwrap_or_else(|| "unknown".to_string());
@@ -179,10 +424,10 @@ fn handle_tool_use(state: &mut SessionState, event: &Value, raw_event: &Value) {
         .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
         .unwrap_or_else(|| format!("{name}-active"));
 
-    state.upsert_tool(id, name);
+    state.upsert_tool(id, name, None);
 }
 
-fn handle_tool_result(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &Value) {
     if let Some(id) = find_string(event, &["tool_use_id", "id", "tool_call_id"])
         .or_else(|| find_string(raw_event, &["tool_use_id", "id", "tool_call_id"]))
     {
@@ -204,7 +449,7 @@ fn handle_task_event(state: &mut SessionState, event: &Value) {
     if is_terminal_status(&status) {
         state.remove_agent(&id);
     } else {
-        state.upsert_agent(id, summary);
+        state.upsert_agent(id, summary, None);
     }
 }
 
@@ -226,7 +471,7 @@ fn handle_task_from_tool_use(state: &mut SessionState, event: &Value, raw_event:
         })
         .unwrap_or_else(|| "Task".to_string());
 
-    state.upsert_agent(id, summary);
+    state.upsert_agent(id, summary, None);
 }
 
 fn handle_event_by_name(state: &mut SessionState, event: &Value, raw_event: &Value) {
@@ -253,6 +498,7 @@ fn is_terminal_status(status: &str) -> bool {
 fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> TranscriptSnapshot {
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
+        completed_counts: state.top_completed_tools(config.max_completed_tools),
         agents: state.capped_agents(config.max_agent_lines),
         todo: state.todo.clone(),
     }

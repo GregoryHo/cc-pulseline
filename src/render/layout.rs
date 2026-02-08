@@ -1,6 +1,6 @@
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
-    types::{Line1Metrics, Line3Metrics, RenderFrame},
+    types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame},
 };
 
 use super::color::{
@@ -22,22 +22,26 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         format_line3(frame, config, &tier),
     ];
 
-    for tool in frame.tools.iter().take(config.max_tool_lines) {
-        let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
-        let text = colorize(&tool.text, TOOL_BLUE, color);
-        lines.push(format!("{prefix}{text}"));
+    // Tool line: running + completed on a single line (claude-hud style)
+    if config.show_tools && (!frame.tools.is_empty() || !frame.completed_tools.is_empty()) {
+        lines.push(format_tool_line(frame, config, &tier));
     }
 
-    for agent in frame.agents.iter().take(config.max_agent_lines) {
-        let prefix = colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color);
-        let text = colorize(&agent.text, AGENT_PURPLE, color);
-        lines.push(format!("{prefix}{text}"));
+    // Agent lines: one per agent, conditional
+    // Format: {icon} {agent_type}: {truncated_desc} ({elapsed})
+    if config.show_agents {
+        for agent in frame.agents.iter().take(config.max_agent_lines) {
+            lines.push(format_agent_line(agent, config, &tier));
+        }
     }
 
-    if let Some(todo) = &frame.todo {
-        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
-        let text = colorize(&todo.text, TODO_TEAL, color);
-        lines.push(format!("{prefix}{text}"));
+    // Todo line: conditional
+    if config.show_todo {
+        if let Some(todo) = &frame.todo {
+            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+            let text = colorize(&todo.text, TODO_TEAL, color);
+            lines.push(format!("{prefix}{text}"));
+        }
     }
 
     if let Some(width) = config.terminal_width {
@@ -47,6 +51,95 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     }
 
     lines
+}
+
+/// Format a single tool line combining running tools and completed counts.
+/// Running:   `T:Read: .../main.rs | T:Bash: cargo test`
+/// Completed: `✓Read ×5 | ✓Bash ×3`
+fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+    let sep = colorize(" | ", tier.separator, color);
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Running tools (most recent N)
+    for tool in frame.tools.iter().take(config.max_tool_lines) {
+        let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
+        let name_str = colorize(&tool.name, TOOL_BLUE, color);
+        if let Some(target) = &tool.target {
+            let target_str = colorize(&format!(": {target}"), tier.secondary, color);
+            parts.push(format!("{prefix}{name_str}{target_str}"));
+        } else {
+            parts.push(format!("{prefix}{name_str}"));
+        }
+    }
+
+    // Completed tool counts (top N by frequency)
+    for completed in &frame.completed_tools {
+        let check = colorize("✓", tier.structural, color);
+        let name_str = colorize(&completed.name, tier.structural, color);
+        let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
+        parts.push(format!("{check}{name_str}{count_str}"));
+    }
+
+    parts.join(&sep)
+}
+
+/// Format a single agent line.
+/// With agent_type: `A:Explore: Investigate logic (2m)`
+/// Without:         `A:Investigate logic (2m)`
+///
+/// The description field comes from the Task tool's `description` (3-5 word short summary)
+/// when available, falling back to `prompt` (full text). We truncate to first line,
+/// max 40 chars to keep activity lines compact.
+const AGENT_DESC_MAX_CHARS: usize = 40;
+
+fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    let prefix = colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color);
+
+    // Truncate description: first line only, max AGENT_DESC_MAX_CHARS visible chars
+    let first_line = agent.description.lines().next().unwrap_or("");
+    let desc_truncated = if first_line.chars().count() > AGENT_DESC_MAX_CHARS {
+        let truncated: String = first_line.chars().take(AGENT_DESC_MAX_CHARS).collect();
+        format!("{truncated}…")
+    } else {
+        first_line.to_string()
+    };
+
+    // Elapsed time since agent started
+    let elapsed_str = agent
+        .started_at
+        .map(|start| {
+            let secs = start.elapsed().as_secs();
+            if secs < 60 {
+                format!("{}s", secs)
+            } else {
+                format!("{}m", secs / 60)
+            }
+        })
+        .unwrap_or_default();
+
+    let elapsed_part = if elapsed_str.is_empty() {
+        String::new()
+    } else {
+        let open = colorize(" (", tier.separator, color);
+        let time = colorize(&elapsed_str, tier.structural, color);
+        let close = colorize(")", tier.separator, color);
+        format!("{open}{time}{close}")
+    };
+
+    if let Some(agent_type) = &agent.agent_type {
+        let type_str = colorize(&format!("{agent_type}: "), AGENT_PURPLE, color);
+        let desc_str = colorize(&desc_truncated, tier.secondary, color);
+        format!("{prefix}{type_str}{desc_str}{elapsed_part}")
+    } else {
+        let desc_str = colorize(&desc_truncated, AGENT_PURPLE, color);
+        format!("{prefix}{desc_str}{elapsed_part}")
+    }
 }
 
 fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {

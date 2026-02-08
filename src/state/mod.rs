@@ -1,8 +1,11 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::Instant,
+};
 
 use crate::{
     providers::{EnvSnapshot, GitSnapshot},
-    types::{AgentSummary, TodoSummary, ToolSummary},
+    types::{AgentSummary, CompletedToolCount, TodoSummary, ToolSummary},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -18,6 +21,7 @@ pub struct SessionState {
     pub last_transcript_poll: Option<Instant>,
     pub active_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
+    pub completed_tool_counts: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
     pub cached_env: Option<(String, EnvSnapshot)>,
     pub cached_git: Option<(String, GitSnapshot)>,
@@ -32,6 +36,7 @@ impl SessionState {
             self.last_transcript_poll = None;
             self.active_tools.clear();
             self.active_agents.clear();
+            self.completed_tool_counts.clear();
             self.todo = None;
         }
     }
@@ -64,22 +69,53 @@ impl SessionState {
         self.cached_git = Some((cwd, snapshot));
     }
 
-    pub fn upsert_tool(&mut self, id: String, text: String) {
+    pub fn upsert_tool(&mut self, id: String, name: String, target: Option<String>) {
         if let Some(position) = self.active_tools.iter().position(|tool| tool.id == id) {
             self.active_tools.remove(position);
         }
-        self.active_tools.push(ToolSummary { id, text });
+        self.active_tools.push(ToolSummary { id, name, target });
     }
 
     pub fn remove_tool(&mut self, id: &str) {
+        if let Some(tool) = self.active_tools.iter().find(|t| t.id == id) {
+            self.record_tool_completion(&tool.name.clone());
+        }
         self.active_tools.retain(|tool| tool.id != id);
     }
 
-    pub fn upsert_agent(&mut self, id: String, text: String) {
-        if let Some(position) = self.active_agents.iter().position(|agent| agent.id == id) {
-            self.active_agents.remove(position);
-        }
-        self.active_agents.push(AgentSummary { id, text });
+    pub fn record_tool_completion(&mut self, name: &str) {
+        *self.completed_tool_counts.entry(name.to_string()).or_insert(0) += 1;
+    }
+
+    pub fn top_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
+        let mut counts: Vec<CompletedToolCount> = self
+            .completed_tool_counts
+            .iter()
+            .map(|(name, count)| CompletedToolCount {
+                name: name.clone(),
+                count: *count,
+            })
+            .collect();
+        counts.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
+        counts.truncate(max);
+        counts
+    }
+
+    pub fn upsert_agent(&mut self, id: String, description: String, agent_type: Option<String>) {
+        let started_at = if let Some(position) =
+            self.active_agents.iter().position(|agent| agent.id == id)
+        {
+            let old = self.active_agents.remove(position);
+            old.started_at
+        } else {
+            Some(Instant::now())
+        };
+        self.active_agents.push(AgentSummary {
+            id,
+            description,
+            agent_type,
+            started_at,
+        });
     }
 
     pub fn remove_agent(&mut self, id: &str) {

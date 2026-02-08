@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -133,13 +135,22 @@ pub struct Line3Metrics {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ToolSummary {
     pub id: String,
-    pub text: String,
+    pub name: String,
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompletedToolCount {
+    pub name: String,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentSummary {
     pub id: String,
-    pub text: String,
+    pub description: String,
+    pub agent_type: Option<String>,
+    pub started_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -156,6 +167,7 @@ pub struct RenderFrame {
     pub line2: Line2Metrics,
     pub line3: Line3Metrics,
     pub tools: Vec<ToolSummary>,
+    pub completed_tools: Vec<CompletedToolCount>,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
 }
@@ -232,6 +244,7 @@ impl RenderFrame {
                     .and_then(|cost| cost.total_duration_ms),
             },
             tools: Vec::new(),
+            completed_tools: Vec::new(),
             agents: Vec::new(),
             todo: None,
         }

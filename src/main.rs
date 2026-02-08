@@ -1,11 +1,17 @@
 use std::io::{self, Read};
 
 use cc_pulseline::{
-    config::{ColorTheme, GlyphMode, RenderConfig},
+    config::{build_render_config, config_path, default_config_toml, load_config},
     run_from_str,
 };
 
 fn main() {
+    // Handle --init flag: create default config file and exit
+    if std::env::args().any(|arg| arg == "--init") {
+        init_config();
+        return;
+    }
+
     let mut input = String::new();
     if let Err(err) = io::stdin().read_to_string(&mut input) {
         eprintln!("failed to read stdin: {err}");
@@ -16,7 +22,10 @@ fn main() {
         input = "{}".to_string();
     }
 
-    let lines = match run_from_str(&input, build_config()) {
+    let pulseline_config = load_config();
+    let render_config = build_render_config(&pulseline_config);
+
+    let lines = match run_from_str(&input, render_config) {
         Ok(lines) => lines,
         Err(err) => {
             eprintln!("{err}");
@@ -29,25 +38,25 @@ fn main() {
     }
 }
 
-fn build_config() -> RenderConfig {
-    let color_enabled = std::env::var("NO_COLOR").is_err();
-    let glyph_mode = match std::env::var("PULSELINE_ICONS").as_deref() {
-        Ok("0" | "false" | "ascii") => GlyphMode::Ascii,
-        _ => GlyphMode::Icon,
-    };
-    let color_theme = match std::env::var("PULSELINE_THEME").as_deref() {
-        Ok("light") => ColorTheme::Light,
-        _ => ColorTheme::Dark,
-    };
-    let terminal_width = std::env::var("COLUMNS")
-        .ok()
-        .and_then(|v| v.parse().ok());
+fn init_config() {
+    let path = config_path();
 
-    RenderConfig {
-        color_enabled,
-        color_theme,
-        glyph_mode,
-        terminal_width,
-        ..RenderConfig::default()
+    if path.exists() {
+        eprintln!("config already exists: {}", path.display());
+        std::process::exit(1);
     }
+
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            eprintln!("failed to create directory {}: {err}", parent.display());
+            std::process::exit(1);
+        }
+    }
+
+    if let Err(err) = std::fs::write(&path, default_config_toml()) {
+        eprintln!("failed to write config {}: {err}", path.display());
+        std::process::exit(1);
+    }
+
+    println!("created {}", path.display());
 }

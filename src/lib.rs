@@ -111,6 +111,7 @@ fn build_render_frame(
     frame.line2.skills_count = env_snapshot.skills_count;
 
     frame.tools = transcript_snapshot.tools;
+    frame.completed_tools = transcript_snapshot.completed_counts;
     frame.agents = transcript_snapshot.agents;
     frame.todo = transcript_snapshot.todo;
 

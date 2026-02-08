@@ -1,0 +1,2 @@
+{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01X","name":"Read","input":{"file_path":"/src/lib.rs"}},{"type":"tool_use","id":"toolu_01Y","name":"Bash","input":{"command":"cargo test"}}]}}
+{"content":[{"type":"tool_result","tool_use_id":"toolu_01X"},{"type":"tool_result","tool_use_id":"toolu_01Y"}]}

@@ -39,6 +39,8 @@ fn payload_json(
     .to_string()
 }
 
+// ── Existing flat-format tests (Path 3 backward compat) ──────────────
+
 #[test]
 fn tracks_tool_lifecycle_incrementally_from_transcript() {
     let workspace = TempDir::new().expect("temp workspace");
@@ -61,7 +63,7 @@ fn tracks_tool_lifecycle_incrementally_from_transcript() {
         )
         .expect("render should succeed");
     assert!(
-        lines.iter().any(|line| line == "T:ReadFile"),
+        lines.iter().any(|line| line.contains("T:ReadFile")),
         "tool_use should produce an active tool line"
     );
 
@@ -71,7 +73,7 @@ fn tracks_tool_lifecycle_incrementally_from_transcript() {
         .expect("render should succeed");
     assert!(
         lines.iter().all(|line| !line.starts_with("T:")),
-        "tool_result should clear active tool lines"
+        "tool_result should clear active tool lines (completed shows as ✓)"
     );
 }
 
@@ -185,7 +187,10 @@ fn throttles_transcript_polling_between_renders() {
     let lines = runner
         .run_from_str(&payload, config.clone())
         .expect("render should succeed");
-    assert!(lines.iter().any(|line| line == "T:Bash"));
+    assert!(
+        lines.iter().any(|line| line.contains("T:Bash")),
+        "running tool should appear"
+    );
 
     append_line(
         &transcript,
@@ -196,7 +201,7 @@ fn throttles_transcript_polling_between_renders() {
         .run_from_str(&payload, config.clone())
         .expect("render should succeed");
     assert!(
-        lines.iter().any(|line| line == "T:Bash"),
+        lines.iter().any(|line| line.contains("T:Bash")),
         "poll throttling should delay transcript refresh"
     );
 
@@ -256,4 +261,267 @@ fn applies_transcript_windowing_to_new_event_batches() {
         joined.contains("T:ToolC"),
         "window should include newest events"
     );
+}
+
+// ── New tests: nested content[] format (Path 1) ─────────────────────
+
+#[test]
+fn tracks_nested_tool_with_target() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("nested-tool.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_nested_tool_flow.jsonl")
+        .expect("nested tool fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: assistant message with tool_use Read + input.file_path
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "nested-tool"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("T:Read"),
+        "nested tool_use should produce running tool: got {joined}"
+    );
+    assert!(
+        joined.contains("/src/main.rs"),
+        "target should include file path: got {joined}"
+    );
+
+    // Event 1: user message with tool_result → clears tool, records completion
+    append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "nested-tool"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("T:Read"),
+        "tool_result should clear running tool line"
+    );
+    assert!(
+        joined.contains("✓Read"),
+        "completed tool count should appear: got {joined}"
+    );
+    assert!(
+        joined.contains("×1"),
+        "completed count should be 1: got {joined}"
+    );
+}
+
+#[test]
+fn tracks_nested_multi_block_tools() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("nested-multi.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_nested_multi_block.jsonl")
+        .expect("nested multi block fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_tool_lines: 3,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: assistant message with 2 parallel tool_use blocks
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "nested-multi"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("T:Read"),
+        "first parallel tool should appear: got {joined}"
+    );
+    assert!(
+        joined.contains("T:Bash"),
+        "second parallel tool should appear: got {joined}"
+    );
+    assert!(
+        joined.contains("cargo test"),
+        "Bash target should show command: got {joined}"
+    );
+
+    // Event 1: tool_results for both → both cleared, both completed
+    append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "nested-multi"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("T:Read") && !joined.contains("T:Bash"),
+        "all running tools should clear: got {joined}"
+    );
+    assert!(
+        joined.contains("✓Read") && joined.contains("✓Bash"),
+        "both completed counts should appear: got {joined}"
+    );
+}
+
+// ── New tests: agent_progress events (Path 2) ───────────────────────
+
+#[test]
+fn tracks_agent_progress_events() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("agent-progress.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_nested_agent_progress.jsonl")
+        .expect("agent progress fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: progress → agent_progress (running)
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "agent-progress"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("A:Explore: Investigate L4+ logic"),
+        "agent_progress should create agent line with type and description: got {joined}"
+    );
+
+    // Event 1: progress → agent_progress (completed)
+    append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "agent-progress"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("A:Explore"),
+        "completed agent_progress should remove agent line: got {joined}"
+    );
+}
+
+// ── New tests: config toggles ────────────────────────────────────────
+
+#[test]
+fn config_disables_agents() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("config-agents.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_agent_flow.jsonl")
+        .expect("agent fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        show_agents: false,
+        ..RenderConfig::default()
+    };
+
+    append_line(&transcript, events[0]); // Add some agents
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "config-agents"),
+            config,
+        )
+        .expect("render should succeed");
+    assert!(
+        lines.iter().all(|line| !line.starts_with("A:")),
+        "agents should be hidden when show_agents=false"
+    );
+}
+
+#[test]
+fn config_disables_todo() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("config-todo.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_todo_flow.jsonl")
+        .expect("todo fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        show_todo: false,
+        ..RenderConfig::default()
+    };
+
+    append_line(&transcript, events[0]); // Add todo
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "config-todo"),
+            config,
+        )
+        .expect("render should succeed");
+    assert!(
+        lines.iter().all(|line| !line.starts_with("TODO:")),
+        "todo should be hidden when show_todo=false"
+    );
+}
+
+#[test]
+fn config_disables_tools() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("config-tools.jsonl");
+
+    append_line(
+        &transcript,
+        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"Bash"}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        show_tools: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "config-tools"),
+            config,
+        )
+        .expect("render should succeed");
+    assert!(
+        lines.iter().all(|line| !line.contains("T:Bash")),
+        "tools should be hidden when show_tools=false"
+    );
+}
+
+#[test]
+fn loads_default_config_when_missing() {
+    // Verifying that PulselineConfig::default() produces sensible values
+    use cc_pulseline::config::{build_render_config, PulselineConfig};
+
+    let config = PulselineConfig::default();
+    let render = build_render_config(&config);
+
+    assert!(render.show_tools, "tools should be enabled by default");
+    assert!(render.show_agents, "agents should be enabled by default");
+    assert!(render.show_todo, "todo should be enabled by default");
+    assert_eq!(render.max_tool_lines, 2);
+    assert_eq!(render.max_completed_tools, 4);
+    assert_eq!(render.max_agent_lines, 2);
 }

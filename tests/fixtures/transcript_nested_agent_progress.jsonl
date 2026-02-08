@@ -1,0 +1,2 @@
+{"type":"progress","data":{"type":"agent_progress","agentId":"agent-001","status":"running","prompt":"Investigate L4+ logic","agentType":"Explore"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"agent-001","status":"completed"}}
