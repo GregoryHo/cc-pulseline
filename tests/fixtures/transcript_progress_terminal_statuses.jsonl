@@ -1,0 +1,6 @@
+{"type":"progress","data":{"type":"agent_progress","agentId":"a1","status":"running","prompt":"Task A"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"a2","status":"running","prompt":"Task B"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"a3","status":"running","prompt":"Task C"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"a1","status":"failed"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"a2","status":"cancelled"}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"a3","status":"done"}}

@@ -1,0 +1,5 @@
+{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_mix1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}
+{"type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"running","prompt":"Explore codebase","agentType":"Explore"}}
+{"type":"tool_use","tool_use_id":"flat-1","name":"Bash"}
+{"content":[{"type":"tool_result","tool_use_id":"toolu_mix1"}]}
+{"type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"completed"}}

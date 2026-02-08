@@ -1,0 +1,2 @@
+{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_read1","name":"Read","input":{"file_path":"/src/lib.rs"}}]}}
+{"content":[{"type":"tool_result","tool_use_id":"toolu_read1","todos":[{"content":"Fix parser","status":"completed"},{"content":"Add tests","status":"pending"},{"content":"Update docs","status":"pending"}]}]}

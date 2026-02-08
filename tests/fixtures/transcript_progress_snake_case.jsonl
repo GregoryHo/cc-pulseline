@@ -1,0 +1,2 @@
+{"type":"progress","data":{"type":"agent_progress","agent_id":"snake-001","state":"running","prompt":"Analyze logs","subagent_type":"Detective"}}
+{"type":"progress","data":{"type":"agent_progress","agent_id":"snake-001","state":"completed"}}
