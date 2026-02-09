@@ -11,6 +11,7 @@ use providers::{
     EnvCollector, EnvSnapshot, FileSystemEnvCollector, FileTranscriptCollector, GitCollector,
     GitSnapshot, LocalGitCollector, TranscriptCollector, TranscriptSnapshot,
 };
+use state::cache;
 use state::SessionState;
 use types::{RenderFrame, StdinPayload};
 
@@ -37,7 +38,15 @@ impl PulseLineRunner {
             serde_json::from_str(input).map_err(|error| format!("invalid stdin JSON: {error}"))?;
 
         let session_key = session_key(&payload);
-        let state = self.sessions.entry(session_key).or_default();
+        let is_fresh = !self.sessions.contains_key(&session_key);
+        let state = self.sessions.entry(session_key.clone()).or_default();
+
+        // Load disk cache on first encounter of this session
+        if is_fresh {
+            if let Some(disk_cache) = cache::load_cache(&session_key) {
+                state.load_from_cache(disk_cache);
+            }
+        }
 
         let transcript_snapshot = self
             .transcript_collector
@@ -49,8 +58,23 @@ impl PulseLineRunner {
         let env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
         let git_snapshot = collect_git_snapshot(self.git_collector, state, &project_path);
 
-        let frame = build_render_frame(&payload, &env_snapshot, &git_snapshot, transcript_snapshot);
-        Ok(render::layout::render_frame(&frame, &config))
+        let mut frame =
+            build_render_frame(&payload, &env_snapshot, &git_snapshot, transcript_snapshot);
+
+        // Merge L3 from cache if current payload is incomplete
+        if let Some(cached_line3) = &state.cached_line3 {
+            frame.line3 = frame.line3.merge_with(cached_line3);
+        }
+
+        // Update cached L3 for next invocation
+        state.cached_line3 = Some(frame.line3.clone());
+
+        let lines = render::layout::render_frame(&frame, &config);
+
+        // Save cache to disk
+        cache::save_cache(&session_key, &state.to_cache());
+
+        Ok(lines)
     }
 }
 

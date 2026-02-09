@@ -118,7 +118,7 @@ pub struct Line2Metrics {
     pub elapsed_minutes: u64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Line3Metrics {
     pub context_window_size: Option<u64>,
     pub context_used_percentage: Option<u64>,
@@ -130,28 +130,56 @@ pub struct Line3Metrics {
     pub total_duration_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+impl Line3Metrics {
+    pub fn is_complete(&self) -> bool {
+        self.context_used_percentage.is_some() && self.context_window_size.is_some()
+    }
+
+    /// Per-field merge: self takes priority, falls back to cached.
+    pub fn merge_with(&self, cached: &Line3Metrics) -> Line3Metrics {
+        Line3Metrics {
+            context_window_size: self.context_window_size.or(cached.context_window_size),
+            context_used_percentage: self.context_used_percentage.or(cached.context_used_percentage),
+            input_tokens: self.input_tokens.or(cached.input_tokens),
+            output_tokens: self.output_tokens.or(cached.output_tokens),
+            cache_creation_tokens: self.cache_creation_tokens.or(cached.cache_creation_tokens),
+            cache_read_tokens: self.cache_read_tokens.or(cached.cache_read_tokens),
+            total_cost_usd: self.total_cost_usd.or(cached.total_cost_usd),
+            total_duration_ms: self.total_duration_ms.or(cached.total_duration_ms),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolSummary {
     pub id: String,
     pub name: String,
     pub target: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompletedToolCount {
     pub name: String,
     pub count: u32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSummary {
     pub id: String,
     pub description: String,
     pub agent_type: Option<String>,
     pub started_at: Option<u64>,
+    pub model: Option<String>,
+    pub completed_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+impl AgentSummary {
+    pub fn is_completed(&self) -> bool {
+        self.completed_at.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,
     pub pending: usize,

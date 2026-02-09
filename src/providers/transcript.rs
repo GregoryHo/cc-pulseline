@@ -315,7 +315,10 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 let agent_type = input
                     .and_then(|i| i.get("subagent_type").and_then(Value::as_str))
                     .map(ToString::to_string);
-                state.upsert_agent(id, description, agent_type, event_ts);
+                let model = input
+                    .and_then(|i| i.get("model").and_then(Value::as_str))
+                    .map(ToString::to_string);
+                state.upsert_agent(id, description, agent_type, event_ts, model);
                 return;
             }
 
@@ -380,7 +383,12 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
         .and_then(Value::as_str)
         .map(ToString::to_string);
 
-    state.upsert_agent(agent_id, description, agent_type, event_ts);
+    let model = data
+        .get("model")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
+    state.upsert_agent(agent_id, description, agent_type, event_ts, model);
 }
 
 // ── Target extraction (Stage 4) ──────────────────────────────────────
@@ -541,7 +549,7 @@ fn handle_task_event(state: &mut SessionState, event: &Value, event_ts: Option<u
     if is_terminal_status(&status) {
         state.remove_agent(&id);
     } else {
-        state.upsert_agent(id, summary, None, event_ts);
+        state.upsert_agent(id, summary, None, event_ts, None);
     }
 }
 
@@ -568,7 +576,7 @@ fn handle_task_from_tool_use(
         })
         .unwrap_or_else(|| "Task".to_string());
 
-    state.upsert_agent(id, summary, None, event_ts);
+    state.upsert_agent(id, summary, None, event_ts, None);
 }
 
 fn handle_event_by_name(
@@ -601,7 +609,7 @@ fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> Transcrip
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
         completed_counts: state.top_completed_tools(config.max_completed_tools),
-        agents: state.capped_agents(config.max_agent_lines),
+        agents: state.agents_for_display(config.max_agent_lines),
         todo: state.todo.clone(),
     }
 }

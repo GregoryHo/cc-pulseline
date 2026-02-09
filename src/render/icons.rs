@@ -16,6 +16,7 @@ pub const ICON_TOKENS: &str = "\u{f061d}";
 pub const ICON_COST: &str = "\u{eec1}";
 pub const ICON_TOOL: &str = "\u{f0ad}";
 pub const ICON_AGENT: &str = "\u{f19bb}";
+pub const ICON_AGENT_DONE: &str = "✓";
 pub const ICON_TODO: &str = "\u{f0c8}";
 
 // Token type icons

@@ -102,8 +102,19 @@ const AGENT_DESC_MAX_CHARS: usize = 40;
 fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
+    let completed = agent.is_completed();
 
-    let prefix = colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color);
+    // Prefix: running vs completed
+    let prefix = if completed {
+        match mode {
+            crate::config::GlyphMode::Icon => {
+                colorize(&format!("{} ", ICON_AGENT_DONE), COMPLETED_CHECK, color)
+            }
+            crate::config::GlyphMode::Ascii => colorize("A:", COMPLETED_CHECK, color),
+        }
+    } else {
+        colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color)
+    };
 
     // Truncate description: first line only, max AGENT_DESC_MAX_CHARS visible chars
     let first_line = agent.description.lines().next().unwrap_or("");
@@ -114,22 +125,52 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         first_line.to_string()
     };
 
-    // Elapsed time since agent started (epoch-based, survives across process invocations)
-    let elapsed_str = agent
-        .started_at
-        .map(|start_ms| {
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
-            let secs = now_ms.saturating_sub(start_ms) / 1000;
-            if secs < 60 {
-                format!("{}s", secs)
-            } else {
-                format!("{}m", secs / 60)
+    // Elapsed time
+    let elapsed_str = if completed {
+        // Fixed duration for completed agents
+        match (agent.started_at, agent.completed_at) {
+            (Some(start), Some(end)) => {
+                let secs = end.saturating_sub(start) / 1000;
+                format_agent_elapsed(secs)
             }
+            _ => String::new(),
+        }
+    } else {
+        // Live duration for running agents
+        agent
+            .started_at
+            .map(|start_ms| {
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let secs = now_ms.saturating_sub(start_ms) / 1000;
+                format_agent_elapsed(secs)
+            })
+            .unwrap_or_default()
+    };
+
+    // Model tag: [haiku] in structural color
+    let model_part = agent
+        .model
+        .as_ref()
+        .map(|m| {
+            let tag = colorize(&format!(" [{m}]"), tier.structural, color);
+            tag
         })
         .unwrap_or_default();
+
+    // Done tag for ASCII completed agents
+    let done_tag = if completed {
+        match mode {
+            crate::config::GlyphMode::Ascii => {
+                colorize(" [done]", tier.structural, color)
+            }
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
 
     let elapsed_part = if elapsed_str.is_empty() {
         String::new()
@@ -140,13 +181,27 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         format!("{open}{time}{close}")
     };
 
+    let accent_color = if completed { COMPLETED_CHECK } else { AGENT_PURPLE };
+
     if let Some(agent_type) = &agent.agent_type {
-        let type_str = colorize(&format!("{agent_type}: "), AGENT_PURPLE, color);
+        let type_str = colorize(&format!("{agent_type}"), accent_color, color);
+        let model_str = &model_part;
+        let colon = colorize(": ", accent_color, color);
         let desc_str = colorize(&desc_truncated, tier.secondary, color);
-        format!("{prefix}{type_str}{desc_str}{elapsed_part}")
+        format!("{prefix}{type_str}{model_str}{colon}{desc_str}{done_tag}{elapsed_part}")
     } else {
-        let desc_str = colorize(&desc_truncated, AGENT_PURPLE, color);
-        format!("{prefix}{desc_str}{elapsed_part}")
+        let desc_str = colorize(&desc_truncated, accent_color, color);
+        format!("{prefix}{desc_str}{model_part}{done_tag}{elapsed_part}")
+    }
+}
+
+fn format_agent_elapsed(secs: u64) -> String {
+    if secs == 0 {
+        "<1s".to_string()
+    } else if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m", secs / 60)
     }
 }
 

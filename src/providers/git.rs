@@ -1,6 +1,6 @@
 use std::process::Command;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GitSnapshot {
     pub branch: String,
     pub dirty: bool,

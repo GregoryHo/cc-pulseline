@@ -406,7 +406,7 @@ fn tracks_agent_progress_events() {
         "agent_progress should create agent line with type and description: got {joined}"
     );
 
-    // Event 1: progress → agent_progress (completed)
+    // Event 1: progress → agent_progress (completed) → shows as done
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -416,8 +416,8 @@ fn tracks_agent_progress_events() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("A:Explore"),
-        "completed agent_progress should remove agent line: got {joined}"
+        joined.contains("A:Explore: Investigate L4+ logic [done]"),
+        "completed agent_progress should show as done: got {joined}"
     );
 }
 
@@ -560,7 +560,7 @@ fn tracks_task_tool_as_agent() {
         "Task should not appear as a tool line: got {joined}"
     );
 
-    // Event 1: tool_result → removes agent
+    // Event 1: tool_result → agent becomes completed with [done] tag
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -570,8 +570,8 @@ fn tracks_task_tool_as_agent() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("A:Architect"),
-        "tool_result should remove Task-based agent: got {joined}"
+        joined.contains("A:Architect: Refactor parser [done]"),
+        "tool_result should show completed Task agent with [done]: got {joined}"
     );
 }
 
@@ -654,7 +654,7 @@ fn handles_snake_case_progress_fields() {
         "snake_case fields should work: got {joined}"
     );
 
-    // Event 1: state=completed (snake_case) → removes agent
+    // Event 1: state=completed (snake_case) → agent shows as done
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -664,8 +664,8 @@ fn handles_snake_case_progress_fields() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("A:Detective"),
-        "completed via state field should remove agent: got {joined}"
+        joined.contains("A:Detective: Analyze logs [done]"),
+        "completed via state field should show [done]: got {joined}"
     );
 }
 
@@ -702,7 +702,7 @@ fn handles_terminal_status_variety() {
         "three agents should be running: got {agent_lines:?}"
     );
 
-    // Event 3: a1 failed
+    // Event 3: a1 failed → becomes completed [done]
     append_line(&transcript, events[3]);
     let lines = runner
         .run_from_str(
@@ -712,15 +712,15 @@ fn handles_terminal_status_variety() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("Task A"),
-        "failed agent a1 should be removed: got {joined}"
+        joined.contains("Task A") && joined.contains("[done]"),
+        "failed agent a1 should show as done: got {joined}"
     );
     assert!(
         joined.contains("Task B") && joined.contains("Task C"),
         "agents a2 and a3 should remain: got {joined}"
     );
 
-    // Event 4: a2 cancelled
+    // Event 4: a2 cancelled → becomes completed [done]
     append_line(&transcript, events[4]);
     let lines = runner
         .run_from_str(
@@ -730,15 +730,15 @@ fn handles_terminal_status_variety() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("Task B"),
-        "cancelled agent a2 should be removed: got {joined}"
+        joined.contains("Task B") && joined.contains("[done]"),
+        "cancelled agent a2 should show as done: got {joined}"
     );
     assert!(
         joined.contains("Task C"),
         "agent a3 should still remain: got {joined}"
     );
 
-    // Event 5: a3 done
+    // Event 5: a3 done → all three completed
     append_line(&transcript, events[5]);
     let lines = runner
         .run_from_str(
@@ -748,8 +748,8 @@ fn handles_terminal_status_variety() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("Task C"),
-        "done agent a3 should be removed: got {joined}"
+        joined.contains("Task C") && joined.contains("[done]"),
+        "done agent a3 should show as done: got {joined}"
     );
 }
 
@@ -786,10 +786,10 @@ fn handles_mixed_three_path_transcript() {
         joined.contains("✓ Read"),
         "nested Read should be completed: got {joined}"
     );
-    // Agent completed (progress event 4)
+    // Agent completed (progress event 4) → shows as done
     assert!(
-        !joined.contains("A:Explore"),
-        "agent should be removed after completed: got {joined}"
+        joined.contains("[done]") && joined.contains("Explore"),
+        "completed agent should show as done: got {joined}"
     );
     // Flat Bash still running (no tool_result for it)
     assert!(
@@ -830,7 +830,7 @@ fn task_tool_defaults_missing_fields() {
         "Task should never appear as tool line: got {joined}"
     );
 
-    // Event 1: tool_result removes the agent
+    // Event 1: tool_result → agent becomes completed with [done]
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -840,7 +840,7 @@ fn task_tool_defaults_missing_fields() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("A:Task"),
-        "tool_result should remove default Task agent: got {joined}"
+        joined.contains("A:Task") && joined.contains("[done]"),
+        "tool_result should show default Task agent as done: got {joined}"
     );
 }
