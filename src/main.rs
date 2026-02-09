@@ -62,9 +62,7 @@ fn main() {
         }
     };
 
-    for line in lines {
-        println!("{line}");
-    }
+    println!("{}", lines.join("\n"));
 }
 
 /// Extract project root from stdin JSON without full deserialization.
