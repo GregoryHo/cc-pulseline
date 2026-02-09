@@ -84,7 +84,7 @@ fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisT
         let check = colorize("✓", COMPLETED_CHECK, color);
         let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
         let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
-        parts.push(format!("{check}{name_str}{count_str}"));
+        parts.push(format!("{check} {name_str}{count_str}"));
     }
 
     parts.join(&sep)
@@ -204,7 +204,7 @@ fn format_line2(
     // Icon uses per-metric indicator_color; count uses tier.secondary; label uses tier.structural
     let format_item =
         |icon: &str, indicator_color: &str, label: &str, count: u32| -> String {
-            let count_str = colorize(&count.to_string(), tier.secondary, color);
+            let count_str = colorize(&count.to_string(), tier.primary, color);
             let label_str = colorize(label, tier.structural, color);
 
             match mode {
@@ -266,10 +266,10 @@ fn format_line2(
             crate::config::GlyphMode::Icon => {
                 let icon_str =
                     colorize(&format!("{} ", ICON_ELAPSED), INDICATOR_DURATION, color);
-                let time_str = colorize(&duration_text, tier.secondary, color);
+                let time_str = colorize(&duration_text, tier.primary, color);
                 format!("{icon_str}{time_str}")
             }
-            crate::config::GlyphMode::Ascii => colorize(&duration_text, tier.secondary, color),
+            crate::config::GlyphMode::Ascii => colorize(&duration_text, tier.primary, color),
         };
         parts.push(item);
     }
@@ -348,9 +348,9 @@ fn format_context_segment(
             let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color);
             let pct = colorize(&format!("{}%", used_pct), pct_color, color);
             let open_paren = colorize(" (", tier.separator, color);
-            let usage = colorize(&format_number(used_tokens), tier.secondary, color);
+            let usage = colorize(&format_number(used_tokens), tier.primary, color);
             let sep = colorize("/", tier.separator, color);
-            let total = colorize(&format_number(size), tier.secondary, color);
+            let total = colorize(&format_number(size), tier.primary, color);
             let close_paren = colorize(")", tier.separator, color);
 
             format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}")
@@ -391,7 +391,7 @@ fn format_tokens_segment(
             colorize(&glyph(mode, ICON_TOKEN_INPUT, "I: "), tier.structural, color),
             colorize(
                 &format_number(line3.input_tokens.unwrap_or(0)),
-                tier.secondary,
+                tier.primary,
                 color,
             ),
         ),
@@ -400,14 +400,14 @@ fn format_tokens_segment(
             colorize(&glyph(mode, ICON_TOKEN_OUTPUT, "O: "), tier.structural, color),
             colorize(
                 &format_number(line3.output_tokens.unwrap_or(0)),
-                tier.secondary,
+                tier.primary,
                 color,
             ),
         ),
         format!(
             "{}{}",
             colorize(&glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"), tier.structural, color),
-            colorize(&cache_str, tier.secondary, color),
+            colorize(&cache_str, tier.primary, color),
         ),
     ];
     format!("{label}{}", parts.join(" "))

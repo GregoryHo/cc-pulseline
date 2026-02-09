@@ -438,32 +438,35 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
 }
 
 /// Truncate a file path for display: show `.../{filename}` if too long.
-fn truncate_path(path: &str, max_len: usize) -> String {
-    if path.len() <= max_len {
+fn truncate_path(path: &str, max_chars: usize) -> String {
+    if path.chars().count() <= max_chars {
         return path.to_string();
     }
 
     // Extract filename from path
     if let Some(filename) = path.rsplit('/').next() {
         let prefix = ".../";
-        if filename.len() + prefix.len() <= max_len {
+        if filename.chars().count() + prefix.len() <= max_chars {
             return format!("{prefix}{filename}");
         }
-        return truncate_str(filename, max_len);
+        return truncate_str(filename, max_chars);
     }
 
-    truncate_str(path, max_len)
+    truncate_str(path, max_chars)
 }
 
-/// Truncate a string with ellipsis if too long.
-fn truncate_str(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
+/// Truncate a string with ellipsis if too long (char-safe).
+fn truncate_str(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
         return s.to_string();
     }
-    if max_len <= 3 {
-        return s[..max_len].to_string();
+    if max_chars <= 3 {
+        let truncated: String = s.chars().take(max_chars).collect();
+        return truncated;
     }
-    format!("{}...", &s[..max_len - 3])
+    let truncated: String = s.chars().take(max_chars - 3).collect();
+    format!("{truncated}...")
 }
 
 // ── Flat format fallback (Path 3) ────────────────────────────────────
@@ -687,4 +690,32 @@ fn find_nested_string(value: &Value, paths: &[&[&str]]) -> Option<String> {
         }
         cursor.as_str().map(ToString::to_string)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_str_ascii() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello world", 8), "hello...");
+    }
+
+    #[test]
+    fn truncate_str_multibyte_utf8() {
+        // ✓ is 3 bytes (U+2713) — must not panic on byte boundary
+        let s = "✓Read|✓Bash|✓ Read";
+        assert_eq!(truncate_str(s, 5), "✓R...");
+        assert_eq!(truncate_str(s, 3), "✓Re");  // ✓ = 1 char, fits in 3
+        assert_eq!(truncate_str(s, 2), "✓R");   // ≤ max_len, no truncation needed
+    }
+
+    #[test]
+    fn truncate_path_multibyte_utf8() {
+        let path = "/tmp/日本語/ファイル.rs";
+        let result = truncate_path(path, 15);
+        assert!(!result.is_empty());
+        assert!(result.chars().count() <= 15);
+    }
 }

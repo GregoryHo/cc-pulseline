@@ -9,8 +9,8 @@ pub const MUTED: &str = "\x1b[38;5;246m";
 pub const SUBDUED: &str = "\x1b[38;5;238m";
 
 // Structural tier (icons, labels, supporting text)
-pub const STRUCTURAL_DARK: &str = "\x1b[38;5;60m"; // Tokyo Night comment color
-pub const STRUCTURAL_LIGHT: &str = "\x1b[38;5;247m"; // Revised: was 246, wider gap from secondary
+pub const STRUCTURAL_DARK: &str = "\x1b[38;5;103m"; // Blue-purple, brighter than old 60
+pub const STRUCTURAL_LIGHT: &str = "\x1b[38;5;245m"; // Slightly darker for readability, even gaps
 
 // Separator tier (punctuation only: |, (), /)
 pub const SEPARATOR_DARK: &str = "\x1b[38;5;238m";
@@ -74,13 +74,13 @@ pub fn emphasis_for_theme(theme: ColorTheme) -> EmphasisTier {
         ColorTheme::Dark => EmphasisTier {
             primary: "\x1b[38;5;251m",    // Tokyo Night primary text
             secondary: "\x1b[38;5;146m",  // Tokyo Night secondary text
-            structural: STRUCTURAL_DARK,   // 60 — Tokyo Night comment
+            structural: STRUCTURAL_DARK,   // 103 — blue-purple, brighter
             separator: SEPARATOR_DARK,     // 238
         },
         ColorTheme::Light => EmphasisTier {
             primary: "\x1b[38;5;234m",    // Revised: was 236, darker for contrast
             secondary: "\x1b[38;5;240m",  // Revised: was 243, wider gap to structural
-            structural: STRUCTURAL_LIGHT,  // 247 (revised from 246)
+            structural: STRUCTURAL_LIGHT,  // 245 (revised from 247)
             separator: SEPARATOR_LIGHT,    // 252 (revised from 250)
         },
     }
@@ -205,7 +205,7 @@ mod tests {
         let tier = emphasis_for_theme(ColorTheme::Dark);
         assert!(tier.primary.contains("251"));
         assert!(tier.secondary.contains("146"));
-        assert!(tier.structural.contains("60"));
+        assert!(tier.structural.contains("103"));
         assert!(tier.separator.contains("238"));
     }
 
@@ -214,7 +214,7 @@ mod tests {
         let tier = emphasis_for_theme(ColorTheme::Light);
         assert!(tier.primary.contains("234"));
         assert!(tier.secondary.contains("240"));
-        assert!(tier.structural.contains("247"));
+        assert!(tier.structural.contains("245"));
         assert!(tier.separator.contains("252"));
     }
 

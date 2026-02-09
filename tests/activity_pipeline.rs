@@ -311,7 +311,7 @@ fn tracks_nested_tool_with_target() {
         "tool_result should clear running tool line"
     );
     assert!(
-        joined.contains("✓Read"),
+        joined.contains("✓ Read"),
         "completed tool count should appear: got {joined}"
     );
     assert!(
@@ -371,7 +371,7 @@ fn tracks_nested_multi_block_tools() {
         "all running tools should clear: got {joined}"
     );
     assert!(
-        joined.contains("✓Read") && joined.contains("✓Bash"),
+        joined.contains("✓ Read") && joined.contains("✓ Bash"),
         "both completed counts should appear: got {joined}"
     );
 }
@@ -617,7 +617,7 @@ fn extracts_todo_from_tool_result() {
         "tool_result should clear running Read tool: got {joined}"
     );
     assert!(
-        joined.contains("✓Read"),
+        joined.contains("✓ Read"),
         "completed Read should appear: got {joined}"
     );
     assert!(
@@ -783,7 +783,7 @@ fn handles_mixed_three_path_transcript() {
 
     // Nested Read completed (tool_result in event 3)
     assert!(
-        joined.contains("✓Read"),
+        joined.contains("✓ Read"),
         "nested Read should be completed: got {joined}"
     );
     // Agent completed (progress event 4)
