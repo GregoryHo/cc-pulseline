@@ -3,7 +3,7 @@ use std::{fs, path::Path, process::Command};
 use cc_pulseline::{
     config::{GlyphMode, RenderConfig},
     render::color::{visible_width, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE},
-    run_from_str,
+    run_from_str, PulseLineRunner,
 };
 use serde_json::json;
 use tempfile::TempDir;
@@ -21,22 +21,31 @@ fn run_cmd(dir: &Path, args: &[&str]) {
     );
 }
 
+/// Build a fixture workspace with a fake home directory for test isolation.
+/// Returns (workspace_tempdir, fake_home_path inside workspace).
 fn build_core_fixture_workspace() -> TempDir {
     let tmp = TempDir::new().expect("tempdir should be created");
     let root = tmp.path();
 
+    // Fake home (empty — no user-level config files)
+    let fake_home = root.join("fake_home");
+    fs::create_dir_all(fake_home.join(".claude")).expect("fake home .claude dir");
+
     fs::create_dir_all(root.join(".claude/rules")).expect("rules dir");
-    fs::create_dir_all(root.join(".claude/hooks")).expect("hooks dir");
-    fs::create_dir_all(root.join(".codex/skills/checks")).expect("skill checks dir");
-    fs::create_dir_all(root.join(".codex/skills/review")).expect("skill review dir");
+    fs::create_dir_all(root.join(".claude/skills/checks")).expect("skill checks dir");
+    fs::create_dir_all(root.join(".claude/skills/review")).expect("skill review dir");
 
     fs::write(root.join("CLAUDE.md"), "# Claude\n").expect("claude md");
     fs::write(root.join(".claude/rules/rule-a.md"), "A\n").expect("rule a");
     fs::write(root.join(".claude/rules/rule-b.md"), "B\n").expect("rule b");
-    fs::write(root.join(".claude/hooks/pre-run.sh"), "#!/bin/sh\n").expect("hook");
     fs::write(
-        root.join(".claude/mcp.json"),
-        r#"{"servers":{"local":{},"remote":{}}}"#,
+        root.join(".claude/settings.json"),
+        r#"{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"check"}]}]}}"#,
+    )
+    .expect("hooks in settings");
+    fs::write(
+        root.join(".mcp.json"),
+        r#"{"mcpServers":{"local":{},"remote":{}}}"#,
     )
     .expect("mcp config");
 
@@ -80,7 +89,11 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
     })
     .to_string();
 
-    let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
+    let fake_home = workspace.path().join("fake_home");
+    let mut runner = PulseLineRunner::default().with_user_home(fake_home);
+    let lines = runner
+        .run_from_str(&input, RenderConfig::default())
+        .expect("render should succeed");
 
     assert_eq!(
         lines.len(),

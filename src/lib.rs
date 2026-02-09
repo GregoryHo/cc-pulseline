@@ -23,6 +23,11 @@ pub struct PulseLineRunner {
 }
 
 impl PulseLineRunner {
+    pub fn with_user_home(mut self, home: std::path::PathBuf) -> Self {
+        self.env_collector.user_home_override = Some(home);
+        self
+    }
+
     pub fn run_from_str(
         &mut self,
         input: &str,
@@ -41,7 +46,7 @@ impl PulseLineRunner {
         let project_path = payload
             .resolve_project_path()
             .unwrap_or_else(|| "unknown".to_string());
-        let env_snapshot = collect_env_snapshot(self.env_collector, state, &project_path);
+        let env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
         let git_snapshot = collect_git_snapshot(self.git_collector, state, &project_path);
 
         let frame = build_render_frame(&payload, &env_snapshot, &git_snapshot, transcript_snapshot);
@@ -54,7 +59,7 @@ pub fn run_from_str(input: &str, config: RenderConfig) -> Result<Vec<String>, St
 }
 
 fn collect_env_snapshot(
-    collector: FileSystemEnvCollector,
+    collector: &FileSystemEnvCollector,
     state: &mut SessionState,
     project_path: &str,
 ) -> EnvSnapshot {
