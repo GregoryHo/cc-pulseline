@@ -10,11 +10,11 @@ pub const SUBDUED: &str = "\x1b[38;5;238m";
 
 // Structural tier (icons, labels, supporting text)
 pub const STRUCTURAL_DARK: &str = "\x1b[38;5;60m"; // Tokyo Night comment color
-pub const STRUCTURAL_LIGHT: &str = "\x1b[38;5;246m";
+pub const STRUCTURAL_LIGHT: &str = "\x1b[38;5;247m"; // Revised: was 246, wider gap from secondary
 
 // Separator tier (punctuation only: |, (), /)
 pub const SEPARATOR_DARK: &str = "\x1b[38;5;238m";
-pub const SEPARATOR_LIGHT: &str = "\x1b[38;5;250m";
+pub const SEPARATOR_LIGHT: &str = "\x1b[38;5;252m"; // Revised: was 250, wider gap from structural
 
 // ── ALERT tier — bright, saturated, demands immediate attention ──
 pub const ALERT_RED: &str = "\x1b[38;5;196m";
@@ -31,6 +31,17 @@ pub const ACTIVE_CORAL: &str = "\x1b[38;5;209m";
 // ── STABLE tier — muted, informational, unchanging context ──
 pub const STABLE_BLUE: &str = "\x1b[38;5;111m"; // Tokyo Night main blue
 pub const STABLE_GREEN: &str = "\x1b[38;5;71m";
+
+// ── INDICATOR tier — muted accents for L2 metric icons ──
+pub const INDICATOR_CLAUDE_MD: &str = "\x1b[38;5;109m"; // Muted steel — documentation
+pub const INDICATOR_RULES: &str = "\x1b[38;5;108m"; // Muted sage — governance
+pub const INDICATOR_HOOKS: &str = "\x1b[38;5;179m"; // Muted amber — active/intercepting
+pub const INDICATOR_MCP: &str = "\x1b[38;5;139m"; // Muted lavender — extensions
+pub const INDICATOR_SKILLS: &str = "\x1b[38;5;73m"; // Muted teal — capabilities
+pub const INDICATOR_DURATION: &str = "\x1b[38;5;174m"; // Muted rose — time passage
+
+// ── Completed tool accent — links visually to ACTIVE_CYAN ──
+pub const COMPLETED_CHECK: &str = "\x1b[38;5;73m"; // Muted teal — completed state
 
 // ── COST tier — rate-based coloring ──
 pub const COST_BASE: &str = "\x1b[38;5;222m";
@@ -67,10 +78,10 @@ pub fn emphasis_for_theme(theme: ColorTheme) -> EmphasisTier {
             separator: SEPARATOR_DARK,     // 238
         },
         ColorTheme::Light => EmphasisTier {
-            primary: "\x1b[38;5;236m",
-            secondary: "\x1b[38;5;243m",
-            structural: STRUCTURAL_LIGHT,
-            separator: SEPARATOR_LIGHT,
+            primary: "\x1b[38;5;234m",    // Revised: was 236, darker for contrast
+            secondary: "\x1b[38;5;240m",  // Revised: was 243, wider gap to structural
+            structural: STRUCTURAL_LIGHT,  // 247 (revised from 246)
+            separator: SEPARATOR_LIGHT,    // 252 (revised from 250)
         },
     }
 }
@@ -201,9 +212,35 @@ mod tests {
     #[test]
     fn emphasis_tiers_light_theme() {
         let tier = emphasis_for_theme(ColorTheme::Light);
-        assert!(tier.primary.contains("236"));
-        assert!(tier.secondary.contains("243"));
-        assert!(tier.structural.contains("246"));
-        assert!(tier.separator.contains("250"));
+        assert!(tier.primary.contains("234"));
+        assert!(tier.secondary.contains("240"));
+        assert!(tier.structural.contains("247"));
+        assert!(tier.separator.contains("252"));
+    }
+
+    #[test]
+    fn indicator_colors_are_distinct() {
+        let indicators = [
+            INDICATOR_CLAUDE_MD,
+            INDICATOR_RULES,
+            INDICATOR_HOOKS,
+            INDICATOR_MCP,
+            INDICATOR_SKILLS,
+            INDICATOR_DURATION,
+        ];
+        // All should be unique color codes
+        for i in 0..indicators.len() {
+            for j in (i + 1)..indicators.len() {
+                assert_ne!(
+                    indicators[i], indicators[j],
+                    "indicator colors should be distinct"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn completed_check_color_exists() {
+        assert!(COMPLETED_CHECK.contains("73"), "completed check should use muted teal (73)");
     }
 }

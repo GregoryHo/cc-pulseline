@@ -4,13 +4,16 @@ Reference guide for the cc-pulseline 256-color palette, organized by information
 
 ## Design Principles
 
-Colors are organized into a **three-tier attention system** (for semantic colors) with a **four-tier emphasis hierarchy** (for gray-scale text):
+Colors are organized into a **three-tier attention system** (for semantic colors) with a **four-tier emphasis hierarchy** (for gray-scale text) and an **indicator tier** (for L2 metric anchoring):
 
 1. **ALERT** — Demands immediate attention (context >=85%, git dirty, high burn rate)
 2. **ACTIVE** — Currently happening, dynamically changing (tools, agents, context 70-84%)
 3. **STABLE** — Informational, unchanging context (model, version, branch clean, normal context)
 
-This hierarchy guides the eye: red/orange/magenta for urgent issues, mid-saturation for activity, muted grays for stable information.
+Plus:
+4. **INDICATOR** — Muted per-metric accents for L2 icons, providing "visual fingerprints" for quick scanning
+
+This hierarchy guides the eye: red/orange/magenta for urgent issues, mid-saturation for activity, muted grays for stable information, and unique muted accents for L2 metric scanning.
 
 The palette draws inspiration from **Tokyo Night Storm** (`folke/tokyonight.nvim`), using blue-tinted grays for emphasis tiers and the theme's signature blues and purples for semantic colors. Context, cost, and git state colors are preserved as-is for functional clarity.
 
@@ -24,10 +27,12 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 
 | Tier | Dark | Light | ■ | Use |
 |------|------|-------|---|-----|
-| **Primary** | 251 | 236 | ■■ | Reserved (available for high-priority values) |
-| **Secondary** | 146 | 243 | ■■ | Values, counts, data (blue-tinted gray) |
-| **Structural** | 60 | 246 | ■■ | Icons, labels, supporting text (Tokyo Night comment) |
-| **Separator** | 238 | 250 | ■■ | Punctuation only (\|, (), /) |
+| **Primary** | 251 | 234 | ■■ | Reserved (available for high-priority values) |
+| **Secondary** | 146 | 240 | ■■ | Values, counts, data (blue-tinted gray) |
+| **Structural** | 60 | 247 | ■■ | Icons, labels, supporting text (Tokyo Night comment) |
+| **Separator** | 238 | 252 | ■■ | Punctuation only (\|, (), /) |
+
+**Light theme gap distribution**: 234→240(6), 240→247(7), 247→252(5) — even distribution for readability. Previously: 236→243(7), 243→246(3), 246→250(4) — the 3-point gap between secondary and structural was nearly indistinguishable.
 
 ### Alert Tier — Bright, Saturated, Urgent
 
@@ -53,6 +58,25 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 |------|------|---|---------|
 | `STABLE_BLUE` | 111 | ■ | Model identity (Tokyo Night main blue) |
 | `STABLE_GREEN` | 71 | ■ | Git branch (clean) |
+
+### Indicator Tier — Muted Per-Metric Accents (NEW)
+
+Provides unique icon colors for each L2 metric, enabling fast visual scanning. Counts stay `tier.secondary` for data consistency; labels stay `tier.structural`.
+
+| Name | Code | ■ | L2 Metric | Visual Rationale |
+|------|------|---|-----------|------------------|
+| `INDICATOR_CLAUDE_MD` | 109 | ■ | CLAUDE.md | Muted steel — documentation/config |
+| `INDICATOR_RULES` | 108 | ■ | Rules | Muted sage — governance |
+| `INDICATOR_HOOKS` | 179 | ■ | Hooks | Muted amber — active/intercepting |
+| `INDICATOR_MCP` | 139 | ■ | MCPs | Muted lavender — extensions |
+| `INDICATOR_SKILLS` | 73 | ■ | Skills | Muted teal — capabilities |
+| `INDICATOR_DURATION` | 174 | ■ | Duration | Muted rose — time passage |
+
+### Completed Tool Accent
+
+| Name | Code | ■ | Purpose |
+|------|------|---|---------|
+| `COMPLETED_CHECK` | 73 | ■ | Completed tool `✓Name` — muted teal, links to active tool cyan |
 
 ### Cost Tier — Rate-Based Dynamic Coloring
 
@@ -83,51 +107,66 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) — replaced by emphasis tiers and rate-based cost coloring.
 
+## Tier Summary (6 types, ~25 unique colors)
+
+| Tier | Colors | Purpose | Status |
+|------|--------|---------|--------|
+| ALERT | 3 (196/214/201) | Critical states | Unchanged |
+| ACTIVE | 5 (117/183/80/178/209) | Live activity | Unchanged |
+| STABLE | 2 (111/71) | Static identity | Unchanged |
+| **INDICATOR** | **6 (109/108/179/139/73/174)** | **L2 metric-specific anchoring** | **NEW** |
+| Emphasis | 4×2 themes | Gray hierarchy | **Light values revised** |
+| Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
+
 ## Element Mapping
 
 ### Line 1: Identity (Semantic + Secondary)
 
 ```
-[STABLE_BLUE(111)]M:model [separator(238/250)]| [secondary(146/243)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] ↑n
+[STABLE_BLUE(111)]M:model [separator(238/252)]| [secondary(146/240)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] ↑n
 ```
 
 - ■`111` Model: icon+value both STABLE_BLUE (most important identity)
-- ■`146/243` Style/Version/Project: icon+value both tier.secondary (promoted from structural — these are important session identifiers)
+- ■`146/240` Style/Version/Project: icon+value both tier.secondary (promoted from structural — these are important session identifiers)
 - ■`71` Git: icon+value both STABLE_GREEN (unless dirty/ahead/behind)
-- ■`238/250` Separators: tier.separator
+- ■`238/252` Separators: tier.separator
 
-### Line 2: Config Counts (Monochrome Hierarchy)
+### Line 2: Config Counts (Indicator + Monochrome Hierarchy)
 
 ```
-[structural(60/246)]icon [secondary(146/243)]count [structural]label [separator(238/250)]| ...
+[INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(60/247)]label [separator(238/252)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
 ```
 
-- ■`60/246` Icons+Labels: tier.structural (visual markers and descriptive text)
-- ■`146/243` Counts: tier.secondary (the actual data — most prominent on L2)
-- ■`238/250` Separators: tier.separator
+- ■`109/108/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
+- ■`146/240` Counts: tier.secondary (the actual data — most prominent on L2)
+- ■`60/247` Labels: tier.structural (descriptive text)
+- ■`238/252` Separators: tier.separator
+- **ASCII mode**: icons are absent, counts and labels use the same hierarchy
 
 ### Line 3: Resources & Cost (Mixed)
 
 ```
-[CTX_*(71/178/196)]CTX:pct% [separator(238/250)]([secondary(146/243)]used[separator]/[secondary]total[separator]) [separator]| [structural(60/246)]TOK I:[secondary]val ... [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
+[CTX_*(71/178/196)]CTX:pct% [separator(238/252)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(60/247)]TOK I:[secondary]val ... [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
 ```
 
 - ■`71/178/196` Context: icon+pct both use CTX_GOOD/WARN/CRITICAL (semantic, state-driven)
-- ■`60/246` Token labels: tier.structural (I:, O:, C:, R:)
-- ■`146/243` Token values: tier.secondary
+- ■`60/247` Token labels: tier.structural (I:, O:, C:, R:)
+- ■`146/240` Token values: tier.secondary
 - ■`222` Total cost: COST_BASE (warm gold)
 - ■`186/221/201` Burn rate: COST_LOW/MED/HIGH_RATE (rate-driven)
-- ■`238/250` Separators, parentheses: tier.separator
+- ■`238/252` Separators, parentheses: tier.separator
 
 ### Line 4+: Activity (Active Tier)
 
 ```
 [ACTIVE_CYAN(117)]T: tool_text
+[COMPLETED_CHECK(73)]✓Name [secondary]×N
 [ACTIVE_PURPLE(183)]A: agent_text
 [ACTIVE_TEAL(80)]TODO: todo_text
 ```
 
-- ■`117` Tools: icon+text both ACTIVE_CYAN (Tokyo Night bright cyan)
+- ■`117` Running tools: icon+text both ACTIVE_CYAN (Tokyo Night bright cyan)
+- ■`73` Completed tools: checkmark+name both COMPLETED_CHECK (muted teal, links to active cyan)
 - ■`183` Agents: icon+text both ACTIVE_PURPLE (Tokyo Night magenta)
 - ■`80` Todos: icon+text both ACTIVE_TEAL
 
@@ -135,12 +174,14 @@ For backward compatibility, old names map to the new tier system:
 
 1. Icon color ALWAYS matches its value color (never independently dimmed)
 2. Line 1 model icon+value: STABLE_BLUE (111)
-3. Line 1 style/version/project icon+value: tier.secondary (146/243) — promoted from structural for visual prominence
+3. Line 1 style/version/project icon+value: tier.secondary (146/240) — promoted from structural for visual prominence
 4. Line 1 git icon+value: STABLE_GREEN (71) or ALERT_ORANGE/ACTIVE_CORAL (state)
-5. Line 2 icons+labels match tier.structural (monochrome hierarchy)
-6. Context icon matches percentage color (CTX_GOOD/WARN/CRITICAL)
-7. Activity icons match their text color (TOOL_BLUE, AGENT_PURPLE, TODO_TEAL)
-8. ASCII mode labels (e.g. `M:`, `G:`) receive the same color as the icon they replace
+5. **Line 2 icons: per-metric INDICATOR color (109/108/179/139/73/174) — unique visual fingerprints**
+6. Line 2 counts: tier.secondary; labels: tier.structural
+7. Context icon matches percentage color (CTX_GOOD/WARN/CRITICAL)
+8. Activity icons match their text color (TOOL_BLUE, AGENT_PURPLE, TODO_TEAL)
+9. Completed tool checkmark+name: COMPLETED_CHECK (73) — muted teal linking to active tools
+10. ASCII mode labels (e.g. `M:`, `G:`) receive the same color as the icon they replace
 
 ## Rate-Based Cost Coloring
 
@@ -156,7 +197,7 @@ The total cost always uses `COST_BASE` (222, warm gold).
 
 ## Theme Support
 
-Set `PULSELINE_THEME=light` for light terminal backgrounds. Only emphasis tiers change between themes; all semantic colors remain the same (they are mid-to-bright saturated colors that work on both dark and light backgrounds).
+Set `theme = "light"` in config for light terminal backgrounds. Only emphasis tiers change between themes; all semantic colors (including INDICATOR) remain the same — they are mid-to-bright saturated colors that work on both dark and light backgrounds.
 
 ## Light Theme Readability
 
@@ -166,10 +207,10 @@ On light backgrounds, the emphasis tiers reverse contrast direction — dark gra
 
 | Tier | Dark (on ~#24283b) | Light (on ~#d5d6db) | Contrast Direction |
 |------|-------------------|--------------------|--------------------|
-| **Primary** | 251 (bright white) | 236 (near-black) | Reversed |
-| **Secondary** | 146 (blue-gray) | 243 (medium-dark gray) | Reversed |
-| **Structural** | 60 (dim blue-gray) | 246 (medium gray) | Reversed |
-| **Separator** | 238 (dark gray) | 250 (light gray) | Reversed |
+| **Primary** | 251 (bright white) | 234 (near-black) | Reversed |
+| **Secondary** | 146 (blue-gray) | 240 (medium-dark gray) | Reversed |
+| **Structural** | 60 (dim blue-gray) | 247 (medium gray) | Reversed |
+| **Separator** | 238 (dark gray) | 252 (light gray) | Reversed |
 
 ### What Stays Fixed
 
@@ -178,4 +219,5 @@ All semantic colors are theme-invariant — they are chosen to be readable on bo
 - Alert tier (196, 214, 201) — bright saturated, always visible
 - Active tier (117, 183, 80, 178, 209) — mid-saturation, sufficient contrast on both
 - Stable tier (111, 71) — mid-brightness blues/greens, readable on both
+- Indicator tier (109, 108, 179, 139, 73, 174) — muted pastels, readable on both
 - Cost tier (222, 186, 221, 201) — warm/bright tones, always legible

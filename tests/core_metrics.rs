@@ -2,7 +2,11 @@ use std::{fs, path::Path, process::Command};
 
 use cc_pulseline::{
     config::{GlyphMode, RenderConfig},
-    render::color::{visible_width, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE},
+    render::color::{
+        visible_width, COMPLETED_CHECK, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE,
+        INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_RULES,
+        INDICATOR_SKILLS,
+    },
     run_from_str, PulseLineRunner,
 };
 use serde_json::json;
@@ -425,5 +429,77 @@ fn cost_coloring_high_rate() {
     assert!(
         lines[2].contains(COST_HIGH_RATE),
         "rate >$50/h should use COST_HIGH_RATE"
+    );
+}
+
+#[test]
+fn line2_indicator_colors_with_nerd_font() {
+    let input = json!({
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.0.0",
+        "cost": { "total_cost_usd": 1.0, "total_duration_ms": 3600000 }
+    })
+    .to_string();
+
+    let config = RenderConfig {
+        color_enabled: true,
+        glyph_mode: GlyphMode::Icon,
+        ..RenderConfig::default()
+    };
+
+    let lines = run_from_str(&input, config).expect("render should succeed");
+    let l2 = &lines[1];
+    assert!(
+        l2.contains(INDICATOR_CLAUDE_MD),
+        "L2 icon should use INDICATOR_CLAUDE_MD color"
+    );
+    assert!(
+        l2.contains(INDICATOR_RULES),
+        "L2 icon should use INDICATOR_RULES color"
+    );
+    assert!(
+        l2.contains(INDICATOR_HOOKS),
+        "L2 icon should use INDICATOR_HOOKS color"
+    );
+    assert!(
+        l2.contains(INDICATOR_MCP),
+        "L2 icon should use INDICATOR_MCP color"
+    );
+    assert!(
+        l2.contains(INDICATOR_SKILLS),
+        "L2 icon should use INDICATOR_SKILLS color"
+    );
+    assert!(
+        l2.contains(INDICATOR_DURATION),
+        "L2 icon should use INDICATOR_DURATION color"
+    );
+}
+
+#[test]
+fn completed_tools_use_check_color() {
+    // This test needs a tool completion in the transcript.
+    // Use run_from_str with activity — but since that's stateless and won't
+    // have tools, let's directly test the format_tool_line via RenderFrame.
+    use cc_pulseline::render::layout::render_frame;
+    use cc_pulseline::types::{CompletedToolCount, RenderFrame};
+
+    let mut frame = RenderFrame::default();
+    frame.completed_tools.push(CompletedToolCount {
+        name: "Read".to_string(),
+        count: 5,
+    });
+
+    let config = RenderConfig {
+        color_enabled: true,
+        ..RenderConfig::default()
+    };
+
+    let lines = render_frame(&frame, &config);
+    // Tool line should be the 4th line (after L1/L2/L3)
+    assert!(lines.len() >= 4, "should have a tool line");
+    assert!(
+        lines[3].contains(COMPLETED_CHECK),
+        "completed tool checkmark should use COMPLETED_CHECK color"
     );
 }

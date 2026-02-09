@@ -7,8 +7,10 @@ use crate::{
 
 use super::color::{
     colorize, emphasis_for_theme, take_visible_chars, visible_width, EmphasisTier, AGENT_PURPLE,
-    COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL, CTX_GOOD, CTX_WARN,
-    GIT_AHEAD, GIT_BEHIND, GIT_GREEN, GIT_MODIFIED, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
+    COMPLETED_CHECK, COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL,
+    CTX_GOOD, CTX_WARN, GIT_AHEAD, GIT_BEHIND, GIT_GREEN, GIT_MODIFIED, INDICATOR_CLAUDE_MD,
+    INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_RULES, INDICATOR_SKILLS, RESET,
+    STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
 use super::fmt::{format_duration, format_number};
 use super::icons::*;
@@ -79,8 +81,8 @@ fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisT
 
     // Completed tool counts (top N by frequency)
     for completed in &frame.completed_tools {
-        let check = colorize("✓", tier.structural, color);
-        let name_str = colorize(&completed.name, tier.structural, color);
+        let check = colorize("✓", COMPLETED_CHECK, color);
+        let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
         let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
         parts.push(format!("{check}{name_str}{count_str}"));
     }
@@ -153,27 +155,39 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
     let color = config.color_enabled;
     let sep = colorize(" | ", tier.separator, color);
 
-    // Model: icon + value both STABLE_BLUE (icon matches value)
-    let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), STABLE_BLUE, color);
-    let model_val = colorize(&frame.line1.model, STABLE_BLUE, color);
+    let mut parts: Vec<String> = Vec::new();
 
-    // Style/Version/Project: icon + value both secondary (promoted from structural)
-    let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
-    let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
+    if config.show_model {
+        let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), STABLE_BLUE, color);
+        let model_val = colorize(&frame.line1.model, STABLE_BLUE, color);
+        parts.push(format!("{model_label}{model_val}"));
+    }
 
-    let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), tier.secondary, color);
-    let version_val = colorize(&frame.line1.claude_code_version, tier.secondary, color);
+    if config.show_style {
+        let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
+        let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
+        parts.push(format!("{style_label}{style_val}"));
+    }
 
-    let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), tier.secondary, color);
-    let project_val = colorize(&frame.line1.project_path, tier.secondary, color);
+    if config.show_version {
+        let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), tier.secondary, color);
+        let version_val = colorize(&frame.line1.claude_code_version, tier.secondary, color);
+        parts.push(format!("{version_label}{version_val}"));
+    }
 
-    // Git: icon + value both STABLE_GREEN (icon matches value)
-    let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);
-    let git_val = format_git_status(&frame.line1, config);
+    if config.show_project {
+        let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), tier.secondary, color);
+        let project_val = colorize(&frame.line1.project_path, tier.secondary, color);
+        parts.push(format!("{project_label}{project_val}"));
+    }
 
-    format!(
-        "{model_label}{model_val}{sep}{style_label}{style_val}{sep}{version_label}{version_val}{sep}{project_label}{project_val}{sep}{git_label}{git_val}"
-    )
+    if config.show_git {
+        let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);
+        let git_val = format_git_status(&frame.line1, config);
+        parts.push(format!("{git_label}{git_val}"));
+    }
+
+    parts.join(&sep)
 }
 
 fn format_line2(
@@ -187,54 +201,99 @@ fn format_line2(
     let sep = colorize(separator, tier.separator, color);
 
     // Helper to format: {icon} {count} {label} or {count} {label}
-    let format_item = |icon: &str, label: &str, count: u32| -> String {
-        let count_str = colorize(&count.to_string(), tier.secondary, color);
-        let label_str = colorize(label, tier.structural, color);
+    // Icon uses per-metric indicator_color; count uses tier.secondary; label uses tier.structural
+    let format_item =
+        |icon: &str, indicator_color: &str, label: &str, count: u32| -> String {
+            let count_str = colorize(&count.to_string(), tier.secondary, color);
+            let label_str = colorize(label, tier.structural, color);
 
-        match mode {
-            crate::config::GlyphMode::Icon => {
-                let icon_str = colorize(&format!("{icon} "), tier.structural, color);
-                format!("{icon_str}{count_str} {label_str}")
-            }
-            crate::config::GlyphMode::Ascii => {
-                format!("{count_str} {label_str}")
-            }
-        }
-    };
-
-    [
-        format_item(ICON_CLAUDE_MD, "CLAUDE.md", frame.line2.claude_md_count),
-        format_item(ICON_RULES, "rules", frame.line2.rules_count),
-        format_item(ICON_HOOKS, "hooks", frame.line2.hooks_count),
-        format_item(ICON_MCP, "MCPs", frame.line2.mcp_count),
-        format_item(ICON_SKILLS, "skills", frame.line2.skills_count),
-        {
-            let duration_text = format_duration(frame.line2.elapsed_minutes);
             match mode {
                 crate::config::GlyphMode::Icon => {
-                    let icon_str = colorize(&format!("{} ", ICON_ELAPSED), tier.structural, color);
-                    let time_str = colorize(&duration_text, tier.secondary, color);
-                    format!("{icon_str}{time_str}")
+                    let icon_str = colorize(&format!("{icon} "), indicator_color, color);
+                    format!("{icon_str}{count_str} {label_str}")
                 }
                 crate::config::GlyphMode::Ascii => {
-                    colorize(&duration_text, tier.secondary, color)
+                    format!("{count_str} {label_str}")
                 }
             }
-        },
-    ]
-    .join(&sep)
+        };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if config.show_claude_md {
+        parts.push(format_item(
+            ICON_CLAUDE_MD,
+            INDICATOR_CLAUDE_MD,
+            "CLAUDE.md",
+            frame.line2.claude_md_count,
+        ));
+    }
+    if config.show_rules {
+        parts.push(format_item(
+            ICON_RULES,
+            INDICATOR_RULES,
+            "rules",
+            frame.line2.rules_count,
+        ));
+    }
+    if config.show_hooks {
+        parts.push(format_item(
+            ICON_HOOKS,
+            INDICATOR_HOOKS,
+            "hooks",
+            frame.line2.hooks_count,
+        ));
+    }
+    if config.show_mcp {
+        parts.push(format_item(
+            ICON_MCP,
+            INDICATOR_MCP,
+            "MCPs",
+            frame.line2.mcp_count,
+        ));
+    }
+    if config.show_skills {
+        parts.push(format_item(
+            ICON_SKILLS,
+            INDICATOR_SKILLS,
+            "skills",
+            frame.line2.skills_count,
+        ));
+    }
+    if config.show_duration {
+        let duration_text = format_duration(frame.line2.elapsed_minutes);
+        let item = match mode {
+            crate::config::GlyphMode::Icon => {
+                let icon_str =
+                    colorize(&format!("{} ", ICON_ELAPSED), INDICATOR_DURATION, color);
+                let time_str = colorize(&duration_text, tier.secondary, color);
+                format!("{icon_str}{time_str}")
+            }
+            crate::config::GlyphMode::Ascii => colorize(&duration_text, tier.secondary, color),
+        };
+        parts.push(item);
+    }
+
+    parts.join(&sep)
 }
 
 fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let color = config.color_enabled;
     let sep = colorize(" | ", tier.separator, color);
 
-    format!(
-        "{}{sep}{}{sep}{}",
-        format_context_segment(&frame.line3, config, tier),
-        format_tokens_segment(&frame.line3, config, tier),
-        format_cost_segment(&frame.line3, config, tier),
-    )
+    let mut parts: Vec<String> = Vec::new();
+
+    if config.show_context {
+        parts.push(format_context_segment(&frame.line3, config, tier));
+    }
+    if config.show_tokens {
+        parts.push(format_tokens_segment(&frame.line3, config, tier));
+    }
+    if config.show_cost {
+        parts.push(format_cost_segment(&frame.line3, config, tier));
+    }
+
+    parts.join(&sep)
 }
 
 fn format_git_status(line1: &Line1Metrics, config: &RenderConfig) -> String {
