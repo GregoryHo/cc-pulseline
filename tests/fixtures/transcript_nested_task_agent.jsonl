@@ -1,2 +1,2 @@
-{"message":{"role":"assistant","content":[{"type":"tool_use","id":"task-001","name":"Task","input":{"description":"Refactor parser","subagent_type":"Architect"}}]}}
-{"content":[{"type":"tool_result","tool_use_id":"task-001"}]}
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"task-001","name":"Task","input":{"description":"Refactor parser","subagent_type":"Architect"}}]}}
+{"timestamp":"2026-01-18T10:53:00.000Z","content":[{"type":"tool_result","tool_use_id":"task-001"}]}

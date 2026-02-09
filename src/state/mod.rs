@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    time::Instant,
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
@@ -101,14 +101,27 @@ impl SessionState {
         counts
     }
 
-    pub fn upsert_agent(&mut self, id: String, description: String, agent_type: Option<String>) {
+    pub fn upsert_agent(
+        &mut self,
+        id: String,
+        description: String,
+        agent_type: Option<String>,
+        started_at: Option<u64>,
+    ) {
         let started_at = if let Some(position) =
             self.active_agents.iter().position(|agent| agent.id == id)
         {
             let old = self.active_agents.remove(position);
             old.started_at
         } else {
-            Some(Instant::now())
+            started_at.or_else(|| {
+                Some(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                )
+            })
         };
         self.active_agents.push(AgentSummary {
             id,

@@ -5,6 +5,84 @@ use std::{
     time::{Duration, Instant},
 };
 
+// ── ISO 8601 timestamp parsing (no chrono dependency) ────────────────
+
+/// Parse an ISO 8601 timestamp string to Unix epoch milliseconds.
+/// Handles formats like "2026-01-18T10:58:40.895Z" and "2026-01-18T10:58:40Z".
+fn parse_iso_timestamp(s: &str) -> Option<u64> {
+    let b = s.trim().as_bytes();
+    if b.len() < 19 {
+        return None;
+    }
+
+    let year: i64 = std::str::from_utf8(&b[0..4]).ok()?.parse().ok()?;
+    if b[4] != b'-' {
+        return None;
+    }
+    let month: u32 = std::str::from_utf8(&b[5..7]).ok()?.parse().ok()?;
+    if b[7] != b'-' {
+        return None;
+    }
+    let day: u32 = std::str::from_utf8(&b[8..10]).ok()?.parse().ok()?;
+    if b[10] != b'T' && b[10] != b' ' {
+        return None;
+    }
+    let hour: u64 = std::str::from_utf8(&b[11..13]).ok()?.parse().ok()?;
+    if b[13] != b':' {
+        return None;
+    }
+    let minute: u64 = std::str::from_utf8(&b[14..16]).ok()?.parse().ok()?;
+    if b[16] != b':' {
+        return None;
+    }
+    let second: u64 = std::str::from_utf8(&b[17..19]).ok()?.parse().ok()?;
+
+    // Optional fractional seconds (.mmm)
+    let millis: u64 = if b.len() > 19 && b[19] == b'.' {
+        let frac_start = 20;
+        let frac_end = b[frac_start..]
+            .iter()
+            .position(|c| !c.is_ascii_digit())
+            .map(|i| frac_start + i)
+            .unwrap_or(b.len());
+        let frac = std::str::from_utf8(&b[frac_start..frac_end]).ok()?;
+        match frac.len() {
+            0 => 0,
+            1 => frac.parse::<u64>().ok()? * 100,
+            2 => frac.parse::<u64>().ok()? * 10,
+            _ => std::str::from_utf8(&b[frac_start..frac_start + 3])
+                .ok()?
+                .parse::<u64>()
+                .ok()?,
+        }
+    } else {
+        0
+    };
+
+    // Days from Unix epoch using Howard Hinnant's algorithm
+    let days = days_from_civil(year, month, day)?;
+    let secs = days as u64 * 86400 + hour * 3600 + minute * 60 + second;
+    Some(secs * 1000 + millis)
+}
+
+/// Convert a civil date to days since Unix epoch (1970-01-01).
+fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // Shift year so March is month 0 (simplifies leap year handling)
+    let (y, m) = if month <= 2 {
+        (year - 1, (month + 9) as i64)
+    } else {
+        (year, (month - 3) as i64)
+    };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let doy = (153 * m as u64 + 2) / 5 + day as u64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe as i64 - 719468)
+}
+
 use serde_json::Value;
 
 use crate::{
@@ -144,12 +222,18 @@ fn read_new_lines(path: &Path, start_offset: u64) -> Result<Vec<String>, String>
 // ── Three-path event dispatcher ──────────────────────────────────────
 
 fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
+    // Extract event timestamp (epoch millis) from the JSONL line's top-level "timestamp" field
+    let event_ts = raw_event
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(parse_iso_timestamp);
+
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
     // Or:           { "role": "user", "content": [{...}] }
     if let Some(content_blocks) = extract_content_blocks(raw_event) {
         for block in content_blocks {
-            apply_content_block(state, block);
+            apply_content_block(state, block, event_ts);
         }
         return;
     }
@@ -160,7 +244,7 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         if event_type == "progress" {
             if let Some(data) = raw_event.get("data") {
                 if data.get("type").and_then(Value::as_str) == Some("agent_progress") {
-                    handle_agent_progress(state, data);
+                    handle_agent_progress(state, data, event_ts);
                     return;
                 }
             }
@@ -168,7 +252,7 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     }
 
     // Path 3: Flat format fallback (existing test fixtures / simple formats)
-    apply_flat_event(state, raw_event);
+    apply_flat_event(state, raw_event, event_ts);
 }
 
 /// Extract content[] blocks from nested transcript events.
@@ -197,7 +281,7 @@ fn extract_content_blocks(raw_event: &Value) -> Option<Vec<&Value>> {
 }
 
 /// Process a single content block from a message's content[] array.
-fn apply_content_block(state: &mut SessionState, block: &Value) {
+fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option<u64>) {
     let block_type = match block.get("type").and_then(Value::as_str) {
         Some(t) => t,
         None => return,
@@ -231,7 +315,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value) {
                 let agent_type = input
                     .and_then(|i| i.get("subagent_type").and_then(Value::as_str))
                     .map(ToString::to_string);
-                state.upsert_agent(id, description, agent_type);
+                state.upsert_agent(id, description, agent_type, event_ts);
                 return;
             }
 
@@ -263,7 +347,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value) {
 }
 
 /// Handle agent_progress events from the progress stream.
-fn handle_agent_progress(state: &mut SessionState, data: &Value) {
+fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Option<u64>) {
     let agent_id = data
         .get("agentId")
         .or_else(|| data.get("agent_id"))
@@ -296,7 +380,7 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value) {
         .and_then(Value::as_str)
         .map(ToString::to_string);
 
-    state.upsert_agent(agent_id, description, agent_type);
+    state.upsert_agent(agent_id, description, agent_type, event_ts);
 }
 
 // ── Target extraction (Stage 4) ──────────────────────────────────────
@@ -384,7 +468,7 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 
 // ── Flat format fallback (Path 3) ────────────────────────────────────
 
-fn apply_flat_event(state: &mut SessionState, raw_event: &Value) {
+fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Option<u64>) {
     let event = if let Some(message) = raw_event.get("message").filter(|value| value.is_object()) {
         message
     } else {
@@ -395,23 +479,28 @@ fn apply_flat_event(state: &mut SessionState, raw_event: &Value) {
         .or_else(|| find_string(raw_event, &["type", "event", "event_type"]));
 
     match event_type.as_deref() {
-        Some("tool_use") => handle_flat_tool_use(state, event, raw_event),
+        Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
         Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
-        Some("Task") => handle_task_event(state, event),
+        Some("Task") => handle_task_event(state, event, event_ts),
         Some("TodoWrite") | Some("TaskUpdate") => {
             state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
         }
-        _ => handle_event_by_name(state, event, raw_event),
+        _ => handle_event_by_name(state, event, raw_event, event_ts),
     }
 }
 
-fn handle_flat_tool_use(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_flat_tool_use(
+    state: &mut SessionState,
+    event: &Value,
+    raw_event: &Value,
+    event_ts: Option<u64>,
+) {
     let name = find_string(event, &["name", "tool_name", "tool"])
         .or_else(|| find_string(raw_event, &["name", "tool_name", "tool"]))
         .unwrap_or_else(|| "unknown".to_string());
 
     if name == "Task" {
-        handle_task_from_tool_use(state, event, raw_event);
+        handle_task_from_tool_use(state, event, raw_event, event_ts);
         return;
     }
 
@@ -440,7 +529,7 @@ fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &
     }
 }
 
-fn handle_task_event(state: &mut SessionState, event: &Value) {
+fn handle_task_event(state: &mut SessionState, event: &Value, event_ts: Option<u64>) {
     let id = find_string(event, &["task_id", "id", "name"]).unwrap_or_else(|| "task".to_string());
     let summary =
         find_string(event, &["name", "description", "prompt"]).unwrap_or_else(|| id.clone());
@@ -449,11 +538,16 @@ fn handle_task_event(state: &mut SessionState, event: &Value) {
     if is_terminal_status(&status) {
         state.remove_agent(&id);
     } else {
-        state.upsert_agent(id, summary, None);
+        state.upsert_agent(id, summary, None, event_ts);
     }
 }
 
-fn handle_task_from_tool_use(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_task_from_tool_use(
+    state: &mut SessionState,
+    event: &Value,
+    raw_event: &Value,
+    event_ts: Option<u64>,
+) {
     let id = find_string(event, &["id", "tool_use_id", "task_id"])
         .or_else(|| find_string(raw_event, &["id", "tool_use_id", "task_id"]))
         .unwrap_or_else(|| "task-active".to_string());
@@ -471,16 +565,21 @@ fn handle_task_from_tool_use(state: &mut SessionState, event: &Value, raw_event:
         })
         .unwrap_or_else(|| "Task".to_string());
 
-    state.upsert_agent(id, summary, None);
+    state.upsert_agent(id, summary, None, event_ts);
 }
 
-fn handle_event_by_name(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_event_by_name(
+    state: &mut SessionState,
+    event: &Value,
+    raw_event: &Value,
+    event_ts: Option<u64>,
+) {
     let Some(name) = find_string(event, &["name", "tool_name", "tool"]) else {
         return;
     };
 
     match name.as_str() {
-        "Task" => handle_task_from_tool_use(state, event, raw_event),
+        "Task" => handle_task_from_tool_use(state, event, raw_event, event_ts),
         "TodoWrite" | "TaskUpdate" => {
             state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
         }

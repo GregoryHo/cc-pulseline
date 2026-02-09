@@ -1,5 +1,5 @@
-{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_mix1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}
-{"type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"running","prompt":"Explore codebase","agentType":"Explore"}}
-{"type":"tool_use","tool_use_id":"flat-1","name":"Bash"}
-{"content":[{"type":"tool_result","tool_use_id":"toolu_mix1"}]}
-{"type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"completed"}}
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_mix1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}
+{"timestamp":"2026-01-18T10:50:30.000Z","type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"running","prompt":"Explore codebase","agentType":"Explore"}}
+{"timestamp":"2026-01-18T10:51:00.000Z","type":"tool_use","tool_use_id":"flat-1","name":"Bash"}
+{"timestamp":"2026-01-18T10:51:30.000Z","content":[{"type":"tool_result","tool_use_id":"toolu_mix1"}]}
+{"timestamp":"2026-01-18T10:52:00.000Z","type":"progress","data":{"type":"agent_progress","agentId":"mix-agent","status":"completed"}}

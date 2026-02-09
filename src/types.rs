@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -150,7 +148,7 @@ pub struct AgentSummary {
     pub id: String,
     pub description: String,
     pub agent_type: Option<String>,
-    pub started_at: Option<Instant>,
+    pub started_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

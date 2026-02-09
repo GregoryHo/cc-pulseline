@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
     types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame},
@@ -110,11 +112,15 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         first_line.to_string()
     };
 
-    // Elapsed time since agent started
+    // Elapsed time since agent started (epoch-based, survives across process invocations)
     let elapsed_str = agent
         .started_at
-        .map(|start| {
-            let secs = start.elapsed().as_secs();
+        .map(|start_ms| {
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let secs = now_ms.saturating_sub(start_ms) / 1000;
             if secs < 60 {
                 format!("{}s", secs)
             } else {
