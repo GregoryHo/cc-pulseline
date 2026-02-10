@@ -163,23 +163,22 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          node scripts/prepare-packages.js
+          node npm/scripts/prepare-packages.js
 
-          # Copy binaries into platform packages
+          # Copy binaries into prepared platform packages
           for dir in artifacts/binary-*/; do
             platform=$(basename "$dir" | sed 's/^binary-//')
-            pkg_dir="npm/${platform}"
+            pkg_dir="npm-publish/${platform}"
             if [ -d "$pkg_dir" ]; then
-              mkdir -p "$pkg_dir/bin"
-              cp "$dir"* "$pkg_dir/bin/"
-              chmod +x "$pkg_dir/bin/"* 2>/dev/null || true
+              cp "$dir"* "$pkg_dir/"
+              chmod +x "$pkg_dir/"* 2>/dev/null || true
             fi
           done
 
           # Publish platform packages
-          for pkg_dir in npm/*/; do
-            if [ -f "$pkg_dir/package.json" ]; then
-              echo "Publishing $(basename $pkg_dir)..."
+          for pkg_dir in npm-publish/*/; do
+            if [ -f "$pkg_dir/package.json" ] && [ "$(basename "$pkg_dir")" != "main" ]; then
+              echo "Publishing $(basename "$pkg_dir")..."
               cd "$pkg_dir"
               npm publish --provenance --access public
               cd ../..
@@ -191,6 +190,7 @@ jobs:
           sleep 30
 
           # Publish main package
+          cd npm-publish/main
           npm publish --provenance --access public
 
   crates-publish:
