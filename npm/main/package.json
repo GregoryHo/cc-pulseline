@@ -1,0 +1,30 @@
+{
+  "name": "@cc-pulseline/cc-pulseline",
+  "version": "0.0.0",
+  "description": "High-performance multi-line statusline for Claude Code with deep observability",
+  "bin": {
+    "cc-pulseline": "./bin/cc-pulseline.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "optionalDependencies": {
+    "@cc-pulseline/darwin-x64": "0.0.0",
+    "@cc-pulseline/darwin-arm64": "0.0.0",
+    "@cc-pulseline/linux-x64": "0.0.0",
+    "@cc-pulseline/linux-x64-musl": "0.0.0",
+    "@cc-pulseline/linux-arm64": "0.0.0",
+    "@cc-pulseline/linux-arm64-musl": "0.0.0",
+    "@cc-pulseline/win32-x64": "0.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GregoryHo/cc-pulseline"
+  },
+  "keywords": ["claude", "statusline", "claude-code", "cli", "observability"],
+  "author": "GregoryHo",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

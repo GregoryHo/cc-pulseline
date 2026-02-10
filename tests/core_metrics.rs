@@ -117,10 +117,7 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
         lines[0].contains("CC:2.1.37"),
         "line1 should include version"
     );
-    assert!(
-        lines[0].contains("P:"),
-        "line1 should include project path"
-    );
+    assert!(lines[0].contains("P:"), "line1 should include project path");
     assert!(
         lines[0].contains("G:pulseline-test"),
         "line1 should include git branch"
@@ -134,18 +131,12 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
         lines[1].contains("1 CLAUDE.md"),
         "line2 should show CLAUDE.md count in value-first format"
     );
-    assert!(
-        lines[1].contains(" rules"),
-        "line2 should show rules label"
-    );
+    assert!(lines[1].contains(" rules"), "line2 should show rules label");
     assert!(
         lines[1].contains("1 hooks"),
         "line2 should show hooks count"
     );
-    assert!(
-        lines[1].contains("2 MCPs"),
-        "line2 should show MCP count"
-    );
+    assert!(lines[1].contains("2 MCPs"), "line2 should show MCP count");
     assert!(
         lines[1].contains(" skills"),
         "line2 should show skills label"
@@ -222,12 +213,7 @@ fn renders_with_colors() {
     })
     .to_string();
 
-    let config = RenderConfig {
-        color_enabled: true,
-        ..RenderConfig::default()
-    };
-
-    let lines = run_from_str(&input, config).expect("render should succeed");
+    let lines = run_from_str(&input, colored_config()).expect("render should succeed");
     assert!(
         lines[0].contains("\x1b["),
         "line1 should contain ANSI escape codes"
@@ -266,7 +252,10 @@ fn formats_large_numbers_with_suffixes() {
     .to_string();
 
     let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
-    assert!(lines[2].contains("1.5M"), "input_tokens should use M suffix");
+    assert!(
+        lines[2].contains("1.5M"),
+        "input_tokens should use M suffix"
+    );
     assert!(
         lines[2].contains("250.0k"),
         "output_tokens should use k suffix"
@@ -301,18 +290,14 @@ fn width_degradation_respects_ansi_codes() {
     .to_string();
 
     let config = RenderConfig {
-        color_enabled: true,
         terminal_width: Some(60),
-        ..RenderConfig::default()
+        ..colored_config()
     };
 
     let lines = run_from_str(&input, config).expect("render should succeed");
     for line in &lines {
         let vis = visible_width(line);
-        assert!(
-            vis <= 60,
-            "visible width {vis} exceeds 60 for line"
-        );
+        assert!(vis <= 60, "visible width {vis} exceeds 60 for line");
     }
 }
 
@@ -360,26 +345,33 @@ fn falls_back_when_stdin_fields_are_missing() {
         lines[1].contains("0 skills"),
         "missing env should render zero skills"
     );
-    assert_eq!(lines[2], "CTX:NA | TOK NA | $0.00 ($0.00/h)");
+    assert_eq!(
+        lines[2],
+        "CTX:--% (--/--) | TOK I: -- O: -- C:--/-- | $0.00 ($0.00/h)"
+    );
+}
+
+fn cost_payload(total_cost_usd: f64) -> String {
+    json!({
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.0.0",
+        "cost": { "total_cost_usd": total_cost_usd, "total_duration_ms": 3600000 }
+    })
+    .to_string()
+}
+
+fn colored_config() -> RenderConfig {
+    RenderConfig {
+        color_enabled: true,
+        ..RenderConfig::default()
+    }
 }
 
 #[test]
 fn cost_coloring_low_rate() {
-    // $3.50 over 1 hour = $3.50/h (< $10/h → COST_LOW_RATE)
-    let input = json!({
-        "model": {"display_name": "Opus"},
-        "output_style": {"name": "concise"},
-        "version": "2.0.0",
-        "cost": { "total_cost_usd": 3.5, "total_duration_ms": 3600000 }
-    })
-    .to_string();
-
-    let config = RenderConfig {
-        color_enabled: true,
-        ..RenderConfig::default()
-    };
-
-    let lines = run_from_str(&input, config).expect("render should succeed");
+    // $3.50 over 1 hour = $3.50/h (< $10/h)
+    let lines = run_from_str(&cost_payload(3.5), colored_config()).expect("render should succeed");
     assert!(
         lines[2].contains(COST_LOW_RATE),
         "rate <$10/h should use COST_LOW_RATE"
@@ -388,21 +380,8 @@ fn cost_coloring_low_rate() {
 
 #[test]
 fn cost_coloring_med_rate() {
-    // $25 over 1 hour = $25/h ($10-50/h → COST_MED_RATE)
-    let input = json!({
-        "model": {"display_name": "Opus"},
-        "output_style": {"name": "concise"},
-        "version": "2.0.0",
-        "cost": { "total_cost_usd": 25.0, "total_duration_ms": 3600000 }
-    })
-    .to_string();
-
-    let config = RenderConfig {
-        color_enabled: true,
-        ..RenderConfig::default()
-    };
-
-    let lines = run_from_str(&input, config).expect("render should succeed");
+    // $25 over 1 hour = $25/h ($10-50/h)
+    let lines = run_from_str(&cost_payload(25.0), colored_config()).expect("render should succeed");
     assert!(
         lines[2].contains(COST_MED_RATE),
         "rate $10-50/h should use COST_MED_RATE"
@@ -411,21 +390,9 @@ fn cost_coloring_med_rate() {
 
 #[test]
 fn cost_coloring_high_rate() {
-    // $100 over 1 hour = $100/h (> $50/h → COST_HIGH_RATE)
-    let input = json!({
-        "model": {"display_name": "Opus"},
-        "output_style": {"name": "concise"},
-        "version": "2.0.0",
-        "cost": { "total_cost_usd": 100.0, "total_duration_ms": 3600000 }
-    })
-    .to_string();
-
-    let config = RenderConfig {
-        color_enabled: true,
-        ..RenderConfig::default()
-    };
-
-    let lines = run_from_str(&input, config).expect("render should succeed");
+    // $100 over 1 hour = $100/h (> $50/h)
+    let lines =
+        run_from_str(&cost_payload(100.0), colored_config()).expect("render should succeed");
     assert!(
         lines[2].contains(COST_HIGH_RATE),
         "rate >$50/h should use COST_HIGH_RATE"
@@ -443,9 +410,8 @@ fn line2_indicator_colors_with_nerd_font() {
     .to_string();
 
     let config = RenderConfig {
-        color_enabled: true,
         glyph_mode: GlyphMode::Icon,
-        ..RenderConfig::default()
+        ..colored_config()
     };
 
     let lines = run_from_str(&input, config).expect("render should succeed");
@@ -490,12 +456,7 @@ fn completed_tools_use_check_color() {
         count: 5,
     });
 
-    let config = RenderConfig {
-        color_enabled: true,
-        ..RenderConfig::default()
-    };
-
-    let lines = render_frame(&frame, &config);
+    let lines = render_frame(&frame, &colored_config());
     // Tool line should be the 4th line (after L1/L2/L3)
     assert!(lines.len() >= 4, "should have a tool line");
     assert!(

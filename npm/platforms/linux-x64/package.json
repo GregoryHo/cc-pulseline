@@ -1,0 +1,14 @@
+{
+  "name": "@cc-pulseline/linux-x64",
+  "version": "0.0.0",
+  "description": "Linux x64 binary for cc-pulseline",
+  "files": ["cc-pulseline"],
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GregoryHo/cc-pulseline"
+  },
+  "author": "GregoryHo",
+  "license": "MIT"
+}

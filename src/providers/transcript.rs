@@ -797,8 +797,8 @@ mod tests {
         // ✓ is 3 bytes (U+2713) — must not panic on byte boundary
         let s = "✓Read|✓Bash|✓ Read";
         assert_eq!(truncate_str(s, 5), "✓R...");
-        assert_eq!(truncate_str(s, 3), "✓Re");  // ✓ = 1 char, fits in 3
-        assert_eq!(truncate_str(s, 2), "✓R");   // ≤ max_len, no truncation needed
+        assert_eq!(truncate_str(s, 3), "✓Re"); // ✓ = 1 char, fits in 3
+        assert_eq!(truncate_str(s, 2), "✓R"); // ≤ max_len, no truncation needed
     }
 
     #[test]

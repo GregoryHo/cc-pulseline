@@ -16,7 +16,11 @@ fn append_line(path: &std::path::Path, line: &str) {
     writeln!(file, "{line}").expect("line should append");
 }
 
-fn payload_json(workspace: &TempDir, transcript_path: &std::path::Path, session_id: &str) -> String {
+fn payload_json(
+    workspace: &TempDir,
+    transcript_path: &std::path::Path,
+    session_id: &str,
+) -> String {
     json!({
         "session_id": session_id,
         "cwd": workspace.path(),
@@ -92,7 +96,7 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
             "first invocation should show context: got {joined}"
         );
         assert!(
-            !joined.contains("CTX:NA"),
+            !joined.contains("CTX:--%"),
             "first invocation should have real context data: got {joined}"
         );
     }
@@ -109,8 +113,8 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("CTX:NA"),
-            "partial payload should show CTX:NA (no field-level merge): got {joined}"
+            joined.contains("CTX:--%"),
+            "partial payload should show CTX:--% skeleton (no field-level merge): got {joined}"
         );
         assert!(
             joined.contains("$4.00"),
@@ -140,8 +144,14 @@ fn empty_l3_payload_falls_back_to_cached_values() {
             )
             .expect("render should succeed");
         let joined = lines.join("\n");
-        assert!(joined.contains("43%"), "first run should show context: got {joined}");
-        assert!(joined.contains("$3.50"), "first run should show cost: got {joined}");
+        assert!(
+            joined.contains("43%"),
+            "first run should show context: got {joined}"
+        );
+        assert!(
+            joined.contains("$3.50"),
+            "first run should show cost: got {joined}"
+        );
     }
 
     // Runner 2: truly empty L3 (no context, no cost) → has_data() is false,
@@ -250,10 +260,7 @@ fn transcript_truncation_resets_state() {
         &transcript,
         r#"{"type":"tool_use","tool_use_id":"t1","name":"Read"}"#,
     );
-    append_line(
-        &transcript,
-        r#"{"type":"tool_result","tool_use_id":"t1"}"#,
-    );
+    append_line(&transcript, r#"{"type":"tool_result","tool_use_id":"t1"}"#);
     append_line(
         &transcript,
         r#"{"type":"tool_use","tool_use_id":"t2","name":"Bash"}"#,

@@ -128,7 +128,6 @@ fn count_md_files_recursive(path: &Path) -> u32 {
     count
 }
 
-
 /// Extract `mcpServers` object keys from a JSON file.
 fn get_mcp_server_names(path: &Path) -> HashSet<String> {
     let text = match fs::read_to_string(path) {
@@ -389,10 +388,7 @@ mod tests {
     #[test]
     fn hooks_missing_file() {
         let tmp = TempDir::new().unwrap();
-        assert_eq!(
-            count_hooks_in_json(&tmp.path().join("missing.json")),
-            0
-        );
+        assert_eq!(count_hooks_in_json(&tmp.path().join("missing.json")), 0);
     }
 
     #[test]

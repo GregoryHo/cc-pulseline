@@ -573,10 +573,7 @@ fn tracks_task_tool_as_agent() {
     // Event 2: tool_result → agent becomes completed with [done] tag
     append_line(&transcript, events[2]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "task-agent"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "task-agent"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
@@ -667,10 +664,7 @@ fn handles_snake_case_progress_fields() {
     // Event 1: state=completed (snake_case) → agent shows as done
     append_line(&transcript, events[1]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "snake-case"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "snake-case"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
@@ -683,9 +677,8 @@ fn handles_snake_case_progress_fields() {
 fn handles_terminal_status_variety() {
     let workspace = TempDir::new().expect("temp workspace");
     let transcript = workspace.path().join("terminal-status.jsonl");
-    let fixture =
-        fs::read_to_string("tests/fixtures/transcript_progress_terminal_statuses.jsonl")
-            .expect("terminal status fixture should exist");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_progress_terminal_statuses.jsonl")
+        .expect("terminal status fixture should exist");
     let events: Vec<&str> = fixture.lines().collect();
 
     let mut runner = PulseLineRunner::default();
@@ -839,10 +832,7 @@ fn task_tool_defaults_missing_fields() {
     // Event 1: tool_result → drains pending, creates+completes agent inline with [done]
     append_line(&transcript, events[1]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "task-bare"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "task-bare"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
@@ -923,10 +913,7 @@ fn links_agent_progress_to_task_tool_use() {
     // Event 3: tool_result → agent completes via linked ID
     append_line(&transcript, events[3]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "real-agent"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "real-agent"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
@@ -1195,10 +1182,7 @@ fn tracks_task_create_and_update_as_todo() {
     // Event 6: TaskUpdate task 3 → completed (all done → TODO line disappears)
     append_line(&transcript, events[6]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "task-todo"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "task-todo"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
@@ -1282,10 +1266,7 @@ fn old_todowrite_format_still_works() {
     // Event 1: Old-format TaskUpdate with todos[] array (all completed)
     append_line(&transcript, events[1]);
     let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "old-todo"),
-            config,
-        )
+        .run_from_str(&payload_json(&workspace, &transcript, "old-todo"), config)
         .expect("render should succeed");
     assert!(
         lines.iter().all(|line| !line.starts_with("TODO:")),

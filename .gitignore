@@ -1,2 +1,6 @@
 /target
 .DS_Store
+node_modules/
+npm-publish/
+.npmrc
+*.tgz

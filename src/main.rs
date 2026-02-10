@@ -8,8 +8,20 @@ use cc_pulseline::{
     run_from_str,
 };
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        return;
+    }
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("cc-pulseline {VERSION}");
+        return;
+    }
+
     let has_init = args.iter().any(|a| a == "--init");
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
@@ -128,35 +140,26 @@ fn init_project_config() {
 fn check_config(project_root: Option<&str>) {
     let errors = check_configs(project_root);
 
-    let user_path = config_path();
-    if user_path.exists() {
-        if errors.iter().any(|(p, _)| p == &user_path) {
-            for (path, err) in &errors {
-                if path == &user_path {
-                    eprintln!("FAIL {}: {err}", path.display());
-                }
-            }
-        } else {
-            println!("OK   {}", user_path.display());
-        }
-    } else {
-        println!("SKIP {} (not found)", user_path.display());
+    let mut paths_to_check = vec![config_path()];
+    if let Some(root) = project_root {
+        paths_to_check.push(cc_pulseline::config::project_config_path(root));
     }
 
-    if let Some(root) = project_root {
-        let project_path = cc_pulseline::config::project_config_path(root);
-        if project_path.exists() {
-            if errors.iter().any(|(p, _)| p == &project_path) {
-                for (path, err) in &errors {
-                    if path == &project_path {
-                        eprintln!("FAIL {}: {err}", path.display());
-                    }
-                }
-            } else {
-                println!("OK   {}", project_path.display());
-            }
+    for check_path in &paths_to_check {
+        if !check_path.exists() {
+            println!("SKIP {} (not found)", check_path.display());
+            continue;
+        }
+        let path_errors: Vec<_> = errors
+            .iter()
+            .filter(|(p, _)| p == check_path)
+            .collect();
+        if path_errors.is_empty() {
+            println!("OK   {}", check_path.display());
         } else {
-            println!("SKIP {} (not found)", project_path.display());
+            for (path, err) in path_errors {
+                eprintln!("FAIL {}: {err}", path.display());
+            }
         }
     }
 
@@ -180,10 +183,7 @@ fn print_config(project_root: Option<&str>) {
     println!("show_git = {}", config.segments.identity.show_git);
     println!();
     println!("[segments.config]");
-    println!(
-        "show_claude_md = {}",
-        config.segments.config.show_claude_md
-    );
+    println!("show_claude_md = {}", config.segments.config.show_claude_md);
     println!("show_rules = {}", config.segments.config.show_rules);
     println!("show_hooks = {}", config.segments.config.show_hooks);
     println!("show_mcp = {}", config.segments.config.show_mcp);
@@ -191,10 +191,7 @@ fn print_config(project_root: Option<&str>) {
     println!("show_duration = {}", config.segments.config.show_duration);
     println!();
     println!("[segments.budget]");
-    println!(
-        "show_context = {}",
-        config.segments.budget.show_context
-    );
+    println!("show_context = {}", config.segments.budget.show_context);
     println!("show_tokens = {}", config.segments.budget.show_tokens);
     println!("show_cost = {}", config.segments.budget.show_cost);
     println!();
@@ -210,4 +207,34 @@ fn print_config(project_root: Option<&str>) {
     println!("[segments.todo]");
     println!("enabled = {}", config.segments.todo.enabled);
     println!("max_lines = {}", config.segments.todo.max_lines);
+}
+
+fn print_help() {
+    println!(
+        "cc-pulseline {VERSION} - High-performance Claude Code statusline
+
+USAGE:
+    cc-pulseline [OPTIONS]
+    echo '{{\"model\":...}}' | cc-pulseline
+
+OPTIONS:
+    -h, --help       Show this help message
+    -V, --version    Show version
+    --init           Create user config (~/.claude/pulseline/config.toml)
+    --init --project Create project config (.claude/pulseline.toml)
+    --check          Validate config files
+    --print          Show effective merged config
+
+RUNTIME:
+    Reads Claude Code statusline JSON from stdin, outputs formatted lines.
+    Empty stdin defaults to {{}}.
+
+CONFIG FILES:
+    User:    ~/.claude/pulseline/config.toml
+    Project: {{project}}/.claude/pulseline.toml
+
+ENVIRONMENT:
+    NO_COLOR    Disable color output
+    COLUMNS     Terminal width for layout degradation"
+    );
 }

@@ -1,12 +1,6 @@
 use crate::config::ColorTheme;
 
 pub const RESET: &str = "\x1b[0m";
-pub const BOLD: &str = "\x1b[1m";
-
-// Emphasis tiers — dark theme defaults (use EmphasisTier for theme-aware rendering)
-pub const EMPHASIS: &str = "\x1b[38;5;254m";
-pub const MUTED: &str = "\x1b[38;5;246m";
-pub const SUBDUED: &str = "\x1b[38;5;238m";
 
 // Structural tier (icons, labels, supporting text)
 pub const STRUCTURAL_DARK: &str = "\x1b[38;5;103m"; // Blue-purple, brighter than old 60
@@ -72,16 +66,16 @@ pub struct EmphasisTier {
 pub fn emphasis_for_theme(theme: ColorTheme) -> EmphasisTier {
     match theme {
         ColorTheme::Dark => EmphasisTier {
-            primary: "\x1b[38;5;251m",    // Tokyo Night primary text
-            secondary: "\x1b[38;5;146m",  // Tokyo Night secondary text
-            structural: STRUCTURAL_DARK,   // 103 — blue-purple, brighter
-            separator: SEPARATOR_DARK,     // 238
+            primary: "\x1b[38;5;251m",   // Tokyo Night primary text
+            secondary: "\x1b[38;5;146m", // Tokyo Night secondary text
+            structural: STRUCTURAL_DARK, // 103 — blue-purple, brighter
+            separator: SEPARATOR_DARK,   // 238
         },
         ColorTheme::Light => EmphasisTier {
             primary: "\x1b[38;5;234m",    // Revised: was 236, darker for contrast
             secondary: "\x1b[38;5;240m",  // Revised: was 243, wider gap to structural
-            structural: STRUCTURAL_LIGHT,  // 245 (revised from 247)
-            separator: SEPARATOR_LIGHT,    // 252 (revised from 250)
+            structural: STRUCTURAL_LIGHT, // 245 (revised from 247)
+            separator: SEPARATOR_LIGHT,   // 252 (revised from 250)
         },
     }
 }
@@ -101,7 +95,7 @@ pub fn strip_ansi(s: &str) -> String {
         if ch == '\x1b' {
             if chars.peek() == Some(&'[') {
                 chars.next();
-                while let Some(next) = chars.next() {
+                for next in chars.by_ref() {
                     if next.is_ascii_alphabetic() {
                         break;
                     }
@@ -129,7 +123,7 @@ pub fn take_visible_chars(s: &str, count: usize) -> String {
             result.push(ch);
             if chars.peek() == Some(&'[') {
                 result.push(chars.next().unwrap());
-                while let Some(next) = chars.next() {
+                for next in chars.by_ref() {
                     result.push(next);
                     if next.is_ascii_alphabetic() {
                         break;
@@ -176,7 +170,7 @@ mod tests {
 
     #[test]
     fn visible_width_ignores_ansi() {
-        let colored = format!("{MUTED}M:{RESET}{MODEL_BLUE}Opus{RESET}");
+        let colored = format!("{MODEL_BLUE}M:{RESET}{MODEL_BLUE}Opus{RESET}");
         assert_eq!(visible_width(&colored), 6); // "M:Opus"
     }
 
@@ -241,6 +235,9 @@ mod tests {
 
     #[test]
     fn completed_check_color_exists() {
-        assert!(COMPLETED_CHECK.contains("73"), "completed check should use muted teal (73)");
+        assert!(
+            COMPLETED_CHECK.contains("73"),
+            "completed check should use muted teal (73)"
+        );
     }
 }

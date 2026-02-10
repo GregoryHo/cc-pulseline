@@ -16,21 +16,12 @@ fn default_4() -> usize {
     4
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PulselineConfig {
     #[serde(default)]
     pub display: DisplayConfig,
     #[serde(default)]
     pub segments: SegmentsConfig,
-}
-
-impl Default for PulselineConfig {
-    fn default() -> Self {
-        Self {
-            display: DisplayConfig::default(),
-            segments: SegmentsConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,7 +44,7 @@ impl Default for DisplayConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SegmentsConfig {
     #[serde(default)]
     pub identity: IdentitySegmentConfig,
@@ -67,19 +58,6 @@ pub struct SegmentsConfig {
     pub agents: SegmentToggle,
     #[serde(default)]
     pub todo: SegmentToggle,
-}
-
-impl Default for SegmentsConfig {
-    fn default() -> Self {
-        Self {
-            identity: IdentitySegmentConfig::default(),
-            config: ConfigSegmentConfig::default(),
-            budget: BudgetSegmentConfig::default(),
-            tools: ToolSegmentConfig::default(),
-            agents: SegmentToggle::default(),
-            todo: SegmentToggle::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -337,10 +315,7 @@ pub fn load_project_config(project_root: &str) -> Option<ProjectOverrideConfig> 
         Ok(contents) => match toml::from_str(&contents) {
             Ok(config) => Some(config),
             Err(err) => {
-                eprintln!(
-                    "warning: invalid project config {}: {err}",
-                    path.display()
-                );
+                eprintln!("warning: invalid project config {}: {err}", path.display());
                 None
             }
         },
@@ -616,9 +591,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         _ => ColorTheme::Dark,
     };
 
-    let terminal_width = std::env::var("COLUMNS")
-        .ok()
-        .and_then(|v| v.parse().ok());
+    let terminal_width = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok());
 
     RenderConfig {
         color_enabled,

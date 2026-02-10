@@ -155,4 +155,3 @@ fn session_key(payload: &StdinPayload) -> String {
         payload.resolve_project_path().as_deref().unwrap_or("")
     )
 }
-

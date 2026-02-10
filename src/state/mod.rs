@@ -104,7 +104,10 @@ impl SessionState {
     }
 
     pub fn record_tool_completion(&mut self, name: &str) {
-        *self.completed_tool_counts.entry(name.to_string()).or_insert(0) += 1;
+        *self
+            .completed_tool_counts
+            .entry(name.to_string())
+            .or_insert(0) += 1;
     }
 
     pub fn top_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
@@ -129,22 +132,21 @@ impl SessionState {
         started_at: Option<u64>,
         model: Option<String>,
     ) {
-        let (started_at, existing_model) = if let Some(position) =
-            self.active_agents.iter().position(|agent| agent.id == id)
-        {
-            let old = self.active_agents.remove(position);
-            (old.started_at, old.model)
-        } else {
-            let ts = started_at.or_else(|| {
-                Some(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64,
-                )
-            });
-            (ts, None)
-        };
+        let (started_at, existing_model) =
+            if let Some(position) = self.active_agents.iter().position(|agent| agent.id == id) {
+                let old = self.active_agents.remove(position);
+                (old.started_at, old.model)
+            } else {
+                let ts = started_at.or_else(|| {
+                    Some(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    )
+                });
+                (ts, None)
+            };
         self.active_agents.push(AgentSummary {
             id,
             description,

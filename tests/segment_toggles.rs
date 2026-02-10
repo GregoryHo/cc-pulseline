@@ -33,8 +33,14 @@ fn line1_hides_style_when_disabled() {
         ..RenderConfig::default()
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
-    assert!(!lines[0].contains("S:"), "L1 should not contain style when show_style=false");
-    assert!(lines[0].contains("M:Opus 4.6"), "L1 should still show model");
+    assert!(
+        !lines[0].contains("S:"),
+        "L1 should not contain style when show_style=false"
+    );
+    assert!(
+        lines[0].contains("M:Opus 4.6"),
+        "L1 should still show model"
+    );
 }
 
 #[test]
@@ -47,7 +53,10 @@ fn line1_hides_version_and_project() {
     let lines = run_from_str(&basic_input(), config).unwrap();
     assert!(!lines[0].contains("CC:"), "L1 should not contain version");
     assert!(!lines[0].contains("P:"), "L1 should not contain project");
-    assert!(lines[0].contains("M:Opus 4.6"), "L1 should still show model");
+    assert!(
+        lines[0].contains("M:Opus 4.6"),
+        "L1 should still show model"
+    );
     assert!(lines[0].contains("G:"), "L1 should still show git");
 }
 
@@ -77,13 +86,22 @@ fn line2_hides_tokens_and_rules() {
         ..RenderConfig::default()
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
-    assert!(!lines[1].contains("rules"), "L2 should not contain rules when show_rules=false");
-    assert!(lines[1].contains("CLAUDE.md"), "L2 should still show CLAUDE.md");
+    assert!(
+        !lines[1].contains("rules"),
+        "L2 should not contain rules when show_rules=false"
+    );
+    assert!(
+        lines[1].contains("CLAUDE.md"),
+        "L2 should still show CLAUDE.md"
+    );
     assert!(lines[1].contains("hooks"), "L2 should still show hooks");
     assert!(lines[1].contains("MCPs"), "L2 should still show MCPs");
     assert!(lines[1].contains("skills"), "L2 should still show skills");
     // Duration should be absent — last item won't end with time format
-    assert!(!lines[1].ends_with("1h"), "L2 should not show duration when show_duration=false");
+    assert!(
+        !lines[1].ends_with("1h"),
+        "L2 should not show duration when show_duration=false"
+    );
 }
 
 #[test]
@@ -112,7 +130,10 @@ fn line3_hides_tokens_segment() {
         ..RenderConfig::default()
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
-    assert!(!lines[2].contains("TOK"), "L3 should not contain tokens when show_tokens=false");
+    assert!(
+        !lines[2].contains("TOK"),
+        "L3 should not contain tokens when show_tokens=false"
+    );
     assert!(lines[2].contains("CTX:"), "L3 should still show context");
     assert!(lines[2].contains("$3.50"), "L3 should still show cost");
 }
@@ -124,7 +145,10 @@ fn line3_hides_context_segment() {
         ..RenderConfig::default()
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
-    assert!(!lines[2].contains("CTX:"), "L3 should not contain context when show_context=false");
+    assert!(
+        !lines[2].contains("CTX:"),
+        "L3 should not contain context when show_context=false"
+    );
     assert!(lines[2].contains("TOK"), "L3 should still show tokens");
     assert!(lines[2].contains("$3.50"), "L3 should still show cost");
 }
@@ -141,7 +165,10 @@ fn line3_shows_only_cost() {
     assert!(!lines[2].contains("TOK"), "L3 should not contain tokens");
     assert!(lines[2].contains("$3.50"), "L3 should only show cost");
     // Should not have leading separators
-    assert!(!lines[2].starts_with(" |"), "L3 should not start with separator");
+    assert!(
+        !lines[2].starts_with(" |"),
+        "L3 should not start with separator"
+    );
 }
 
 // ── Config deserialization ──────────────────────────────────────────
@@ -159,9 +186,21 @@ show_tokens = false
         toml::from_str(toml_str).expect("should deserialize");
 
     assert!(!config.segments.identity.show_style);
-    assert!(config.segments.identity.show_model, "unset fields default to true");
-    assert!(config.segments.identity.show_git, "unset fields default to true");
+    assert!(
+        config.segments.identity.show_model,
+        "unset fields default to true"
+    );
+    assert!(
+        config.segments.identity.show_git,
+        "unset fields default to true"
+    );
     assert!(!config.segments.budget.show_tokens);
-    assert!(config.segments.budget.show_context, "unset fields default to true");
-    assert!(config.segments.config.show_claude_md, "entire section defaults to true");
+    assert!(
+        config.segments.budget.show_context,
+        "unset fields default to true"
+    );
+    assert!(
+        config.segments.config.show_claude_md,
+        "entire section defaults to true"
+    );
 }

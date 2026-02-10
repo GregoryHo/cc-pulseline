@@ -1,0 +1,14 @@
+{
+  "name": "@cc-pulseline/linux-arm64-musl",
+  "version": "0.0.0",
+  "description": "Linux ARM64 static binary for cc-pulseline (musl libc)",
+  "files": ["cc-pulseline"],
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GregoryHo/cc-pulseline"
+  },
+  "author": "GregoryHo",
+  "license": "MIT"
+}

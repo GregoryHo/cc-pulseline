@@ -154,20 +154,12 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     let model_part = agent
         .model
         .as_ref()
-        .map(|m| {
-            let tag = colorize(&format!(" [{m}]"), tier.structural, color);
-            tag
-        })
+        .map(|m| colorize(&format!(" [{m}]"), tier.structural, color))
         .unwrap_or_default();
 
     // Done tag for ASCII completed agents
-    let done_tag = if completed {
-        match mode {
-            crate::config::GlyphMode::Ascii => {
-                colorize(" [done]", tier.structural, color)
-            }
-            _ => String::new(),
-        }
+    let done_tag = if completed && mode == crate::config::GlyphMode::Ascii {
+        colorize(" [done]", tier.structural, color)
     } else {
         String::new()
     };
@@ -181,14 +173,17 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         format!("{open}{time}{close}")
     };
 
-    let accent_color = if completed { COMPLETED_CHECK } else { AGENT_PURPLE };
+    let accent_color = if completed {
+        COMPLETED_CHECK
+    } else {
+        AGENT_PURPLE
+    };
 
     if let Some(agent_type) = &agent.agent_type {
-        let type_str = colorize(&format!("{agent_type}"), accent_color, color);
-        let model_str = &model_part;
+        let type_str = colorize(&agent_type.to_string(), accent_color, color);
         let colon = colorize(": ", accent_color, color);
         let desc_str = colorize(&desc_truncated, tier.secondary, color);
-        format!("{prefix}{type_str}{model_str}{colon}{desc_str}{done_tag}{elapsed_part}")
+        format!("{prefix}{type_str}{model_part}{colon}{desc_str}{done_tag}{elapsed_part}")
     } else {
         let desc_str = colorize(&desc_truncated, accent_color, color);
         format!("{prefix}{desc_str}{model_part}{done_tag}{elapsed_part}")
@@ -257,21 +252,20 @@ fn format_line2(
 
     // Helper to format: {icon} {count} {label} or {count} {label}
     // Icon uses per-metric indicator_color; count uses tier.secondary; label uses tier.structural
-    let format_item =
-        |icon: &str, indicator_color: &str, label: &str, count: u32| -> String {
-            let count_str = colorize(&count.to_string(), tier.primary, color);
-            let label_str = colorize(label, tier.structural, color);
+    let format_item = |icon: &str, indicator_color: &str, label: &str, count: u32| -> String {
+        let count_str = colorize(&count.to_string(), tier.primary, color);
+        let label_str = colorize(label, tier.structural, color);
 
-            match mode {
-                crate::config::GlyphMode::Icon => {
-                    let icon_str = colorize(&format!("{icon} "), indicator_color, color);
-                    format!("{icon_str}{count_str} {label_str}")
-                }
-                crate::config::GlyphMode::Ascii => {
-                    format!("{count_str} {label_str}")
-                }
+        match mode {
+            crate::config::GlyphMode::Icon => {
+                let icon_str = colorize(&format!("{icon} "), indicator_color, color);
+                format!("{icon_str}{count_str} {label_str}")
             }
-        };
+            crate::config::GlyphMode::Ascii => {
+                format!("{count_str} {label_str}")
+            }
+        }
+    };
 
     let mut parts: Vec<String> = Vec::new();
 
@@ -319,8 +313,7 @@ fn format_line2(
         let duration_text = format_duration(frame.line2.elapsed_minutes);
         let item = match mode {
             crate::config::GlyphMode::Icon => {
-                let icon_str =
-                    colorize(&format!("{} ", ICON_ELAPSED), INDICATOR_DURATION, color);
+                let icon_str = colorize(&format!("{} ", ICON_ELAPSED), INDICATOR_DURATION, color);
                 let time_str = colorize(&duration_text, tier.primary, color);
                 format!("{icon_str}{time_str}")
             }
@@ -411,8 +404,13 @@ fn format_context_segment(
             format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}")
         }
         _ => {
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), tier.secondary, color);
-            format!("{label}NA")
+            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), tier.structural, color);
+            let dash = colorize("--", tier.structural, color);
+            let pct_sign = colorize("%", tier.structural, color);
+            let open_paren = colorize(" (", tier.separator, color);
+            let sep = colorize("/", tier.separator, color);
+            let close_paren = colorize(")", tier.separator, color);
+            format!("{label}{dash}{pct_sign}{open_paren}{dash}{sep}{dash}{close_paren}")
         }
     }
 }
@@ -430,8 +428,37 @@ fn format_tokens_segment(
         && line3.cache_creation_tokens.is_none()
         && line3.cache_read_tokens.is_none()
     {
-        let label = colorize(&glyph(mode, ICON_TOKENS, "TOK "), tier.structural, color);
-        return format!("{label}NA");
+        let label = colorize("TOK ", tier.structural, color);
+        let parts = [
+            format!(
+                "{}{}",
+                colorize(
+                    &glyph(mode, ICON_TOKEN_INPUT, "I: "),
+                    tier.structural,
+                    color
+                ),
+                colorize("--", tier.structural, color),
+            ),
+            format!(
+                "{}{}",
+                colorize(
+                    &glyph(mode, ICON_TOKEN_OUTPUT, "O: "),
+                    tier.structural,
+                    color
+                ),
+                colorize("--", tier.structural, color),
+            ),
+            format!(
+                "{}{}",
+                colorize(
+                    &glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"),
+                    tier.structural,
+                    color
+                ),
+                colorize("--/--", tier.structural, color),
+            ),
+        ];
+        return format!("{label}{}", parts.join(" "));
     }
 
     let label = colorize("TOK ", tier.structural, color);
@@ -443,7 +470,11 @@ fn format_tokens_segment(
     let parts = [
         format!(
             "{}{}",
-            colorize(&glyph(mode, ICON_TOKEN_INPUT, "I: "), tier.structural, color),
+            colorize(
+                &glyph(mode, ICON_TOKEN_INPUT, "I: "),
+                tier.structural,
+                color
+            ),
             colorize(
                 &format_number(line3.input_tokens.unwrap_or(0)),
                 tier.primary,
@@ -452,7 +483,11 @@ fn format_tokens_segment(
         ),
         format!(
             "{}{}",
-            colorize(&glyph(mode, ICON_TOKEN_OUTPUT, "O: "), tier.structural, color),
+            colorize(
+                &glyph(mode, ICON_TOKEN_OUTPUT, "O: "),
+                tier.structural,
+                color
+            ),
             colorize(
                 &format_number(line3.output_tokens.unwrap_or(0)),
                 tier.primary,
@@ -461,18 +496,18 @@ fn format_tokens_segment(
         ),
         format!(
             "{}{}",
-            colorize(&glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"), tier.structural, color),
+            colorize(
+                &glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"),
+                tier.structural,
+                color
+            ),
             colorize(&cache_str, tier.primary, color),
         ),
     ];
     format!("{label}{}", parts.join(" "))
 }
 
-fn format_cost_segment(
-    line3: &Line3Metrics,
-    config: &RenderConfig,
-    tier: &EmphasisTier,
-) -> String {
+fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let color = config.color_enabled;
 
     let total_cost = line3.total_cost_usd.unwrap_or(0.0);
