@@ -150,10 +150,7 @@ fn check_config(project_root: Option<&str>) {
             println!("SKIP {} (not found)", check_path.display());
             continue;
         }
-        let path_errors: Vec<_> = errors
-            .iter()
-            .filter(|(p, _)| p == check_path)
-            .collect();
+        let path_errors: Vec<_> = errors.iter().filter(|(p, _)| p == check_path).collect();
         if path_errors.is_empty() {
             println!("OK   {}", check_path.display());
         } else {
