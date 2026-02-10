@@ -5,11 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-### Changed
-
-- Lower context alert thresholds from 85%/70% to 70%/55% so warnings appear before Claude Code's ~80% auto-compact triggers
-- Use steel blue for completed checkmarks instead of muted teal, avoiding visual collision with plan-mode green
-
 ## [1.0.0] - 2026-02-10
 
 ### Added
@@ -26,5 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI commands** — `--init`, `--init --project`, `--check`, `--print` for config management
 - **Cross-platform distribution** — npm binary packages (macOS, Linux with glibc/musl, Windows), cargo install, and shell install script
 - **`NO_COLOR` support** — respects the standard `NO_COLOR` environment variable
+- **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
+- **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
 [1.0.0]: https://github.com/GregoryHo/cc-pulseline/releases/tag/v1.0.0
