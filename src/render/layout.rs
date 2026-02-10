@@ -15,6 +15,14 @@ use super::color::{
 use super::fmt::{format_duration, format_number};
 use super::icons::*;
 
+/// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
+/// Claude Code triggers auto-compact at ~80%, so 55% gives early heads-up.
+const CTX_WARN_THRESHOLD: u64 = 55;
+
+/// Context usage percentage at which the critical color (ALERT_RED) activates.
+/// Set below auto-compact (~80%) so users see red before compaction fires.
+const CTX_CRITICAL_THRESHOLD: u64 = 70;
+
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
@@ -383,9 +391,9 @@ fn format_context_segment(
 
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(used_pct), Some(size)) => {
-            let pct_color = if used_pct >= 85 {
+            let pct_color = if used_pct >= CTX_CRITICAL_THRESHOLD {
                 CTX_CRITICAL
-            } else if used_pct >= 70 {
+            } else if used_pct >= CTX_WARN_THRESHOLD {
                 CTX_WARN
             } else {
                 CTX_GOOD

@@ -22,8 +22,8 @@ Reference guide for the cc-pulseline 256-color palette, organized by information
 
 Colors are organized into a **three-tier attention system** (for semantic colors) with a **four-tier emphasis hierarchy** (for gray-scale text) and an **indicator tier** (for L2 metric anchoring):
 
-1. **ALERT** — Demands immediate attention (context >=85%, git dirty, high burn rate)
-2. **ACTIVE** — Currently happening, dynamically changing (tools, agents, context 70-84%)
+1. **ALERT** — Demands immediate attention (context >=70%, git dirty, high burn rate)
+2. **ACTIVE** — Currently happening, dynamically changing (tools, agents, context 55-69%)
 3. **STABLE** — Informational, unchanging context (model, version, branch clean, normal context)
 
 Plus:
@@ -54,7 +54,7 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 
 | Name | Code | Purpose |
 |------|------|---------|
-| `ALERT_RED` | 196 | Context >=85%, critical states |
+| `ALERT_RED` | 196 | Context >=70%, critical states |
 | `ALERT_ORANGE` | 214 | Git dirty `*` |
 | `ALERT_MAGENTA` | 201 | Burn rate >$50/h |
 
@@ -65,7 +65,7 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 | `ACTIVE_CYAN` | 117 | Tool activity (Tokyo Night bright cyan) |
 | `ACTIVE_PURPLE` | 183 | Agent activity (Tokyo Night magenta) |
 | `ACTIVE_TEAL` | 80 | Todo activity |
-| `ACTIVE_AMBER` | 178 | Context 70-84% |
+| `ACTIVE_AMBER` | 178 | Context 55-69% |
 | `ACTIVE_CORAL` | 209 | Git ahead/behind |
 
 ### Stable Tier -- Muted, Informational
@@ -185,6 +185,46 @@ For backward compatibility, old names map to the new tier system:
 - `67` Completed tools: checkmark+name both COMPLETED_CHECK (steel blue, links to active cyan)
 - `183` Agents: icon+text both ACTIVE_PURPLE (Tokyo Night magenta)
 - `80` Todos: icon+text both ACTIVE_TEAL
+
+## Rendered Output Examples
+
+Complete output lines with every color code annotated, using the existing `[COLOR_NAME(code)]` pattern.
+
+### Normal State (Dark Theme)
+
+ASCII mode — L1 through L5 with every color annotated:
+
+```
+[STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
+[primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test [separator]| [COMPLETED_CHECK(67)]✓ Read [secondary]×12 [separator]| [COMPLETED_CHECK]✓ Bash [secondary]×5
+[ACTIVE_PURPLE(183)]A:Explore [structural(60)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
+```
+
+In icon mode, L2 gains per-metric indicator colors on icons (109/108/179/139/73/174) before each count.
+
+### Alert State (Dark Theme)
+
+Context critical (≥70%) + high burn rate (>$50/h):
+
+```
+[ALERT_RED(196)]CTX:75% [separator(238)]([secondary(146)]150.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [secondary]45.0k [structural]O: [secondary]12.0k [structural]C:[secondary]50.0k[separator]/[secondary]77.0k [separator]| [COST_BASE(222)]$12.50 [separator]([COST_HIGH_RATE(201)]$75.00/h[separator])
+```
+
+Note: `ALERT_RED` (196) replaces `STABLE_GREEN` (71) on the CTX prefix and percentage. `COST_HIGH_RATE` (201, magenta) replaces `COST_LOW_RATE` (186, peach) on the burn rate. All other colors remain identical.
+
+### Light Theme
+
+Same output, different emphasis tier codes — semantic colors are unchanged:
+
+```
+[STABLE_BLUE(111)]M:Opus 4.6 [separator(252)]| [secondary(240)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main
+[primary(234)]1 [structural(247)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(247)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+```
+
+Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 60→247, Separator 238→252. All semantic colors (STABLE_BLUE 111, STABLE_GREEN 71, COST_BASE 222, etc.) remain identical.
 
 ## Icon Color Rules
 

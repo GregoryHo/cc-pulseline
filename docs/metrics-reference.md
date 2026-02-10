@@ -25,6 +25,26 @@ Five segments providing session identity at a glance.
 
 All L1 segments are individually togglable via config: `show_model`, `show_style`, `show_version`, `show_project`, `show_git`.
 
+### Example Output
+
+Normal (clean, no remote tracking):
+
+```
+M:Opus 4.6 | S:explanatory | CC:2.1.37 | P:~/projects/myapp | G:main
+```
+
+Git dirty + ahead:
+
+```
+M:Opus 4.6 | S:concise | CC:2.2.0 | P:~/projects/myapp | G:feature/auth* ↑3
+```
+
+Git behind:
+
+```
+M:Sonnet 4.5 | S:concise | CC:2.2.0 | P:~/work/api | G:main ↓2
+```
+
 ## Line 2: Config Counts
 
 Six segments showing the project's Claude Code configuration.
@@ -56,6 +76,26 @@ All L2 segments are individually togglable via config: `show_claude_md`, `show_r
 | Hours + minutes | `Xh Xm` |
 | Days + hours | `Xd Xh` |
 
+### Example Output
+
+Normal (ASCII mode, various counts):
+
+```
+1 CLAUDE.md | 3 rules | 2 hooks | 4 MCPs | 1 skills | 1h 23m
+```
+
+Zero state (no project config):
+
+```
+0 CLAUDE.md | 0 rules | 0 hooks | 0 MCPs | 0 skills | <1m
+```
+
+Long session:
+
+```
+2 CLAUDE.md | 5 rules | 3 hooks | 6 MCPs | 2 skills | 2d 5h
+```
+
 ## Line 3: Budget
 
 Three segments tracking resource consumption.
@@ -70,9 +110,9 @@ Three segments tracking resource consumption.
 
 | Condition | Color | Meaning |
 |-----------|-------|---------|
-| < 70% used | STABLE_GREEN (71) | Normal |
-| 70-84% used | ACTIVE_AMBER (178) | Elevated |
-| >= 85% used | ALERT_RED (196) | Critical |
+| < 55% used | STABLE_GREEN (71) | Normal |
+| 55-69% used | ACTIVE_AMBER (178) | Elevated |
+| >= 70% used | ALERT_RED (196) | Critical |
 
 ### Cost Rate Coloring
 
@@ -85,6 +125,38 @@ Three segments tracking resource consumption.
 The total cost always uses COST_BASE (222, warm gold) regardless of rate.
 
 All L3 segments are individually togglable via config: `show_context`, `show_tokens`, `show_cost`.
+
+### Example Output
+
+Normal (context <55%):
+
+```
+CTX:43% (86.0k/200.0k) | TOK I: 10.0k O: 20.0k C:30.0k/40.0k | $3.50 ($3.50/h)
+```
+
+Context warning (55-69%):
+
+```
+CTX:62% (124.0k/200.0k) | TOK I: 35.0k O: 8.0k C:45.0k/68.0k | $5.80 ($2.90/h)
+```
+
+Context critical (≥70%):
+
+```
+CTX:75% (150.0k/200.0k) | TOK I: 45.0k O: 12.0k C:50.0k/77.0k | $8.20 ($4.10/h)
+```
+
+High burn rate (>$50/h):
+
+```
+CTX:15% (30.0k/200.0k) | TOK I: 8.0k O: 3.0k C:10.0k/9.0k | $12.50 ($75.00/h)
+```
+
+Missing data fallback:
+
+```
+CTX:--% (--/--) | TOK I: -- O: -- C:--/-- | $0.00 ($0.00/h)
+```
 
 ## Line 4+: Activity
 
@@ -134,6 +206,27 @@ Completed agents are stored in a FIFO buffer (max 10), pruned when exceeded.
 | Todo items | Transcript JSONL (TaskCreate/TaskUpdate events) | Todo lifecycle tracking | ACTIVE_TEAL (80) |
 
 **Display format**: `TODO: 3/5 complete`
+
+### Example Output
+
+Tools — running + completed on a single line:
+
+```
+T:Read: .../src/main.rs | T:Bash: cargo test | ✓ Read ×12 | ✓ Bash ×5
+```
+
+Agents — running + completed (one per line):
+
+```
+A:Explore [haiku]: Investigating auth logic (2m)
+A:Bash: Run test suite [done] (45s)
+```
+
+Todo progress:
+
+```
+TODO:2/5 done, 3 pending
+```
 
 ## Cache Strategy
 
