@@ -97,7 +97,7 @@ Single line combining running tools and completed counts, pipe-separated.
 | Component | Data Source | Parsing Method | Color |
 |-----------|-------------|----------------|-------|
 | Running tools | Transcript JSONL (Path 1 or 3) | `tool_use` events -> upsert with target extraction | ACTIVE_CYAN (117) |
-| Completed tools | SessionState completed counts | Accumulate on `tool_result` events | COMPLETED_CHECK (73) |
+| Completed tools | SessionState completed counts | Accumulate on `tool_result` events | COMPLETED_CHECK (67) |
 
 **Display format**: `T:Read: .../main.rs | T:Bash: cargo test | checkmark-Read x5 | checkmark-Bash x3`
 
@@ -119,7 +119,7 @@ One line per agent, active first then recent completed, capped by `max_agent_lin
 | Component | Data Source | Parsing Method | Color |
 |-----------|-------------|----------------|-------|
 | Active agents | Transcript JSONL (Path 2) | `agent_progress` with `status: "started"` | ACTIVE_PURPLE (183) |
-| Completed agents | SessionState completed agents | `agent_progress` with `status: "completed"` | COMPLETED_CHECK (73) |
+| Completed agents | SessionState completed agents | `agent_progress` with `status: "completed"` | COMPLETED_CHECK (67) |
 
 **Display format**:
 - Running: `A:Explore [haiku]: Investigate logic (2m)`

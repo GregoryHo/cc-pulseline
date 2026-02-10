@@ -92,7 +92,7 @@ Provides unique icon colors for each L2 metric, enabling fast visual scanning. C
 
 | Name | Code | Purpose |
 |------|------|---------|
-| `COMPLETED_CHECK` | 73 | Completed tool checkmark+name -- muted teal, links to active tool cyan |
+| `COMPLETED_CHECK` | 67 | Completed tool checkmark+name -- steel blue, links to active tool cyan |
 
 ### Cost Tier -- Rate-Based Dynamic Coloring
 
@@ -176,13 +176,13 @@ For backward compatibility, old names map to the new tier system:
 
 ```
 [ACTIVE_CYAN(117)]T: tool_text
-[COMPLETED_CHECK(73)]checkmark-Name [secondary]xN
+[COMPLETED_CHECK(67)]checkmark-Name [secondary]xN
 [ACTIVE_PURPLE(183)]A: agent_text
 [ACTIVE_TEAL(80)]TODO: todo_text
 ```
 
 - `117` Running tools: icon+text both ACTIVE_CYAN (Tokyo Night bright cyan)
-- `73` Completed tools: checkmark+name both COMPLETED_CHECK (muted teal, links to active cyan)
+- `67` Completed tools: checkmark+name both COMPLETED_CHECK (steel blue, links to active cyan)
 - `183` Agents: icon+text both ACTIVE_PURPLE (Tokyo Night magenta)
 - `80` Todos: icon+text both ACTIVE_TEAL
 
@@ -196,7 +196,7 @@ For backward compatibility, old names map to the new tier system:
 6. Line 2 counts: tier.secondary; labels: tier.structural
 7. Context icon matches percentage color (CTX_GOOD/WARN/CRITICAL)
 8. Activity icons match their text color (TOOL_BLUE, AGENT_PURPLE, TODO_TEAL)
-9. Completed tool checkmark+name: COMPLETED_CHECK (73) -- muted teal linking to active tools
+9. Completed tool checkmark+name: COMPLETED_CHECK (67) -- steel blue linking to active tools
 10. ASCII mode labels (e.g. `M:`, `G:`) receive the same color as the icon they replace
 
 ## Rate-Based Cost Coloring

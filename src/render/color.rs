@@ -35,7 +35,7 @@ pub const INDICATOR_SKILLS: &str = "\x1b[38;5;73m"; // Muted teal — capabiliti
 pub const INDICATOR_DURATION: &str = "\x1b[38;5;174m"; // Muted rose — time passage
 
 // ── Completed tool accent — links visually to ACTIVE_CYAN ──
-pub const COMPLETED_CHECK: &str = "\x1b[38;5;73m"; // Muted teal — completed state
+pub const COMPLETED_CHECK: &str = "\x1b[38;5;67m"; // Steel blue — completed state, links to active cyan
 
 // ── COST tier — rate-based coloring ──
 pub const COST_BASE: &str = "\x1b[38;5;222m";
@@ -236,8 +236,8 @@ mod tests {
     #[test]
     fn completed_check_color_exists() {
         assert!(
-            COMPLETED_CHECK.contains("73"),
-            "completed check should use muted teal (73)"
+            COMPLETED_CHECK.contains("67"),
+            "completed check should use steel blue (67)"
         );
     }
 }
