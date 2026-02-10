@@ -97,7 +97,8 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
         );
     }
 
-    // Runner 2: incomplete payload → L3 merged from cache
+    // Runner 2: partial payload (has cost, no context) → has_data() is true,
+    // so we trust the payload as-is — CTX shows NA, cost shows $4.00.
     {
         let mut runner = PulseLineRunner::default();
         let lines = runner
@@ -108,13 +109,67 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("43%"),
-            "second invocation should use cached context percentage: got {joined}"
+            joined.contains("CTX:NA"),
+            "partial payload should show CTX:NA (no field-level merge): got {joined}"
         );
-        // Cost should reflect the NEW payload's value ($4.00), not the cached one
         assert!(
             joined.contains("$4.00"),
-            "cost should use current payload value, not cached: got {joined}"
+            "cost should use current payload value: got {joined}"
+        );
+    }
+}
+
+#[test]
+fn empty_l3_payload_falls_back_to_cached_values() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("cache-l3-empty.jsonl");
+    fs::write(&transcript, "").unwrap();
+
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Runner 1: complete payload with L3 data
+    {
+        let mut runner = PulseLineRunner::default();
+        let lines = runner
+            .run_from_str(
+                &payload_json(&workspace, &transcript, "cache-l3-empty-test"),
+                config.clone(),
+            )
+            .expect("render should succeed");
+        let joined = lines.join("\n");
+        assert!(joined.contains("43%"), "first run should show context: got {joined}");
+        assert!(joined.contains("$3.50"), "first run should show cost: got {joined}");
+    }
+
+    // Runner 2: truly empty L3 (no context, no cost) → has_data() is false,
+    // so we fall back to the cached L3 from Runner 1.
+    {
+        let empty_l3_payload = json!({
+            "session_id": "cache-l3-empty-test",
+            "cwd": workspace.path(),
+            "workspace": {"current_dir": workspace.path()},
+            "model": {"display_name": "Opus"},
+            "output_style": {"name": "concise"},
+            "version": "2.2.0",
+            "transcript_path": &transcript
+        })
+        .to_string();
+
+        let mut runner = PulseLineRunner::default();
+        let lines = runner
+            .run_from_str(&empty_l3_payload, config)
+            .expect("render should succeed");
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("43%"),
+            "empty L3 should fall back to cached context: got {joined}"
+        );
+        assert!(
+            joined.contains("$3.50"),
+            "empty L3 should fall back to cached cost: got {joined}"
         );
     }
 }

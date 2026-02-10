@@ -330,8 +330,6 @@ impl SessionState {
         self.task_agent_links = cache.task_agent_links;
         self.task_items = cache.task_items;
         self.task_counter = cache.task_counter;
-
-        // L3
         self.cached_line3 = cache.line3;
 
         // Env/Git only if within TTL

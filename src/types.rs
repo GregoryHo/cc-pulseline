@@ -131,22 +131,16 @@ pub struct Line3Metrics {
 }
 
 impl Line3Metrics {
-    pub fn is_complete(&self) -> bool {
-        self.context_used_percentage.is_some() && self.context_window_size.is_some()
-    }
-
-    /// Per-field merge: self takes priority, falls back to cached.
-    pub fn merge_with(&self, cached: &Line3Metrics) -> Line3Metrics {
-        Line3Metrics {
-            context_window_size: self.context_window_size.or(cached.context_window_size),
-            context_used_percentage: self.context_used_percentage.or(cached.context_used_percentage),
-            input_tokens: self.input_tokens.or(cached.input_tokens),
-            output_tokens: self.output_tokens.or(cached.output_tokens),
-            cache_creation_tokens: self.cache_creation_tokens.or(cached.cache_creation_tokens),
-            cache_read_tokens: self.cache_read_tokens.or(cached.cache_read_tokens),
-            total_cost_usd: self.total_cost_usd.or(cached.total_cost_usd),
-            total_duration_ms: self.total_duration_ms.or(cached.total_duration_ms),
-        }
+    /// Returns true if any field has a value (not all None).
+    pub fn has_data(&self) -> bool {
+        self.context_window_size.is_some()
+            || self.context_used_percentage.is_some()
+            || self.input_tokens.is_some()
+            || self.output_tokens.is_some()
+            || self.cache_creation_tokens.is_some()
+            || self.cache_read_tokens.is_some()
+            || self.total_cost_usd.is_some()
+            || self.total_duration_ms.is_some()
     }
 }
 

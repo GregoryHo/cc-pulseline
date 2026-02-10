@@ -42,7 +42,7 @@ pub struct SessionCache {
     pub task_items: HashMap<String, TaskItem>,
     #[serde(default)]
     pub task_counter: u32,
-    // L3 metrics
+    // L3 metrics (all-or-nothing fallback)
     pub line3: Option<Line3Metrics>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,

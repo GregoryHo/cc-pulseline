@@ -61,13 +61,13 @@ impl PulseLineRunner {
         let mut frame =
             build_render_frame(&payload, &env_snapshot, &git_snapshot, transcript_snapshot);
 
-        // Merge L3 from cache if current payload is incomplete
-        if let Some(cached_line3) = &state.cached_line3 {
-            frame.line3 = frame.line3.merge_with(cached_line3);
+        // All-or-nothing L3 cache: if payload has no L3 data at all, use cached;
+        // otherwise trust the payload entirely (no field-by-field merge).
+        if frame.line3.has_data() {
+            state.cached_line3 = Some(frame.line3.clone());
+        } else if let Some(cached) = &state.cached_line3 {
+            frame.line3 = cached.clone();
         }
-
-        // Update cached L3 for next invocation
-        state.cached_line3 = Some(frame.line3.clone());
 
         let lines = render::layout::render_frame(&frame, &config);
 
@@ -155,3 +155,4 @@ fn session_key(payload: &StdinPayload) -> String {
         payload.resolve_project_path().as_deref().unwrap_or("")
     )
 }
+
