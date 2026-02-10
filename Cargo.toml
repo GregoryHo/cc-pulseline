@@ -1,0 +1,27 @@
+[package]
+name = "cc-pulseline"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.74"
+description = "High-performance multi-line statusline for Claude Code with deep observability"
+license = "MIT"
+authors = ["GregoryHo"]
+repository = "https://github.com/GregoryHo/cc-pulseline"
+homepage = "https://github.com/GregoryHo/cc-pulseline"
+readme = "README.md"
+keywords = ["claude", "statusline", "claude-code", "cli", "observability"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".claude/", ".serena/", ".github/", "tests/fixtures/", "scripts/", "npm/", "docs/", "benches/"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.16"
+criterion = "0.5"
+
+[[bench]]
+name = "render_pipeline"
+harness = false

@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"task-bare","name":"Task","input":{}}]}}
+{"timestamp":"2026-01-18T10:53:00.000Z","content":[{"type":"tool_result","tool_use_id":"task-bare"}]}

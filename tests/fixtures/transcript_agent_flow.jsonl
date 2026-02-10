@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","type":"Task","task_id":"agent-1","name":"Indexer","status":"running"}
+{"timestamp":"2026-01-18T10:51:00.000Z","type":"Task","task_id":"agent-2","name":"Planner","status":"running"}
+{"timestamp":"2026-01-18T10:52:00.000Z","type":"Task","task_id":"agent-3","name":"Reviewer","status":"running"}
+{"timestamp":"2026-01-18T10:55:00.000Z","type":"Task","task_id":"agent-2","name":"Planner","status":"completed"}

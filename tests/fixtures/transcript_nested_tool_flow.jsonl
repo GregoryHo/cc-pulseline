@@ -1,0 +1,2 @@
+{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01ABC","name":"Read","input":{"file_path":"/src/main.rs"}}]}}
+{"content":[{"type":"tool_result","tool_use_id":"toolu_01ABC"}]}

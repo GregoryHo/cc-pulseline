@@ -1,0 +1,4 @@
+{"type":"tool_use","id":"tool-1","name":"Read","input":{"path":"src/lib.rs"}}
+{"type":"tool_result","tool_use_id":"tool-1","status":"ok"}
+{"type":"tool_use","id":"task-1","name":"Task","input":{"description":"Investigate parser edge case"}}
+{"type":"tool_use","id":"todo-1","name":"TodoWrite","input":{"todos":[{"content":"ship stage 3","status":"in_progress"},{"content":"cleanup docs","status":"completed"},{"content":"add snapshots","status":"pending"}]}}

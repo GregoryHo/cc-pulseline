@@ -1,0 +1,2 @@
+{"type":"TodoWrite","todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"in_progress"},{"content":"verify perf","status":"pending"}]}
+{"type":"TaskUpdate","todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"completed"},{"content":"verify perf","status":"completed"}]}

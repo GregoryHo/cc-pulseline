@@ -1,0 +1,2 @@
+{"type":"tool_use","tool_use_id":"tool-1","name":"ReadFile"}
+{"type":"tool_result","tool_use_id":"tool-1"}

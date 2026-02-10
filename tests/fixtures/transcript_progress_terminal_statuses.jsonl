@@ -1,0 +1,6 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a1","status":"running","prompt":"Task A"}}
+{"timestamp":"2026-01-18T10:50:01.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a2","status":"running","prompt":"Task B"}}
+{"timestamp":"2026-01-18T10:50:02.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a3","status":"running","prompt":"Task C"}}
+{"timestamp":"2026-01-18T10:53:00.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a1","status":"failed"}}
+{"timestamp":"2026-01-18T10:53:01.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a2","status":"cancelled"}}
+{"timestamp":"2026-01-18T10:53:02.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a3","status":"done"}}

@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","type":"progress","data":{"type":"agent_progress","agentId":"agent-001","status":"running","prompt":"Investigate L4+ logic","agentType":"Explore"}}
+{"timestamp":"2026-01-18T10:53:00.000Z","type":"progress","data":{"type":"agent_progress","agentId":"agent-001","status":"completed"}}

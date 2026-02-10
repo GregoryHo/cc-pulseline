@@ -1,0 +1,2 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","type":"progress","data":{"type":"agent_progress","agent_id":"snake-001","state":"running","prompt":"Analyze logs","subagent_type":"Detective"}}
+{"timestamp":"2026-01-18T10:53:00.000Z","type":"progress","data":{"type":"agent_progress","agent_id":"snake-001","state":"completed"}}
