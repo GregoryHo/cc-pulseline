@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     providers::{EnvSnapshot, GitSnapshot},
-    types::{AgentSummary, Line3Metrics, TodoSummary, ToolSummary},
+    types::{AgentSummary, Line3Metrics, PendingTask, TaskItem, TodoSummary, ToolSummary},
 };
 
 /// TTL for cached env/git snapshots (10 seconds).
@@ -32,6 +32,16 @@ pub struct SessionCache {
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
+    // Agent linking
+    #[serde(default)]
+    pub pending_tasks: Vec<PendingTask>,
+    #[serde(default)]
+    pub task_agent_links: HashMap<String, String>,
+    // Todo tracking
+    #[serde(default)]
+    pub task_items: HashMap<String, TaskItem>,
+    #[serde(default)]
+    pub task_counter: u32,
     // L3 metrics
     pub line3: Option<Line3Metrics>,
     // Env/Git with timestamps

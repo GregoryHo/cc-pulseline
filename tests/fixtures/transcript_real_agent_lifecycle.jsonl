@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01G5abc","name":"Task","input":{"description":"Explore agent tracking code","subagent_type":"Explore","model":"haiku"}}]}}
+{"timestamp":"2026-01-18T10:50:01.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a2016bc","prompt":"Explore the agent tracking code in the codebase and understand how agents are linked"}}
+{"timestamp":"2026-01-18T10:50:10.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a2016bc","prompt":"Still investigating the agent tracking code, found relevant files"}}
+{"timestamp":"2026-01-18T10:53:00.000Z","content":[{"type":"tool_result","tool_use_id":"toolu_01G5abc"}]}

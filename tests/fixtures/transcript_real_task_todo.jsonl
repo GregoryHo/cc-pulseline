@@ -1,0 +1,8 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Fix authentication bug","description":"Fix the auth bug in login flow","activeForm":"Fixing authentication bug"}}]}}
+{"timestamp":"2026-01-18T10:50:01.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Add unit tests","description":"Write tests for the auth fix","activeForm":"Adding unit tests"}}]}}
+{"timestamp":"2026-01-18T10:50:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tc3","name":"TaskCreate","input":{"subject":"Update documentation","description":"Update docs for auth changes","activeForm":"Updating documentation"}}]}}
+{"timestamp":"2026-01-18T10:51:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}
+{"timestamp":"2026-01-18T10:52:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}
+{"timestamp":"2026-01-18T10:53:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu3","name":"TaskUpdate","input":{"taskId":"2","status":"completed"}}]}}
+{"timestamp":"2026-01-18T10:54:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu4","name":"TaskUpdate","input":{"taskId":"3","status":"completed"}}]}}
+{"timestamp":"2026-01-18T10:55:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu5","name":"TaskUpdate","input":{"taskId":"2","status":"deleted"}}]}}

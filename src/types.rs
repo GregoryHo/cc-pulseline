@@ -163,6 +163,21 @@ pub struct CompletedToolCount {
     pub count: u32,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PendingTask {
+    pub tool_use_id: String,
+    pub description: String,
+    pub agent_type: Option<String>,
+    pub model: Option<String>,
+    pub event_ts: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskItem {
+    pub subject: String,
+    pub status: String,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSummary {
     pub id: String,

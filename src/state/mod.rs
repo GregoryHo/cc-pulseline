@@ -7,7 +7,10 @@ use std::{
 
 use crate::{
     providers::{EnvSnapshot, GitSnapshot},
-    types::{AgentSummary, CompletedToolCount, Line3Metrics, TodoSummary, ToolSummary},
+    types::{
+        AgentSummary, CompletedToolCount, Line3Metrics, PendingTask, TaskItem, TodoSummary,
+        ToolSummary,
+    },
 };
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
 
@@ -27,6 +30,12 @@ pub struct SessionState {
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
+    // Agent linking: Task tool_use → agent_progress ID linking
+    pub pending_tasks: Vec<PendingTask>,
+    pub task_agent_links: HashMap<String, String>, // tool_use_id → agentId
+    // Todo tracking: TaskCreate/TaskUpdate stateful accumulation
+    pub task_items: HashMap<String, TaskItem>,
+    pub task_counter: u32,
     pub cached_env: Option<(String, EnvSnapshot)>,
     pub cached_git: Option<(String, GitSnapshot)>,
     pub cached_line3: Option<Line3Metrics>,
@@ -44,6 +53,10 @@ impl SessionState {
             self.completed_agents.clear();
             self.completed_tool_counts.clear();
             self.todo = None;
+            self.pending_tasks.clear();
+            self.task_agent_links.clear();
+            self.task_items.clear();
+            self.task_counter = 0;
             self.cached_line3 = None;
         }
     }
@@ -164,6 +177,103 @@ impl SessionState {
         self.todo = todo;
     }
 
+    // ── Agent linking methods ────────────────────────────────────────
+
+    pub fn push_pending_task(
+        &mut self,
+        tool_use_id: String,
+        description: String,
+        agent_type: Option<String>,
+        model: Option<String>,
+        event_ts: Option<u64>,
+    ) {
+        self.pending_tasks.push(PendingTask {
+            tool_use_id,
+            description,
+            agent_type,
+            model,
+            event_ts,
+        });
+    }
+
+    /// FIFO pop from pending queue, store bidirectional link.
+    pub fn link_agent_to_pending_task(&mut self, agent_id: &str) -> Option<PendingTask> {
+        if self.pending_tasks.is_empty() {
+            return None;
+        }
+        let pending = self.pending_tasks.remove(0);
+        self.task_agent_links
+            .insert(pending.tool_use_id.clone(), agent_id.to_string());
+        Some(pending)
+    }
+
+    /// Lookup linked agentId for a tool_use_id.
+    pub fn resolve_task_agent(&self, tool_use_id: &str) -> Option<String> {
+        self.task_agent_links.get(tool_use_id).cloned()
+    }
+
+    /// Remove an unlinked pending task by its tool_use_id.
+    pub fn drain_pending_task(&mut self, tool_use_id: &str) -> Option<PendingTask> {
+        let pos = self
+            .pending_tasks
+            .iter()
+            .position(|p| p.tool_use_id == tool_use_id)?;
+        Some(self.pending_tasks.remove(pos))
+    }
+
+    /// Check if an agent was linked from a Task tool_use.
+    pub fn is_task_linked_agent(&self, agent_id: &str) -> bool {
+        self.task_agent_links.values().any(|id| id == agent_id)
+    }
+
+    // ── Todo tracking methods ────────────────────────────────────────
+
+    pub fn create_task_item(&mut self, subject: String) {
+        self.task_counter += 1;
+        let id = self.task_counter.to_string();
+        self.task_items.insert(
+            id,
+            TaskItem {
+                subject,
+                status: "pending".to_string(),
+            },
+        );
+        self.rebuild_todo_from_tasks();
+    }
+
+    pub fn update_task_item(&mut self, task_id: &str, status: &str) {
+        if status == "deleted" {
+            self.task_items.remove(task_id);
+        } else if let Some(item) = self.task_items.get_mut(task_id) {
+            item.status = status.to_string();
+        }
+        self.rebuild_todo_from_tasks();
+    }
+
+    fn rebuild_todo_from_tasks(&mut self) {
+        if self.task_items.is_empty() {
+            self.todo = None;
+            return;
+        }
+        let total = self.task_items.len();
+        let completed = self
+            .task_items
+            .values()
+            .filter(|item| item.status == "completed")
+            .count();
+        let pending = total.saturating_sub(completed);
+        if pending == 0 {
+            self.todo = None;
+            return;
+        }
+        self.todo = Some(TodoSummary {
+            text: format!("{completed}/{total} done, {pending} pending"),
+            pending,
+            completed,
+            total,
+        });
+    }
+
     pub fn capped_tools(&self, max_lines: usize) -> Vec<ToolSummary> {
         if max_lines == 0 {
             return Vec::new();
@@ -216,6 +326,10 @@ impl SessionState {
         self.completed_agents = cache.completed_agents;
         self.completed_tool_counts = cache.completed_tool_counts;
         self.todo = cache.todo;
+        self.pending_tasks = cache.pending_tasks;
+        self.task_agent_links = cache.task_agent_links;
+        self.task_items = cache.task_items;
+        self.task_counter = cache.task_counter;
 
         // L3
         self.cached_line3 = cache.line3;
@@ -244,6 +358,10 @@ impl SessionState {
             completed_agents: self.completed_agents.clone(),
             completed_tool_counts: self.completed_tool_counts.clone(),
             todo: self.todo.clone(),
+            pending_tasks: self.pending_tasks.clone(),
+            task_agent_links: self.task_agent_links.clone(),
+            task_items: self.task_items.clone(),
+            task_counter: self.task_counter,
             line3: self.cached_line3.clone(),
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),

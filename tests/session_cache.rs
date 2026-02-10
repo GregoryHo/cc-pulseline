@@ -308,10 +308,15 @@ fn model_tag_appears_for_task_with_model() {
         ..RenderConfig::default()
     };
 
-    // Task tool_use with model field
+    // Task tool_use with model field → goes to pending queue
     append_line(
         &transcript,
         r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"task-m1","name":"Task","input":{"description":"Search auth code","subagent_type":"Explore","model":"haiku"}}]},"timestamp":"2026-01-18T11:00:00.000Z"}"#,
+    );
+    // agent_progress → links to pending task, inherits model from Task
+    append_line(
+        &transcript,
+        r#"{"type":"progress","data":{"type":"agent_progress","agentId":"a-model-1","prompt":"Searching auth code in the codebase"},"timestamp":"2026-01-18T11:00:01.000Z"}"#,
     );
 
     let mut runner = PulseLineRunner::default();

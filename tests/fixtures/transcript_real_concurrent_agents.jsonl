@@ -1,0 +1,5 @@
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_task1","name":"Task","input":{"description":"Search for config files","subagent_type":"Explore"}},{"type":"tool_use","id":"toolu_task2","name":"Task","input":{"description":"Run test suite","subagent_type":"Bash"}}]}}
+{"timestamp":"2026-01-18T10:50:01.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a111","prompt":"Searching for config files across the codebase"}}
+{"timestamp":"2026-01-18T10:50:02.000Z","type":"progress","data":{"type":"agent_progress","agentId":"a222","prompt":"Running the full test suite to check for failures"}}
+{"timestamp":"2026-01-18T10:51:00.000Z","content":[{"type":"tool_result","tool_use_id":"toolu_task1"}]}
+{"timestamp":"2026-01-18T10:52:00.000Z","content":[{"type":"tool_result","tool_use_id":"toolu_task2"}]}

@@ -542,7 +542,7 @@ fn tracks_task_tool_as_agent() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Task tool_use → should appear as agent, not tool
+    // Event 0: Task tool_use → pushes to pending queue, no agent visible yet
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -552,16 +552,26 @@ fn tracks_task_tool_as_agent() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("A:Architect: Refactor parser"),
-        "Task tool_use should create agent line with type and description: got {joined}"
-    );
-    assert!(
         !joined.contains("T:Task"),
         "Task should not appear as a tool line: got {joined}"
     );
 
-    // Event 1: tool_result → agent becomes completed with [done] tag
+    // Event 1: agent_progress → links to pending Task, creates agent with Task's description
     append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-agent"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("A:Architect: Refactor parser"),
+        "agent_progress should link to Task and use its description: got {joined}"
+    );
+
+    // Event 2: tool_result → agent becomes completed with [done] tag
+    append_line(&transcript, events[2]);
     let lines = runner
         .run_from_str(
             &payload_json(&workspace, &transcript, "task-agent"),
@@ -812,7 +822,7 @@ fn task_tool_defaults_missing_fields() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Task with empty input → defaults to "Task" description, no agent_type
+    // Event 0: Task with empty input → pushes to pending queue, no agent visible yet
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -822,15 +832,11 @@ fn task_tool_defaults_missing_fields() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("A:Task"),
-        "Task with missing fields should default to 'Task' description: got {joined}"
-    );
-    assert!(
         !joined.contains("T:Task"),
         "Task should never appear as tool line: got {joined}"
     );
 
-    // Event 1: tool_result → agent becomes completed with [done]
+    // Event 1: tool_result → drains pending, creates+completes agent inline with [done]
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -841,6 +847,448 @@ fn task_tool_defaults_missing_fields() {
     let joined = lines.join("\n");
     assert!(
         joined.contains("A:Task") && joined.contains("[done]"),
-        "tool_result should show default Task agent as done: got {joined}"
+        "tool_result should drain pending and show default Task agent as done: got {joined}"
+    );
+}
+
+// ── Fix 1: Agent linking tests ──────────────────────────────────────
+
+#[test]
+fn links_agent_progress_to_task_tool_use() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("real-agent.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_real_agent_lifecycle.jsonl")
+        .expect("real agent lifecycle fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: Task tool_use → pending queue, no agent visible
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "real-agent"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("A:"),
+        "Task tool_use should not create visible agent yet: got {joined}"
+    );
+
+    // Event 1: first agent_progress → links to pending, creates single agent
+    append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "real-agent"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Explore agent tracking code"),
+        "linked agent should use Task's description, not prompt: got {joined}"
+    );
+    assert!(
+        joined.contains("A:Explore"),
+        "linked agent should show agent type: got {joined}"
+    );
+    // Must be exactly one agent line — no duplicate
+    let agent_lines: Vec<&String> = lines.iter().filter(|l| l.starts_with("A:")).collect();
+    assert_eq!(
+        agent_lines.len(),
+        1,
+        "should be exactly one agent (no duplicate): got {agent_lines:?}"
+    );
+
+    // Event 2: second agent_progress → should NOT overwrite description
+    append_line(&transcript, events[2]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "real-agent"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Explore agent tracking code"),
+        "description should be preserved from Task, not overwritten by prompt: got {joined}"
+    );
+
+    // Event 3: tool_result → agent completes via linked ID
+    append_line(&transcript, events[3]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "real-agent"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Explore agent tracking code") && joined.contains("[done]"),
+        "tool_result should complete the linked agent: got {joined}"
+    );
+}
+
+#[test]
+fn links_concurrent_agents_fifo() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("concurrent-agents.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_real_concurrent_agents.jsonl")
+        .expect("concurrent agents fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_agent_lines: 4,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: Two Task tool_uses in one message → two pending tasks
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "concurrent-agents"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("A:"),
+        "no agents should be visible yet: got {joined}"
+    );
+
+    // Events 1-2: agent_progress for each → FIFO linking
+    append_line(&transcript, events[1]);
+    append_line(&transcript, events[2]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "concurrent-agents"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("A:Explore: Search for config files"),
+        "first agent should get first Task's description: got {joined}"
+    );
+    assert!(
+        joined.contains("A:Bash: Run test suite"),
+        "second agent should get second Task's description: got {joined}"
+    );
+    let agent_lines: Vec<&String> = lines.iter().filter(|l| l.starts_with("A:")).collect();
+    assert_eq!(
+        agent_lines.len(),
+        2,
+        "should be exactly two agents: got {agent_lines:?}"
+    );
+
+    // Event 3: first tool_result → first agent completes
+    append_line(&transcript, events[3]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "concurrent-agents"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Search for config files") && joined.contains("[done]"),
+        "first agent should be completed: got {joined}"
+    );
+    assert!(
+        joined.contains("Run test suite") && !joined.contains("Run test suite [done]"),
+        "second agent should still be running: got {joined}"
+    );
+
+    // Event 4: second tool_result → second agent completes
+    append_line(&transcript, events[4]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "concurrent-agents"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Run test suite") && joined.contains("[done]"),
+        "second agent should now be completed: got {joined}"
+    );
+}
+
+#[test]
+fn standalone_agent_progress_without_task() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("standalone-agent.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // agent_progress with no preceding Task tool_use → standalone agent
+    append_line(
+        &transcript,
+        r#"{"type":"progress","data":{"type":"agent_progress","agentId":"standalone-1","prompt":"Investigate the bug","agentType":"Explore"}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "standalone-agent"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("A:Explore: Investigate the bug"),
+        "standalone agent_progress should use prompt as description: got {joined}"
+    );
+
+    // Completed via status
+    append_line(
+        &transcript,
+        r#"{"type":"progress","data":{"type":"agent_progress","agentId":"standalone-1","status":"completed"}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "standalone-agent"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Investigate the bug") && joined.contains("[done]"),
+        "standalone agent should complete via status: got {joined}"
+    );
+}
+
+#[test]
+fn task_completes_without_agent_progress() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("task-no-progress.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Task tool_use → pending queue
+    append_line(
+        &transcript,
+        r#"{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fast","name":"Task","input":{"description":"Quick lookup","subagent_type":"Explore"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-no-progress"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("A:"),
+        "no agent visible during pending: got {joined}"
+    );
+
+    // tool_result with NO agent_progress in between → drain pending, create+complete
+    append_line(
+        &transcript,
+        r#"{"timestamp":"2026-01-18T10:50:05.000Z","content":[{"type":"tool_result","tool_use_id":"toolu_fast"}]}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-no-progress"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("A:Explore: Quick lookup") && joined.contains("[done]"),
+        "task should appear as completed agent via drain_pending_task: got {joined}"
+    );
+}
+
+// ── Fix 2: Todo tracking tests ──────────────────────────────────────
+
+#[test]
+fn tracks_task_create_and_update_as_todo() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("task-todo.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_real_task_todo.jsonl")
+        .expect("real task todo fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Events 0-2: Three TaskCreates → 0/3 done, 3 pending
+    append_line(&transcript, events[0]);
+    append_line(&transcript, events[1]);
+    append_line(&transcript, events[2]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-todo"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("TODO:0/3 done, 3 pending"),
+        "3 TaskCreates should show 0/3 done, 3 pending: got {joined}"
+    );
+
+    // Event 3: TaskUpdate task 1 → in_progress (still pending in our model)
+    append_line(&transcript, events[3]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-todo"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("TODO:0/3 done, 3 pending"),
+        "in_progress should still count as pending: got {joined}"
+    );
+
+    // Event 4: TaskUpdate task 1 → completed
+    append_line(&transcript, events[4]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-todo"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("TODO:1/3 done, 2 pending"),
+        "completing task 1 should show 1/3 done: got {joined}"
+    );
+
+    // Event 5: TaskUpdate task 2 → completed
+    append_line(&transcript, events[5]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-todo"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("TODO:2/3 done, 1 pending"),
+        "completing task 2 should show 2/3 done: got {joined}"
+    );
+
+    // Event 6: TaskUpdate task 3 → completed (all done → TODO line disappears)
+    append_line(&transcript, events[6]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-todo"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("TODO:"),
+        "all tasks completed should clear TODO line: got {joined}"
+    );
+}
+
+#[test]
+fn task_update_delete_removes_from_count() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("task-delete.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_real_task_todo.jsonl")
+        .expect("real task todo fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Events 0-6: Create 3 tasks, complete all, then delete task 2
+    for event in &events[..7] {
+        append_line(&transcript, event);
+    }
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-delete"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("TODO:"),
+        "all completed should have no TODO: got {joined}"
+    );
+
+    // Event 7: TaskUpdate task 2 → deleted → now 2/2 done → still no TODO
+    append_line(&transcript, events[7]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "task-delete"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("TODO:"),
+        "deleting a completed task should keep TODO clear: got {joined}"
+    );
+}
+
+#[test]
+fn old_todowrite_format_still_works() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("old-todo.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_todo_flow.jsonl")
+        .expect("old todo fixture should exist");
+    let events: Vec<&str> = fixture.lines().collect();
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Event 0: Old-format TodoWrite with todos[] array
+    append_line(&transcript, events[0]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "old-todo"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    assert!(
+        lines.iter().any(|line| line == "TODO:1/3 done, 2 pending"),
+        "old TodoWrite format should still work"
+    );
+
+    // Event 1: Old-format TaskUpdate with todos[] array (all completed)
+    append_line(&transcript, events[1]);
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "old-todo"),
+            config,
+        )
+        .expect("render should succeed");
+    assert!(
+        lines.iter().all(|line| !line.starts_with("TODO:")),
+        "old TaskUpdate format that completes all should clear TODO line"
     );
 }

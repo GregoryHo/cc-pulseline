@@ -301,7 +301,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 .unwrap_or("unknown-id")
                 .to_string();
 
-            // Task tool → agent tracking
+            // Task tool → push to pending queue for agent linking
             if name == "Task" {
                 let input = block.get("input");
                 let description = input
@@ -318,15 +318,25 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 let model = input
                     .and_then(|i| i.get("model").and_then(Value::as_str))
                     .map(ToString::to_string);
-                state.upsert_agent(id, description, agent_type, event_ts, model);
+                state.push_pending_task(id, description, agent_type, model, event_ts);
                 return;
             }
 
-            // TodoWrite/TaskUpdate → todo tracking
-            if name == "TodoWrite" || name == "TaskUpdate" {
-                if let Some(todo) = extract_todo_summary(block) {
-                    state.set_todo(Some(todo));
-                }
+            // TaskCreate → individual task item tracking
+            if name == "TaskCreate" {
+                dispatch_task_create(state, block, None);
+                return;
+            }
+
+            // TaskUpdate → update individual task or old bulk format
+            if name == "TaskUpdate" {
+                dispatch_task_update(state, block, None);
+                return;
+            }
+
+            // TodoWrite → old format with todos[] array
+            if name == "TodoWrite" {
+                dispatch_todo_write(state, block, None);
                 return;
             }
 
@@ -336,8 +346,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
         }
         "tool_result" => {
             if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
-                state.remove_tool(id);
-                state.remove_agent(id);
+                complete_tool_result(state, id);
             }
 
             // Check for todo data in result
@@ -369,6 +378,28 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
         return;
     }
 
+    // Check if this is a new agent that should link to a pending Task
+    let is_new = !state.active_agents.iter().any(|a| a.id == agent_id);
+    if is_new {
+        if let Some(pending) = state.link_agent_to_pending_task(&agent_id) {
+            // Use the Task's description and type instead of agent_progress prompt
+            state.upsert_agent(
+                agent_id,
+                pending.description,
+                pending.agent_type,
+                pending.event_ts,
+                pending.model,
+            );
+            return;
+        }
+    }
+
+    // For already-linked agents, skip description overwrite from agent_progress prompt
+    if state.is_task_linked_agent(&agent_id) {
+        return;
+    }
+
+    // Standalone agent_progress (no Task): use prompt as description
     let description = data
         .get("description")
         .or_else(|| data.get("prompt"))
@@ -391,6 +422,62 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
     state.upsert_agent(agent_id, description, agent_type, event_ts, model);
 }
 
+// ── Shared task/todo dispatch helpers ─────────────────────────────────
+
+/// Handle a TaskCreate event by extracting the subject from multiple possible locations.
+fn dispatch_task_create(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
+    let subject = find_string(event, &["subject"])
+        .or_else(|| find_nested_string(event, &[&["input", "subject"]]))
+        .or_else(|| fallback.and_then(|v| find_string(v, &["subject"])));
+    if let Some(subject) = subject {
+        state.create_task_item(subject);
+    }
+}
+
+/// Handle a TaskUpdate event. Tries new format (taskId + status) first, then falls back
+/// to the old todos[] array format.
+fn dispatch_task_update(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
+    let task_id = find_string(event, &["taskId"])
+        .or_else(|| find_nested_string(event, &[&["input", "taskId"]]))
+        .or_else(|| fallback.and_then(|v| find_string(v, &["taskId"])));
+    if let Some(task_id) = task_id {
+        let status = find_string(event, &["status"])
+            .or_else(|| find_nested_string(event, &[&["input", "status"]]))
+            .or_else(|| fallback.and_then(|v| find_string(v, &["status"])))
+            .unwrap_or_else(|| "pending".to_string());
+        state.update_task_item(&task_id, &status);
+        return;
+    }
+    // Fallback: old format with todos[] array
+    let todo = extract_todo_summary(event).or_else(|| fallback.and_then(extract_todo_summary));
+    state.set_todo(todo);
+}
+
+/// Handle a TodoWrite event by extracting the todo summary.
+fn dispatch_todo_write(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
+    let todo = extract_todo_summary(event).or_else(|| fallback.and_then(extract_todo_summary));
+    state.set_todo(todo);
+}
+
+/// Complete a tool_result by resolving agent links: linked agent, pending task, or plain removal.
+fn complete_tool_result(state: &mut SessionState, tool_use_id: &str) {
+    state.remove_tool(tool_use_id);
+    if let Some(linked_agent) = state.resolve_task_agent(tool_use_id) {
+        state.remove_agent(&linked_agent);
+    } else if let Some(pending) = state.drain_pending_task(tool_use_id) {
+        state.upsert_agent(
+            tool_use_id.to_string(),
+            pending.description,
+            pending.agent_type,
+            pending.event_ts,
+            pending.model,
+        );
+        state.remove_agent(tool_use_id);
+    } else {
+        state.remove_agent(tool_use_id);
+    }
+}
+
 // ── Target extraction (Stage 4) ──────────────────────────────────────
 
 /// Extract a human-readable target from a tool_use block's input field.
@@ -406,11 +493,7 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
             let cmd = input.get("command").and_then(Value::as_str)?;
             Some(truncate_str(cmd, 30))
         }
-        "Glob" => {
-            let pattern = input.get("pattern").and_then(Value::as_str)?;
-            Some(truncate_str(pattern, 20))
-        }
-        "Grep" => {
+        "Glob" | "Grep" => {
             let pattern = input.get("pattern").and_then(Value::as_str)?;
             Some(truncate_str(pattern, 20))
         }
@@ -493,8 +576,14 @@ fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Optio
         Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
         Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
         Some("Task") => handle_task_event(state, event, event_ts),
-        Some("TodoWrite") | Some("TaskUpdate") => {
-            state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
+        Some("TaskCreate") => {
+            dispatch_task_create(state, event, Some(raw_event));
+        }
+        Some("TaskUpdate") => {
+            dispatch_task_update(state, event, Some(raw_event));
+        }
+        Some("TodoWrite") => {
+            dispatch_todo_write(state, event, Some(raw_event));
         }
         _ => handle_event_by_name(state, event, raw_event, event_ts),
     }
@@ -515,8 +604,18 @@ fn handle_flat_tool_use(
         return;
     }
 
-    if name == "TodoWrite" || name == "TaskUpdate" {
-        state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
+    if name == "TaskCreate" {
+        dispatch_task_create(state, event, Some(raw_event));
+        return;
+    }
+
+    if name == "TaskUpdate" {
+        dispatch_task_update(state, event, Some(raw_event));
+        return;
+    }
+
+    if name == "TodoWrite" {
+        dispatch_todo_write(state, event, Some(raw_event));
         return;
     }
 
@@ -531,8 +630,7 @@ fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &
     if let Some(id) = find_string(event, &["tool_use_id", "id", "tool_call_id"])
         .or_else(|| find_string(raw_event, &["tool_use_id", "id", "tool_call_id"]))
     {
-        state.remove_tool(&id);
-        state.remove_agent(&id);
+        complete_tool_result(state, &id);
     }
 
     if let Some(todo) = extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)) {
@@ -591,8 +689,14 @@ fn handle_event_by_name(
 
     match name.as_str() {
         "Task" => handle_task_from_tool_use(state, event, raw_event, event_ts),
-        "TodoWrite" | "TaskUpdate" => {
-            state.set_todo(extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)));
+        "TaskCreate" => {
+            dispatch_task_create(state, event, Some(raw_event));
+        }
+        "TaskUpdate" => {
+            dispatch_task_update(state, event, Some(raw_event));
+        }
+        "TodoWrite" => {
+            dispatch_todo_write(state, event, Some(raw_event));
         }
         _ => {}
     }
@@ -646,39 +750,17 @@ fn extract_todo_summary(value: &Value) -> Option<TodoSummary> {
 }
 
 fn find_todos_array(value: &Value) -> Option<&Vec<Value>> {
-    value
-        .get("todos")
-        .and_then(Value::as_array)
-        .or_else(|| {
+    // Check top-level "todos" first, then nested under common wrapper keys
+    const WRAPPER_KEYS: &[&str] = &["input", "arguments", "args", "output", "result"];
+
+    value.get("todos").and_then(Value::as_array).or_else(|| {
+        WRAPPER_KEYS.iter().find_map(|key| {
             value
-                .get("input")
-                .and_then(|input| input.get("todos"))
+                .get(*key)
+                .and_then(|wrapper| wrapper.get("todos"))
                 .and_then(Value::as_array)
         })
-        .or_else(|| {
-            value
-                .get("arguments")
-                .and_then(|arguments| arguments.get("todos"))
-                .and_then(Value::as_array)
-        })
-        .or_else(|| {
-            value
-                .get("args")
-                .and_then(|args| args.get("todos"))
-                .and_then(Value::as_array)
-        })
-        .or_else(|| {
-            value
-                .get("output")
-                .and_then(|output| output.get("todos"))
-                .and_then(Value::as_array)
-        })
-        .or_else(|| {
-            value
-                .get("result")
-                .and_then(|result| result.get("todos"))
-                .and_then(Value::as_array)
-        })
+    })
 }
 
 fn find_string(value: &Value, keys: &[&str]) -> Option<String> {
