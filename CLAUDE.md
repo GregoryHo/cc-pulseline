@@ -15,7 +15,7 @@ cargo test           # Run all tests
 cargo test <name>    # Run a single test by name, e.g. cargo test renders_core_metrics
 ```
 
-No linter or formatter is currently configured. The project uses Rust 2021 edition with only `serde`, `serde_json`, and `tempfile` (dev) as dependencies.
+CI enforces `cargo clippy -- -D warnings` and `cargo fmt --check`. The project uses Rust 2021 edition with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
 
 ## Architecture
 
@@ -73,7 +73,7 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 ### Color System
 
-The project uses a 256-color ANSI palette with semantic color constants. See `docs/color-spec.md` for the full specification. Key principles:
+The project uses a 256-color ANSI palette with semantic color constants. See `docs/theme-palette.md` for the full specification. Key principles:
 
 - **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light theme via `EmphasisTier`
 - **Semantic colors** (STABLE_BLUE, GIT_GREEN, etc.) are fixed across themes
