@@ -36,8 +36,15 @@ impl PulseLineRunner {
     ) -> Result<Vec<String>, String> {
         let payload: StdinPayload =
             serde_json::from_str(input).map_err(|error| format!("invalid stdin JSON: {error}"))?;
+        self.run_from_payload(&payload, config)
+    }
 
-        let session_key = session_key(&payload);
+    pub fn run_from_payload(
+        &mut self,
+        payload: &StdinPayload,
+        config: RenderConfig,
+    ) -> Result<Vec<String>, String> {
+        let session_key = session_key(payload);
         let is_fresh = !self.sessions.contains_key(&session_key);
         let state = self.sessions.entry(session_key.clone()).or_default();
 
@@ -50,16 +57,16 @@ impl PulseLineRunner {
 
         let transcript_snapshot = self
             .transcript_collector
-            .collect_transcript(&payload, state, &config);
+            .collect_transcript(payload, state, &config);
 
         let project_path = payload
             .resolve_project_path()
             .unwrap_or_else(|| "unknown".to_string());
         let env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
-        let git_snapshot = collect_git_snapshot(self.git_collector, state, &project_path);
+        let git_snapshot = collect_git_snapshot(&self.git_collector, state, &project_path);
 
         let mut frame =
-            build_render_frame(&payload, &env_snapshot, &git_snapshot, transcript_snapshot);
+            build_render_frame(payload, &env_snapshot, &git_snapshot, transcript_snapshot);
 
         // All-or-nothing L3 cache: if payload has no L3 data at all, use cached;
         // otherwise trust the payload entirely (no field-by-field merge).
@@ -102,7 +109,7 @@ fn collect_env_snapshot(
 }
 
 fn collect_git_snapshot(
-    collector: LocalGitCollector,
+    collector: &LocalGitCollector,
     state: &mut SessionState,
     project_path: &str,
 ) -> GitSnapshot {

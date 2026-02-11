@@ -132,16 +132,14 @@ fn count_md_files_recursive(path: &Path) -> u32 {
     count
 }
 
-/// Extract `mcpServers` object keys from a JSON file.
-fn get_mcp_server_names(path: &Path) -> HashSet<String> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return HashSet::new(),
-    };
-    let value: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return HashSet::new(),
-    };
+/// Read and parse a JSON file, returning None on any error.
+fn read_json_file(path: &Path) -> Option<serde_json::Value> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Extract `mcpServers` object keys from a parsed JSON value.
+fn mcp_server_names_from(value: &serde_json::Value) -> HashSet<String> {
     value
         .get("mcpServers")
         .and_then(serde_json::Value::as_object)
@@ -149,16 +147,15 @@ fn get_mcp_server_names(path: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
+/// Extract `mcpServers` object keys from a JSON file.
+fn get_mcp_server_names(path: &Path) -> HashSet<String> {
+    read_json_file(path)
+        .map(|v| mcp_server_names_from(&v))
+        .unwrap_or_default()
+}
+
 /// Extract disabled server names from a JSON array field (string values only).
-fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return HashSet::new(),
-    };
-    let value: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return HashSet::new(),
-    };
+fn disabled_servers_from(value: &serde_json::Value, key: &str) -> HashSet<String> {
     value
         .get(key)
         .and_then(serde_json::Value::as_array)
@@ -168,6 +165,14 @@ fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
                 .map(String::from)
                 .collect()
         })
+        .unwrap_or_default()
+}
+
+/// Extract disabled server names from a JSON file.
+#[cfg(test)]
+fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
+    read_json_file(path)
+        .map(|v| disabled_servers_from(&v, key))
         .unwrap_or_default()
 }
 
@@ -183,15 +188,14 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
             user_set.insert(name);
         }
 
-        // ~/.claude.json → mcpServers
-        let user_claude_json = home.join(".claude.json");
-        for name in get_mcp_server_names(&user_claude_json) {
-            user_set.insert(name);
-        }
-
-        // ~/.claude.json → disabledMcpServers (subtract)
-        for name in get_disabled_mcp_servers(&user_claude_json, "disabledMcpServers") {
-            user_set.remove(&name);
+        // ~/.claude.json → mcpServers + disabledMcpServers (single read)
+        if let Some(claude_json) = read_json_file(&home.join(".claude.json")) {
+            for name in mcp_server_names_from(&claude_json) {
+                user_set.insert(name);
+            }
+            for name in disabled_servers_from(&claude_json, "disabledMcpServers") {
+                user_set.remove(&name);
+            }
         }
     }
 
@@ -205,15 +209,15 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
         project_set.insert(name);
     }
 
-    // {root}/.claude/settings.local.json → mcpServers
+    // {root}/.claude/settings.local.json → mcpServers + disabledMcpjsonServers (single read)
     let local_settings = root.join(".claude/settings.local.json");
-    for name in get_mcp_server_names(&local_settings) {
-        project_set.insert(name);
-    }
-
-    // {root}/.claude/settings.local.json → disabledMcpjsonServers (subtract from .mcp.json set)
-    for name in get_disabled_mcp_servers(&local_settings, "disabledMcpjsonServers") {
-        mcp_json_servers.remove(&name);
+    if let Some(local_value) = read_json_file(&local_settings) {
+        for name in mcp_server_names_from(&local_value) {
+            project_set.insert(name);
+        }
+        for name in disabled_servers_from(&local_value, "disabledMcpjsonServers") {
+            mcp_json_servers.remove(&name);
+        }
     }
 
     // Remaining .mcp.json servers → add to project set

@@ -9,10 +9,10 @@ fn default_true() -> bool {
 fn default_dark() -> String {
     "dark".to_string()
 }
-fn default_2() -> usize {
+fn default_max_lines() -> usize {
     2
 }
-fn default_4() -> usize {
+fn default_max_completed() -> usize {
     4
 }
 
@@ -30,8 +30,6 @@ pub struct DisplayConfig {
     pub theme: String,
     #[serde(default = "default_true")]
     pub icons: bool,
-    #[serde(default)]
-    pub tokyo_bg: bool,
 }
 
 impl Default for DisplayConfig {
@@ -39,7 +37,6 @@ impl Default for DisplayConfig {
         Self {
             theme: default_dark(),
             icons: true,
-            tokyo_bg: false,
         }
     }
 }
@@ -142,9 +139,9 @@ impl Default for BudgetSegmentConfig {
 pub struct ToolSegmentConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_2")]
+    #[serde(default = "default_max_lines")]
     pub max_lines: usize,
-    #[serde(default = "default_4")]
+    #[serde(default = "default_max_completed")]
     pub max_completed: usize,
 }
 
@@ -162,7 +159,7 @@ impl Default for ToolSegmentConfig {
 pub struct SegmentToggle {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_2")]
+    #[serde(default = "default_max_lines")]
     pub max_lines: usize,
 }
 
@@ -203,7 +200,6 @@ pub fn default_config_toml() -> &'static str {
     r#"[display]
 theme = "dark"          # dark | light
 icons = true            # nerd font icons vs ascii
-tokyo_bg = false        # segmented background colors
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -253,7 +249,6 @@ pub struct ProjectOverrideConfig {
 pub struct ProjectDisplayOverride {
     pub theme: Option<String>,
     pub icons: Option<bool>,
-    pub tokyo_bg: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -340,9 +335,6 @@ pub fn merge_configs(
         }
         if let Some(icons) = display.icons {
             user.display.icons = icons;
-        }
-        if let Some(tokyo_bg) = display.tokyo_bg {
-            user.display.tokyo_bg = tokyo_bg;
         }
     }
 

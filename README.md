@@ -108,7 +108,6 @@ cc-pulseline --print             # Show effective merged config
 [display]
 theme = "dark"          # dark | light
 icons = true            # nerd font icons vs ascii
-tokyo_bg = false        # segmented background colors
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true

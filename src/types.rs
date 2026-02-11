@@ -14,24 +14,6 @@ pub struct StdinPayload {
 }
 
 impl StdinPayload {
-    pub fn project_path(&self) -> Option<String> {
-        self.resolve_project_path()
-    }
-
-    pub fn model_display(&self) -> String {
-        self.model
-            .as_ref()
-            .and_then(|model| model.display_name.clone().or_else(|| model.id.clone()))
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-
-    pub fn output_style_name(&self) -> String {
-        self.output_style
-            .as_ref()
-            .and_then(|style| style.name.clone())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-
     pub fn resolve_project_path(&self) -> Option<String> {
         self.workspace
             .as_ref()
@@ -229,10 +211,8 @@ impl RenderFrame {
 
         let project_path = payload.resolve_project_path_display();
 
-        let usage = payload
-            .context_window
-            .as_ref()
-            .and_then(|context| context.current_usage.as_ref());
+        let ctx = payload.context_window.as_ref();
+        let usage = ctx.and_then(|c| c.current_usage.as_ref());
 
         let elapsed_minutes = payload
             .cost
@@ -262,14 +242,8 @@ impl RenderFrame {
                 elapsed_minutes,
             },
             line3: Line3Metrics {
-                context_window_size: payload
-                    .context_window
-                    .as_ref()
-                    .and_then(|context| context.context_window_size),
-                context_used_percentage: payload
-                    .context_window
-                    .as_ref()
-                    .and_then(|context| context.used_percentage),
+                context_window_size: ctx.and_then(|c| c.context_window_size),
+                context_used_percentage: ctx.and_then(|c| c.used_percentage),
                 input_tokens: usage.and_then(|usage| usage.input_tokens),
                 output_tokens: usage.and_then(|usage| usage.output_tokens),
                 cache_creation_tokens: usage.and_then(|usage| usage.cache_creation_input_tokens),

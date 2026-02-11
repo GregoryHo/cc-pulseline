@@ -439,50 +439,37 @@ fn format_tokens_segment(
     let mode = config.glyph_mode;
     let color = config.color_enabled;
 
-    if line3.input_tokens.is_none()
-        && line3.output_tokens.is_none()
-        && line3.cache_creation_tokens.is_none()
-        && line3.cache_read_tokens.is_none()
-    {
-        let label = colorize("TOK ", tier.structural, color);
-        let parts = [
-            format!(
-                "{}{}",
-                colorize(
-                    &glyph(mode, ICON_TOKEN_INPUT, "I: "),
-                    tier.structural,
-                    color
-                ),
-                colorize("--", tier.structural, color),
-            ),
-            format!(
-                "{}{}",
-                colorize(
-                    &glyph(mode, ICON_TOKEN_OUTPUT, "O: "),
-                    tier.structural,
-                    color
-                ),
-                colorize("--", tier.structural, color),
-            ),
-            format!(
-                "{}{}",
-                colorize(
-                    &glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"),
-                    tier.structural,
-                    color
-                ),
-                colorize("--/--", tier.structural, color),
-            ),
-        ];
-        return format!("{label}{}", parts.join(" "));
-    }
+    let has_data = line3.input_tokens.is_some()
+        || line3.output_tokens.is_some()
+        || line3.cache_creation_tokens.is_some()
+        || line3.cache_read_tokens.is_some();
+
+    // Values use primary color when data exists, structural (dimmed) when absent
+    let val_color = if has_data {
+        tier.primary
+    } else {
+        tier.structural
+    };
+
+    let input_str = line3
+        .input_tokens
+        .map(format_number)
+        .unwrap_or_else(|| "--".to_string());
+    let output_str = line3
+        .output_tokens
+        .map(format_number)
+        .unwrap_or_else(|| "--".to_string());
+    let cache_str = if has_data {
+        format!(
+            "{}/{}",
+            format_number(line3.cache_creation_tokens.unwrap_or(0)),
+            format_number(line3.cache_read_tokens.unwrap_or(0)),
+        )
+    } else {
+        "--/--".to_string()
+    };
 
     let label = colorize("TOK ", tier.structural, color);
-    let cache_str = format!(
-        "{}/{}",
-        format_number(line3.cache_creation_tokens.unwrap_or(0)),
-        format_number(line3.cache_read_tokens.unwrap_or(0)),
-    );
     let parts = [
         format!(
             "{}{}",
@@ -491,11 +478,7 @@ fn format_tokens_segment(
                 tier.structural,
                 color
             ),
-            colorize(
-                &format_number(line3.input_tokens.unwrap_or(0)),
-                tier.primary,
-                color,
-            ),
+            colorize(&input_str, val_color, color),
         ),
         format!(
             "{}{}",
@@ -504,11 +487,7 @@ fn format_tokens_segment(
                 tier.structural,
                 color
             ),
-            colorize(
-                &format_number(line3.output_tokens.unwrap_or(0)),
-                tier.primary,
-                color,
-            ),
+            colorize(&output_str, val_color, color),
         ),
         format!(
             "{}{}",
@@ -517,7 +496,7 @@ fn format_tokens_segment(
                 tier.structural,
                 color
             ),
-            colorize(&cache_str, tier.primary, color),
+            colorize(&cache_str, val_color, color),
         ),
     ];
     format!("{label}{}", parts.join(" "))

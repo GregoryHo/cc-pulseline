@@ -160,7 +160,6 @@ fn merge_full_project_override() {
 [display]
 theme = "light"
 icons = false
-tokyo_bg = true
 
 [segments.identity]
 show_model = false
@@ -188,7 +187,6 @@ max_lines = 1
     let merged = merge_configs(user, &project);
     assert_eq!(merged.display.theme, "light");
     assert!(!merged.display.icons);
-    assert!(merged.display.tokyo_bg);
     assert!(!merged.segments.identity.show_model);
     assert!(!merged.segments.tools.enabled);
     assert_eq!(merged.segments.tools.max_lines, 5);
