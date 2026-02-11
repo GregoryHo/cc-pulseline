@@ -182,6 +182,7 @@ fn print_config(project_root: Option<&str>) {
     println!("[segments.config]");
     println!("show_claude_md = {}", config.segments.config.show_claude_md);
     println!("show_rules = {}", config.segments.config.show_rules);
+    println!("show_memory = {}", config.segments.config.show_memory);
     println!("show_hooks = {}", config.segments.config.show_hooks);
     println!("show_mcp = {}", config.segments.config.show_mcp);
     println!("show_skills = {}", config.segments.config.show_skills);

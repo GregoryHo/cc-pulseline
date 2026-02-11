@@ -9,8 +9,8 @@ use super::color::{
     colorize, emphasis_for_theme, take_visible_chars, visible_width, EmphasisTier, AGENT_PURPLE,
     COMPLETED_CHECK, COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL,
     CTX_GOOD, CTX_WARN, GIT_AHEAD, GIT_BEHIND, GIT_GREEN, GIT_MODIFIED, INDICATOR_CLAUDE_MD,
-    INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_RULES, INDICATOR_SKILLS, RESET,
-    STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
+    INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY, INDICATOR_RULES,
+    INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
 use super::fmt::{format_duration, format_number};
 use super::icons::*;
@@ -291,6 +291,14 @@ fn format_line2(
             INDICATOR_RULES,
             "rules",
             frame.line2.rules_count,
+        ));
+    }
+    if config.show_memory {
+        parts.push(format_item(
+            ICON_MEMORY,
+            INDICATOR_MEMORY,
+            "memories",
+            frame.line2.memory_count,
         ));
     }
     if config.show_hooks {

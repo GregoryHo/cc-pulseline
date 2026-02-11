@@ -135,6 +135,7 @@ fn build_render_frame(
 
     frame.line2.claude_md_count = env_snapshot.claude_md_count;
     frame.line2.rules_count = env_snapshot.rules_count;
+    frame.line2.memory_count = env_snapshot.memory_count;
     frame.line2.hooks_count = env_snapshot.hooks_count;
     frame.line2.mcp_count = env_snapshot.mcp_count;
     frame.line2.skills_count = env_snapshot.skills_count;

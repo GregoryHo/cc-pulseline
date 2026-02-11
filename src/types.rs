@@ -114,6 +114,7 @@ pub struct Line2Metrics {
     pub rules_count: u32,
     pub hooks_count: u32,
     pub mcp_count: u32,
+    pub memory_count: u32,
     pub skills_count: u32,
     pub elapsed_minutes: u64,
 }
@@ -254,6 +255,7 @@ impl RenderFrame {
             line2: Line2Metrics {
                 claude_md_count: 0,
                 rules_count: 0,
+                memory_count: 0,
                 hooks_count: 0,
                 mcp_count: 0,
                 skills_count: 0,

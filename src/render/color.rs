@@ -29,6 +29,7 @@ pub const STABLE_GREEN: &str = "\x1b[38;5;71m";
 // ── INDICATOR tier — muted accents for L2 metric icons ──
 pub const INDICATOR_CLAUDE_MD: &str = "\x1b[38;5;109m"; // Muted steel — documentation
 pub const INDICATOR_RULES: &str = "\x1b[38;5;108m"; // Muted sage — governance
+pub const INDICATOR_MEMORY: &str = "\x1b[38;5;182m"; // Muted lilac — knowledge/memories
 pub const INDICATOR_HOOKS: &str = "\x1b[38;5;179m"; // Muted amber — active/intercepting
 pub const INDICATOR_MCP: &str = "\x1b[38;5;139m"; // Muted lavender — extensions
 pub const INDICATOR_SKILLS: &str = "\x1b[38;5;73m"; // Muted teal — capabilities
@@ -217,6 +218,7 @@ mod tests {
         let indicators = [
             INDICATOR_CLAUDE_MD,
             INDICATOR_RULES,
+            INDICATOR_MEMORY,
             INDICATOR_HOOKS,
             INDICATOR_MCP,
             INDICATOR_SKILLS,

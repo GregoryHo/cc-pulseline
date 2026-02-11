@@ -75,7 +75,7 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 
 | Provider | Trait | Real Implementation | Purpose |
 |----------|-------|-------------------|---------|
-| `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, hooks, MCP servers, skills |
+| `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills |
 | `git.rs` | `GitCollector` | `LocalGitCollector` | Shells out to `git` for branch, dirty state, ahead/behind |
 | `transcript.rs` | `TranscriptCollector` | `FileTranscriptCollector` | Incremental JSONL parsing with seek-based offsets |
 | `stdin.rs` | `StdinCollector` | (stub-only) | Reserved for future use |
@@ -119,7 +119,7 @@ Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pu
 Formats the `RenderFrame` into output lines:
 
 - **L1**: Identity (model, style, version, project, git)
-- **L2**: Config counts (CLAUDE.md, rules, hooks, MCPs, skills, duration)
+- **L2**: Config counts (CLAUDE.md, rules, memories, hooks, MCPs, skills, duration)
 - **L3**: Budget (context, tokens, cost)
 - **L4+**: Activity (tools, agents, todos -- only when active)
 
@@ -186,7 +186,7 @@ Backward compatibility with older transcript formats and test fixtures:
 ## Output Line Format
 
 - **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [up-n] [down-n]`
-- **L2**: `1 CLAUDE.md | 2 rules | 1 hooks | 2 MCPs | 2 skills | 1h`
+- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK:I:10 O:20 C:30 R:40 | $3.50 ($3.50/h)`
 - **L4**: `T:Read: .../main.rs | T:Bash: cargo test | checkmark-Read x5`
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`

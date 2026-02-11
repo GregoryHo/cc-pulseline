@@ -117,9 +117,10 @@ show_version = true
 show_project = true
 show_git = true
 
-[segments.config]       # Line 2 — CLAUDE.md, rules, hooks, MCPs, skills, duration
+[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
 show_rules = true
+show_memory = true
 show_hooks = true
 show_mcp = true
 show_skills = true

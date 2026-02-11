@@ -47,12 +47,13 @@ M:Sonnet 4.5 | S:concise | CC:2.2.0 | P:~/work/api | G:main ↓2
 
 ## Line 2: Config Counts
 
-Six segments showing the project's Claude Code configuration.
+Seven segments showing the project's Claude Code configuration.
 
 | Metric | Data Source | Parsing Method | Cache | Icon Color |
 |--------|-------------|----------------|-------|------------|
 | CLAUDE.md | 5 filesystem paths | Check existence of `~/.claude/CLAUDE.md`, `{root}/CLAUDE.md`, `{root}/CLAUDE.local.md`, `{root}/.claude/CLAUDE.md`, `{root}/.claude/CLAUDE.local.md` | 10s TTL | INDICATOR_CLAUDE_MD (109) |
 | Rules | `.md` files in rules dirs | Recursive scan of `{root}/.claude/rules/` + `~/.claude/rules/` | 10s TTL | INDICATOR_RULES (108) |
+| Memories | `.md` files in memory dir | Flat scan of `~/.claude/projects/{encoded-path}/memory/` | 10s TTL | INDICATOR_MEMORY (182) |
 | Hooks | settings.json `hooks` keys | JSON parse of hooks object keys in settings.json (project + local + user) | 10s TTL | INDICATOR_HOOKS (179) |
 | MCPs | Multiple config files | Scoped dedup -- user scope (settings.json + .claude.json - disabled) + project scope (.mcp.json + settings.json + settings.local.json - disabledMcpjsonServers) | 10s TTL | INDICATOR_MCP (139) |
 | Skills | Skills directories | Count directories in `{root}/.claude/skills/` + `~/.claude/skills/` (excludes .codex/) | 10s TTL | INDICATOR_SKILLS (73) |
@@ -65,7 +66,7 @@ Each L2 segment uses three color layers:
 - **Count**: tier.secondary (146/240) -- the actual data value
 - **Label**: tier.structural (60/247) -- descriptive text
 
-All L2 segments are individually togglable via config: `show_claude_md`, `show_rules`, `show_hooks`, `show_mcp`, `show_skills`, `show_duration`.
+All L2 segments are individually togglable via config: `show_claude_md`, `show_rules`, `show_memory`, `show_hooks`, `show_mcp`, `show_skills`, `show_duration`.
 
 ### Duration Display Format
 
@@ -81,19 +82,19 @@ All L2 segments are individually togglable via config: `show_claude_md`, `show_r
 Normal (ASCII mode, various counts):
 
 ```
-1 CLAUDE.md | 3 rules | 2 hooks | 4 MCPs | 1 skills | 1h 23m
+1 CLAUDE.md | 3 rules | 2 memories | 2 hooks | 4 MCPs | 1 skills | 1h 23m
 ```
 
 Zero state (no project config):
 
 ```
-0 CLAUDE.md | 0 rules | 0 hooks | 0 MCPs | 0 skills | <1m
+0 CLAUDE.md | 0 rules | 0 memories | 0 hooks | 0 MCPs | 0 skills | <1m
 ```
 
 Long session:
 
 ```
-2 CLAUDE.md | 5 rules | 3 hooks | 6 MCPs | 2 skills | 2d 5h
+2 CLAUDE.md | 5 rules | 1 memories | 3 hooks | 6 MCPs | 2 skills | 2d 5h
 ```
 
 ## Line 3: Budget

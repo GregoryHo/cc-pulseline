@@ -7,6 +7,7 @@ pub const ICON_PROJECT: &str = "\u{f024b}";
 pub const ICON_GIT: &str = "\u{f02a2}";
 pub const ICON_CLAUDE_MD: &str = "\u{f0219}";
 pub const ICON_RULES: &str = "\u{f0c47}"; // 󰱇 nf-md-gavel (rules to follow)
+pub const ICON_MEMORY: &str = "\u{f09dc}"; // 󰧜 nf-md-brain (memory/knowledge)
 pub const ICON_HOOKS: &str = "\u{f1b67}"; // 󱭧 nf-md-robot (automated execution)
 pub const ICON_MCP: &str = "\u{f01a7}";
 pub const ICON_SKILLS: &str = "\u{f0e7}"; // ⚡ Lightning bolt (ability/speed)

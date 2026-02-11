@@ -10,6 +10,7 @@ pub struct EnvSnapshot {
     pub rules_count: u32,
     pub hooks_count: u32,
     pub mcp_count: u32,
+    pub memory_count: u32,
     pub skills_count: u32,
 }
 
@@ -54,9 +55,12 @@ impl EnvCollector for FileSystemEnvCollector {
                 .map(|home| count_plugin_skills(home))
                 .unwrap_or(0);
 
+        let memory_count = count_memory_files(user_home.as_deref(), cwd);
+
         EnvSnapshot {
             claude_md_count: count_claude_md(root, user_home.as_deref()),
             rules_count,
+            memory_count,
             hooks_count: count_hooks_in_json(&root.join(".claude/settings.json"))
                 + count_hooks_in_json(&root.join(".claude/settings.local.json"))
                 + user_home
@@ -328,6 +332,40 @@ fn count_plugin_hooks(user_home: &Path) -> u32 {
             }
         })
         .sum()
+}
+
+/// Encode a project path to match Claude Code's memory directory naming convention.
+/// Replaces `/` and `.` with `-`, matching the format in `~/.claude/projects/`.
+pub fn encode_project_path(path: &str) -> String {
+    path.trim_end_matches('/').replace(['/', '.'], "-")
+}
+
+/// Count `.md` files in the project's memory directory (flat scan, no recursion).
+fn count_memory_files(user_home: Option<&Path>, project_path: &str) -> u32 {
+    let home = match user_home {
+        Some(h) => h,
+        None => return 0,
+    };
+
+    let encoded = encode_project_path(project_path);
+    let memory_dir = home.join(".claude/projects").join(encoded).join("memory");
+
+    let entries = match fs::read_dir(&memory_dir) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry.path().is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "md")
+                    .unwrap_or(false)
+        })
+        .count() as u32
 }
 
 fn count_skill_dirs(skills_root: &Path) -> u32 {
@@ -702,5 +740,76 @@ mod tests {
         .unwrap();
 
         assert_eq!(count_plugin_hooks(&home), 0);
+    }
+
+    // ── Memory file counting tests ──────────────────────────────────
+
+    #[test]
+    fn encode_project_path_replaces_slashes_and_dots() {
+        assert_eq!(
+            encode_project_path("/Users/gregho/GitHub/AI/cc-pulseline"),
+            "-Users-gregho-GitHub-AI-cc-pulseline"
+        );
+    }
+
+    #[test]
+    fn encode_project_path_handles_dots() {
+        assert_eq!(
+            encode_project_path("/Users/greg.ho/my.project"),
+            "-Users-greg-ho-my-project"
+        );
+    }
+
+    #[test]
+    fn encode_project_path_strips_trailing_slash() {
+        assert_eq!(
+            encode_project_path("/Users/gregho/project/"),
+            "-Users-gregho-project"
+        );
+    }
+
+    #[test]
+    fn memory_count_md_files_only() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let project_path = "/Users/gregho/myproject";
+        let encoded = encode_project_path(project_path);
+        let memory_dir = home.join(".claude/projects").join(&encoded).join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+
+        fs::write(memory_dir.join("MEMORY.md"), "# notes").unwrap();
+        fs::write(memory_dir.join("patterns.md"), "# patterns").unwrap();
+        fs::write(memory_dir.join("debugging.md"), "# debug").unwrap();
+        fs::write(memory_dir.join("notes.txt"), "not counted").unwrap();
+        fs::write(memory_dir.join("data.json"), "{}").unwrap();
+
+        assert_eq!(count_memory_files(Some(&home), project_path), 3);
+    }
+
+    #[test]
+    fn memory_count_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let project_path = "/Users/gregho/empty";
+        let encoded = encode_project_path(project_path);
+        let memory_dir = home.join(".claude/projects").join(&encoded).join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+
+        assert_eq!(count_memory_files(Some(&home), project_path), 0);
+    }
+
+    #[test]
+    fn memory_count_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        assert_eq!(
+            count_memory_files(Some(&home), "/Users/gregho/nonexistent"),
+            0
+        );
+    }
+
+    #[test]
+    fn memory_count_no_home() {
+        assert_eq!(count_memory_files(None, "/some/project"), 0);
     }
 }
