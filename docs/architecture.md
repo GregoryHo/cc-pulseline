@@ -78,7 +78,6 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 | `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills |
 | `git.rs` | `GitCollector` | `LocalGitCollector` | Shells out to `git` for branch, dirty state, ahead/behind |
 | `transcript.rs` | `TranscriptCollector` | `FileTranscriptCollector` | Incremental JSONL parsing with seek-based offsets |
-| `stdin.rs` | `StdinCollector` | (stub-only) | Reserved for future use |
 
 ### `state/mod.rs` -- Session State
 
