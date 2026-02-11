@@ -13,11 +13,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 **Core Metrics** — L1-L3 always visible
 
-```
-M:Opus 4.6 | S:explanatory | CC:2.1.37 | P:~/projects/myapp | G:main ↑2
-1 CLAUDE.md | 3 rules | 2 hooks | 4 MCPs | 1 skills | 1h
-CTX:43% (86.0k/200.0k) | TOK I: 10.0k O: 20.0k C:30.0k/40.0k | $3.50 ($3.50/h)
-```
+![Core metrics](docs/assets/core-metrics.png)
 
 **Context Alert** — CTX ≥70% turns red
 
