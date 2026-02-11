@@ -1,7 +1,7 @@
 {
   "name": "pulseline",
   "description": "High-performance multi-line statusline for Claude Code with setup commands and diagnostics",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "cc-pulseline"
   }
