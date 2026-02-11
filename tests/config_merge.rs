@@ -90,6 +90,30 @@ max_completed = 8
 }
 
 #[test]
+fn merge_project_overrides_show_memory() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[segments.config]
+show_memory = false
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    assert!(
+        merged.segments.config.show_claude_md,
+        "claude_md should inherit"
+    );
+    assert!(merged.segments.config.show_rules, "rules should inherit");
+    assert!(
+        !merged.segments.config.show_memory,
+        "memory should be overridden to false"
+    );
+    assert!(merged.segments.config.show_hooks, "hooks should inherit");
+}
+
+#[test]
 fn merge_project_overrides_budget_and_config() {
     let user = PulselineConfig::default();
     let project: ProjectOverrideConfig = toml::from_str(
@@ -136,7 +160,6 @@ fn merge_full_project_override() {
 [display]
 theme = "light"
 icons = false
-tokyo_bg = true
 
 [segments.identity]
 show_model = false
@@ -164,7 +187,6 @@ max_lines = 1
     let merged = merge_configs(user, &project);
     assert_eq!(merged.display.theme, "light");
     assert!(!merged.display.icons);
-    assert!(merged.display.tokyo_bg);
     assert!(!merged.segments.identity.show_model);
     assert!(!merged.segments.tools.enabled);
     assert_eq!(merged.segments.tools.max_lines, 5);

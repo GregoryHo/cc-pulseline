@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-02-11
+
+### Added
+
+- **Memories metric** on L2 — counts `.md` files in `~/.claude/projects/{path}/memory/`, with `INDICATOR_MEMORY` color and `show_memory` config toggle
+- **Claude Code plugin packaging** — plugin manifest, marketplace config, four slash commands (`/pulseline:setup`, `config`, `status`, `uninstall`), and auto-invoked troubleshooting skill
+- **Project-level Claude Code rules** — `.claude/rules/` with 5 behavioral files (coding style, testing, patterns, rendering, performance)
+- **Integration contract docs** — rules documenting the external Claude Code contract (stdin schema, transcript format, output contract)
+- **Core-metrics screenshot** and generator script for README
+
+### Changed
+
+- **Codebase simplification** — removed dead code (`providers/stdin.rs`, `RenderCacheEntry`, `RunnerState`, unused `StdinPayload` methods, `tokyo_bg` config field), eliminated double JSON deserialization via `run_from_payload()` API, reduced file I/O in env.rs, unified format_tokens_segment branches, extracted `write_init_file()` helper
+- **Documentation cleanup** — removed stale `stdin.rs` references
+
 ## [1.0.0] - 2026-02-10
 
 ### Added
@@ -24,4 +39,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.0.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/GregoryHo/cc-pulseline/releases/tag/v1.0.0

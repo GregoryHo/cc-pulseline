@@ -1,6 +1,6 @@
 [package]
 name = "cc-pulseline"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.74"
 description = "High-performance multi-line statusline for Claude Code with deep observability"
@@ -11,7 +11,7 @@ homepage = "https://github.com/GregoryHo/cc-pulseline"
 readme = "README.md"
 keywords = ["claude", "statusline", "claude-code", "cli", "observability"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = [".claude/", ".serena/", ".github/", "tests/fixtures/", "scripts/", "npm/", "docs/", "benches/"]
+exclude = [".claude/", ".claude-plugin/", ".serena/", ".github/", "tests/fixtures/", "scripts/", "npm/", "docs/", "benches/", "commands/", "skills/"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

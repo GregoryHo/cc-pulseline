@@ -599,31 +599,26 @@ fn handle_flat_tool_use(
         .or_else(|| find_string(raw_event, &["name", "tool_name", "tool"]))
         .unwrap_or_else(|| "unknown".to_string());
 
-    if name == "Task" {
-        handle_task_from_tool_use(state, event, raw_event, event_ts);
-        return;
+    match name.as_str() {
+        "Task" => {
+            handle_task_from_tool_use(state, event, raw_event, event_ts);
+        }
+        "TaskCreate" => {
+            dispatch_task_create(state, event, Some(raw_event));
+        }
+        "TaskUpdate" => {
+            dispatch_task_update(state, event, Some(raw_event));
+        }
+        "TodoWrite" => {
+            dispatch_todo_write(state, event, Some(raw_event));
+        }
+        _ => {
+            let id = find_string(event, &["id", "tool_use_id", "tool_call_id"])
+                .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
+                .unwrap_or_else(|| format!("{name}-active"));
+            state.upsert_tool(id, name, None);
+        }
     }
-
-    if name == "TaskCreate" {
-        dispatch_task_create(state, event, Some(raw_event));
-        return;
-    }
-
-    if name == "TaskUpdate" {
-        dispatch_task_update(state, event, Some(raw_event));
-        return;
-    }
-
-    if name == "TodoWrite" {
-        dispatch_todo_write(state, event, Some(raw_event));
-        return;
-    }
-
-    let id = find_string(event, &["id", "tool_use_id", "tool_call_id"])
-        .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
-        .unwrap_or_else(|| format!("{name}-active"));
-
-    state.upsert_tool(id, name, None);
 }
 
 fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &Value) {

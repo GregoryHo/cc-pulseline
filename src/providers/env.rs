@@ -10,6 +10,7 @@ pub struct EnvSnapshot {
     pub rules_count: u32,
     pub hooks_count: u32,
     pub mcp_count: u32,
+    pub memory_count: u32,
     pub skills_count: u32,
 }
 
@@ -54,9 +55,12 @@ impl EnvCollector for FileSystemEnvCollector {
                 .map(|home| count_plugin_skills(home))
                 .unwrap_or(0);
 
+        let memory_count = count_memory_files(user_home.as_deref(), cwd);
+
         EnvSnapshot {
             claude_md_count: count_claude_md(root, user_home.as_deref()),
             rules_count,
+            memory_count,
             hooks_count: count_hooks_in_json(&root.join(".claude/settings.json"))
                 + count_hooks_in_json(&root.join(".claude/settings.local.json"))
                 + user_home
@@ -128,16 +132,14 @@ fn count_md_files_recursive(path: &Path) -> u32 {
     count
 }
 
-/// Extract `mcpServers` object keys from a JSON file.
-fn get_mcp_server_names(path: &Path) -> HashSet<String> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return HashSet::new(),
-    };
-    let value: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return HashSet::new(),
-    };
+/// Read and parse a JSON file, returning None on any error.
+fn read_json_file(path: &Path) -> Option<serde_json::Value> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Extract `mcpServers` object keys from a parsed JSON value.
+fn mcp_server_names_from(value: &serde_json::Value) -> HashSet<String> {
     value
         .get("mcpServers")
         .and_then(serde_json::Value::as_object)
@@ -145,16 +147,15 @@ fn get_mcp_server_names(path: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
+/// Extract `mcpServers` object keys from a JSON file.
+fn get_mcp_server_names(path: &Path) -> HashSet<String> {
+    read_json_file(path)
+        .map(|v| mcp_server_names_from(&v))
+        .unwrap_or_default()
+}
+
 /// Extract disabled server names from a JSON array field (string values only).
-fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return HashSet::new(),
-    };
-    let value: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => return HashSet::new(),
-    };
+fn disabled_servers_from(value: &serde_json::Value, key: &str) -> HashSet<String> {
     value
         .get(key)
         .and_then(serde_json::Value::as_array)
@@ -164,6 +165,14 @@ fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
                 .map(String::from)
                 .collect()
         })
+        .unwrap_or_default()
+}
+
+/// Extract disabled server names from a JSON file.
+#[cfg(test)]
+fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
+    read_json_file(path)
+        .map(|v| disabled_servers_from(&v, key))
         .unwrap_or_default()
 }
 
@@ -179,15 +188,14 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
             user_set.insert(name);
         }
 
-        // ~/.claude.json → mcpServers
-        let user_claude_json = home.join(".claude.json");
-        for name in get_mcp_server_names(&user_claude_json) {
-            user_set.insert(name);
-        }
-
-        // ~/.claude.json → disabledMcpServers (subtract)
-        for name in get_disabled_mcp_servers(&user_claude_json, "disabledMcpServers") {
-            user_set.remove(&name);
+        // ~/.claude.json → mcpServers + disabledMcpServers (single read)
+        if let Some(claude_json) = read_json_file(&home.join(".claude.json")) {
+            for name in mcp_server_names_from(&claude_json) {
+                user_set.insert(name);
+            }
+            for name in disabled_servers_from(&claude_json, "disabledMcpServers") {
+                user_set.remove(&name);
+            }
         }
     }
 
@@ -201,15 +209,15 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
         project_set.insert(name);
     }
 
-    // {root}/.claude/settings.local.json → mcpServers
+    // {root}/.claude/settings.local.json → mcpServers + disabledMcpjsonServers (single read)
     let local_settings = root.join(".claude/settings.local.json");
-    for name in get_mcp_server_names(&local_settings) {
-        project_set.insert(name);
-    }
-
-    // {root}/.claude/settings.local.json → disabledMcpjsonServers (subtract from .mcp.json set)
-    for name in get_disabled_mcp_servers(&local_settings, "disabledMcpjsonServers") {
-        mcp_json_servers.remove(&name);
+    if let Some(local_value) = read_json_file(&local_settings) {
+        for name in mcp_server_names_from(&local_value) {
+            project_set.insert(name);
+        }
+        for name in disabled_servers_from(&local_value, "disabledMcpjsonServers") {
+            mcp_json_servers.remove(&name);
+        }
     }
 
     // Remaining .mcp.json servers → add to project set
@@ -328,6 +336,40 @@ fn count_plugin_hooks(user_home: &Path) -> u32 {
             }
         })
         .sum()
+}
+
+/// Encode a project path to match Claude Code's memory directory naming convention.
+/// Replaces `/` and `.` with `-`, matching the format in `~/.claude/projects/`.
+pub fn encode_project_path(path: &str) -> String {
+    path.trim_end_matches('/').replace(['/', '.'], "-")
+}
+
+/// Count `.md` files in the project's memory directory (flat scan, no recursion).
+fn count_memory_files(user_home: Option<&Path>, project_path: &str) -> u32 {
+    let home = match user_home {
+        Some(h) => h,
+        None => return 0,
+    };
+
+    let encoded = encode_project_path(project_path);
+    let memory_dir = home.join(".claude/projects").join(encoded).join("memory");
+
+    let entries = match fs::read_dir(&memory_dir) {
+        Ok(entries) => entries,
+        Err(_) => return 0,
+    };
+
+    entries
+        .flatten()
+        .filter(|entry| {
+            entry.path().is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .map(|ext| ext == "md")
+                    .unwrap_or(false)
+        })
+        .count() as u32
 }
 
 fn count_skill_dirs(skills_root: &Path) -> u32 {
@@ -702,5 +744,76 @@ mod tests {
         .unwrap();
 
         assert_eq!(count_plugin_hooks(&home), 0);
+    }
+
+    // ── Memory file counting tests ──────────────────────────────────
+
+    #[test]
+    fn encode_project_path_replaces_slashes_and_dots() {
+        assert_eq!(
+            encode_project_path("/Users/gregho/GitHub/AI/cc-pulseline"),
+            "-Users-gregho-GitHub-AI-cc-pulseline"
+        );
+    }
+
+    #[test]
+    fn encode_project_path_handles_dots() {
+        assert_eq!(
+            encode_project_path("/Users/greg.ho/my.project"),
+            "-Users-greg-ho-my-project"
+        );
+    }
+
+    #[test]
+    fn encode_project_path_strips_trailing_slash() {
+        assert_eq!(
+            encode_project_path("/Users/gregho/project/"),
+            "-Users-gregho-project"
+        );
+    }
+
+    #[test]
+    fn memory_count_md_files_only() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let project_path = "/Users/gregho/myproject";
+        let encoded = encode_project_path(project_path);
+        let memory_dir = home.join(".claude/projects").join(&encoded).join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+
+        fs::write(memory_dir.join("MEMORY.md"), "# notes").unwrap();
+        fs::write(memory_dir.join("patterns.md"), "# patterns").unwrap();
+        fs::write(memory_dir.join("debugging.md"), "# debug").unwrap();
+        fs::write(memory_dir.join("notes.txt"), "not counted").unwrap();
+        fs::write(memory_dir.join("data.json"), "{}").unwrap();
+
+        assert_eq!(count_memory_files(Some(&home), project_path), 3);
+    }
+
+    #[test]
+    fn memory_count_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        let project_path = "/Users/gregho/empty";
+        let encoded = encode_project_path(project_path);
+        let memory_dir = home.join(".claude/projects").join(&encoded).join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+
+        assert_eq!(count_memory_files(Some(&home), project_path), 0);
+    }
+
+    #[test]
+    fn memory_count_nonexistent_dir() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+        assert_eq!(
+            count_memory_files(Some(&home), "/Users/gregho/nonexistent"),
+            0
+        );
+    }
+
+    #[test]
+    fn memory_count_no_home() {
+        assert_eq!(count_memory_files(None, "/some/project"), 0);
     }
 }

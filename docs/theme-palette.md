@@ -7,7 +7,7 @@
 | Alert | Red, Orange, Magenta | 196, 214, 201 |
 | Active | Cyan, Purple, Teal, Amber, Coral | 117, 183, 80, 178, 209 |
 | Stable | Blue, Green | 111, 71 |
-| Indicator | Steel, Sage, Amber, Lavender, Teal, Rose | 109, 108, 179, 139, 73, 174 |
+| Indicator | Steel, Sage, Lilac, Amber, Lavender, Teal, Rose | 109, 108, 182, 179, 139, 73, 174 |
 | Cost | Base, Low, Med, High | 222, 186, 221, 201 |
 | Emphasis (Dark) | Primary, Secondary, Structural, Separator | 251, 146, 60, 238 |
 | Emphasis (Light) | Primary, Secondary, Structural, Separator | 234, 240, 247, 252 |
@@ -83,6 +83,7 @@ Provides unique icon colors for each L2 metric, enabling fast visual scanning. C
 |------|------|-----------|------------------|
 | `INDICATOR_CLAUDE_MD` | 109 | CLAUDE.md | Muted steel -- documentation/config |
 | `INDICATOR_RULES` | 108 | Rules | Muted sage -- governance |
+| `INDICATOR_MEMORY` | 182 | Memories | Muted lilac -- knowledge/memories |
 | `INDICATOR_HOOKS` | 179 | Hooks | Muted amber -- active/intercepting |
 | `INDICATOR_MCP` | 139 | MCPs | Muted lavender -- extensions |
 | `INDICATOR_SKILLS` | 73 | Skills | Muted teal -- capabilities |
@@ -130,7 +131,7 @@ For backward compatibility, old names map to the new tier system:
 | ALERT | 3 (196/214/201) | Critical states | Unchanged |
 | ACTIVE | 5 (117/183/80/178/209) | Live activity | Unchanged |
 | STABLE | 2 (111/71) | Static identity | Unchanged |
-| INDICATOR | 6 (109/108/179/139/73/174) | L2 metric-specific anchoring | Added |
+| INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Added |
 | Emphasis | 4x2 themes | Gray hierarchy | Light values revised |
 | Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
 
@@ -153,7 +154,7 @@ For backward compatibility, old names map to the new tier system:
 [INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(60/247)]label [separator(238/252)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
 ```
 
-- `109/108/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
+- `109/108/182/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
 - `146/240` Counts: tier.secondary (the actual data -- most prominent on L2)
 - `60/247` Labels: tier.structural (descriptive text)
 - `238/252` Separators: tier.separator
@@ -196,13 +197,13 @@ ASCII mode — L1 through L5 with every color annotated:
 
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
-[primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
 [STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 [ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test [separator]| [COMPLETED_CHECK(67)]✓ Read [secondary]×12 [separator]| [COMPLETED_CHECK]✓ Bash [secondary]×5
 [ACTIVE_PURPLE(183)]A:Explore [structural(60)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
 ```
 
-In icon mode, L2 gains per-metric indicator colors on icons (109/108/179/139/73/174) before each count.
+In icon mode, L2 gains per-metric indicator colors on icons (109/108/182/179/139/73/174) before each count.
 
 ### Alert State (Dark Theme)
 
@@ -220,7 +221,7 @@ Same output, different emphasis tier codes — semantic colors are unchanged:
 
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(252)]| [secondary(240)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main
-[primary(234)]1 [structural(247)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[primary(234)]1 [structural(247)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
 [STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(247)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 ```
 
@@ -232,7 +233,7 @@ Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 60→24
 2. Line 1 model icon+value: STABLE_BLUE (111)
 3. Line 1 style/version/project icon+value: tier.secondary (146/240) -- promoted from structural for visual prominence
 4. Line 1 git icon+value: STABLE_GREEN (71) or ALERT_ORANGE/ACTIVE_CORAL (state)
-5. Line 2 icons: per-metric INDICATOR color (109/108/179/139/73/174) -- unique visual fingerprints
+5. Line 2 icons: per-metric INDICATOR color (109/108/182/179/139/73/174) -- unique visual fingerprints
 6. Line 2 counts: tier.secondary; labels: tier.structural
 7. Context icon matches percentage color (CTX_GOOD/WARN/CRITICAL)
 8. Activity icons match their text color (TOOL_BLUE, AGENT_PURPLE, TODO_TEAL)
@@ -275,7 +276,7 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 - Alert tier (196, 214, 201) -- bright saturated, always visible
 - Active tier (117, 183, 80, 178, 209) -- mid-saturation, sufficient contrast on both
 - Stable tier (111, 71) -- mid-brightness blues/greens, readable on both
-- Indicator tier (109, 108, 179, 139, 73, 174) -- muted pastels, readable on both
+- Indicator tier (109, 108, 182, 179, 139, 73, 174) -- muted pastels, readable on both
 - Cost tier (222, 186, 221, 201) -- warm/bright tones, always legible
 
 ## How to Customize

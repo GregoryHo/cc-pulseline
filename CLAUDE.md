@@ -53,10 +53,9 @@ stdin JSON → StdinPayload (deserialize)
 - **`types.rs`** — All data structures: `StdinPayload` (input deserialization), `RenderFrame` and its line metrics (`Line1Metrics`, `Line2Metrics`, `Line3Metrics`), plus activity summaries (`ToolSummary`, `AgentSummary`, `TodoSummary`). `RenderFrame::from_payload()` does the initial field extraction.
 
 - **`providers/`** — Trait-based collectors that gather data from external sources. Each has a real implementation and a `Stub*` for testing:
-  - `env.rs` — `EnvCollector` scans for CLAUDE.md files, rules, hooks, MCP servers, and skills. MCP parsing uses scoped dedup: user scope (`~/.claude/settings.json` + `~/.claude.json` minus `disabledMcpServers`) and project scope (`.mcp.json` + `.claude/settings.json` + `.claude/settings.local.json` minus `disabledMcpjsonServers`)
+  - `env.rs` — `EnvCollector` scans for CLAUDE.md files, rules, memories, hooks, MCP servers, and skills. MCP parsing uses scoped dedup: user scope (`~/.claude/settings.json` + `~/.claude.json` minus `disabledMcpServers`) and project scope (`.mcp.json` + `.claude/settings.json` + `.claude/settings.local.json` minus `disabledMcpjsonServers`). Memory files are counted from `~/.claude/projects/{encoded-path}/memory/` (flat `.md` scan).
   - `git.rs` — `GitCollector` shells out to `git` for branch, dirty state, ahead/behind
   - `transcript.rs` — `TranscriptCollector` does incremental JSONL parsing of the Claude Code transcript file with seek-based offsets and poll throttling. This is the most complex provider — it maintains active tool/agent/todo state via `SessionState`
-  - `stdin.rs` — `StdinCollector` (stub-only, currently unused beyond the trait)
 
 - **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
   - `state/cache.rs` — Persists `SessionState` to `{temp_dir}/cc-pulseline-{hash}.json` across process invocations (prevents L3 metric flicker). Uses atomic writes (.tmp + rename) with silent failure on errors.
@@ -74,7 +73,7 @@ stdin JSON → StdinPayload (deserialize)
 ### Output Line Format
 
 - **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n]`
-- **L2**: `1 CLAUDE.md | 2 rules | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
+- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK:I:10 O:20 C:30 R:40 | $3.50 ($3.50/h)`
 - **L4**: `T:Read: .../main.rs | T:Bash: cargo test | ✓Read ×5` (running tools + completed counts)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)` (agents — active first, then recent completed)

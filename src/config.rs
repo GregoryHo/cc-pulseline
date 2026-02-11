@@ -9,10 +9,10 @@ fn default_true() -> bool {
 fn default_dark() -> String {
     "dark".to_string()
 }
-fn default_2() -> usize {
+fn default_max_lines() -> usize {
     2
 }
-fn default_4() -> usize {
+fn default_max_completed() -> usize {
     4
 }
 
@@ -30,8 +30,6 @@ pub struct DisplayConfig {
     pub theme: String,
     #[serde(default = "default_true")]
     pub icons: bool,
-    #[serde(default)]
-    pub tokyo_bg: bool,
 }
 
 impl Default for DisplayConfig {
@@ -39,7 +37,6 @@ impl Default for DisplayConfig {
         Self {
             theme: default_dark(),
             icons: true,
-            tokyo_bg: false,
         }
     }
 }
@@ -93,6 +90,8 @@ pub struct ConfigSegmentConfig {
     #[serde(default = "default_true")]
     pub show_rules: bool,
     #[serde(default = "default_true")]
+    pub show_memory: bool,
+    #[serde(default = "default_true")]
     pub show_hooks: bool,
     #[serde(default = "default_true")]
     pub show_mcp: bool,
@@ -107,6 +106,7 @@ impl Default for ConfigSegmentConfig {
         Self {
             show_claude_md: true,
             show_rules: true,
+            show_memory: true,
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
@@ -139,9 +139,9 @@ impl Default for BudgetSegmentConfig {
 pub struct ToolSegmentConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_2")]
+    #[serde(default = "default_max_lines")]
     pub max_lines: usize,
-    #[serde(default = "default_4")]
+    #[serde(default = "default_max_completed")]
     pub max_completed: usize,
 }
 
@@ -159,7 +159,7 @@ impl Default for ToolSegmentConfig {
 pub struct SegmentToggle {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_2")]
+    #[serde(default = "default_max_lines")]
     pub max_lines: usize,
 }
 
@@ -200,7 +200,6 @@ pub fn default_config_toml() -> &'static str {
     r#"[display]
 theme = "dark"          # dark | light
 icons = true            # nerd font icons vs ascii
-tokyo_bg = false        # segmented background colors
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -209,9 +208,10 @@ show_version = true
 show_project = true
 show_git = true
 
-[segments.config]       # Line 2 — CLAUDE.md, rules, hooks, MCPs, skills, duration
+[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
 show_rules = true
+show_memory = true
 show_hooks = true
 show_mcp = true
 show_skills = true
@@ -249,7 +249,6 @@ pub struct ProjectOverrideConfig {
 pub struct ProjectDisplayOverride {
     pub theme: Option<String>,
     pub icons: Option<bool>,
-    pub tokyo_bg: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -275,6 +274,7 @@ pub struct ProjectIdentityOverride {
 pub struct ProjectConfigOverride {
     pub show_claude_md: Option<bool>,
     pub show_rules: Option<bool>,
+    pub show_memory: Option<bool>,
     pub show_hooks: Option<bool>,
     pub show_mcp: Option<bool>,
     pub show_skills: Option<bool>,
@@ -336,9 +336,6 @@ pub fn merge_configs(
         if let Some(icons) = display.icons {
             user.display.icons = icons;
         }
-        if let Some(tokyo_bg) = display.tokyo_bg {
-            user.display.tokyo_bg = tokyo_bg;
-        }
     }
 
     // Segment overrides
@@ -366,6 +363,9 @@ pub fn merge_configs(
             }
             if let Some(v) = config.show_rules {
                 user.segments.config.show_rules = v;
+            }
+            if let Some(v) = config.show_memory {
+                user.segments.config.show_memory = v;
             }
             if let Some(v) = config.show_hooks {
                 user.segments.config.show_hooks = v;
@@ -475,6 +475,7 @@ pub fn default_project_config_toml() -> &'static str {
 # show_version = false
 
 # [segments.config]
+# show_memory = false
 # show_skills = false
 
 # [segments.budget]
@@ -517,6 +518,7 @@ pub struct RenderConfig {
     // L2 segment toggles
     pub show_claude_md: bool,
     pub show_rules: bool,
+    pub show_memory: bool,
     pub show_hooks: bool,
     pub show_mcp: bool,
     pub show_skills: bool,
@@ -551,6 +553,7 @@ impl Default for RenderConfig {
             show_git: true,
             show_claude_md: true,
             show_rules: true,
+            show_memory: true,
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
@@ -607,6 +610,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         // L2 config toggles
         show_claude_md: pulseline.segments.config.show_claude_md,
         show_rules: pulseline.segments.config.show_rules,
+        show_memory: pulseline.segments.config.show_memory,
         show_hooks: pulseline.segments.config.show_hooks,
         show_mcp: pulseline.segments.config.show_mcp,
         show_skills: pulseline.segments.config.show_skills,

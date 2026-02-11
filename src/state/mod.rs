@@ -15,12 +15,6 @@ use crate::{
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
 
 #[derive(Debug, Clone, Default)]
-pub struct RenderCacheEntry {
-    pub key: u64,
-    pub lines: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default)]
 pub struct SessionState {
     pub last_transcript_offset: u64,
     pub last_transcript_path: Option<String>,
@@ -39,7 +33,6 @@ pub struct SessionState {
     pub cached_env: Option<(String, EnvSnapshot)>,
     pub cached_git: Option<(String, GitSnapshot)>,
     pub cached_line3: Option<Line3Metrics>,
-    pub render_cache: Option<RenderCacheEntry>,
 }
 
 impl SessionState {
@@ -284,14 +277,6 @@ impl SessionState {
         self.active_tools[start..].to_vec()
     }
 
-    pub fn capped_agents(&self, max_lines: usize) -> Vec<AgentSummary> {
-        if max_lines == 0 {
-            return Vec::new();
-        }
-        let start = self.active_agents.len().saturating_sub(max_lines);
-        self.active_agents[start..].to_vec()
-    }
-
     /// Active agents first, then most recent completed, sliced to max_total.
     pub fn agents_for_display(&self, max_total: usize) -> Vec<AgentSummary> {
         if max_total == 0 {
@@ -375,9 +360,4 @@ impl SessionState {
             }),
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct RunnerState {
-    pub sessions: HashMap<String, SessionState>,
 }

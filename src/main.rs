@@ -5,7 +5,8 @@ use cc_pulseline::{
         build_render_config, check_configs, config_path, default_config_toml,
         default_project_config_toml, load_merged_config, project_config_path,
     },
-    run_from_str,
+    types::StdinPayload,
+    PulseLineRunner,
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -61,12 +62,20 @@ fn main() {
         input = "{}".to_string();
     }
 
-    // Extract project root from stdin payload for config scoping
-    let project_root = extract_project_root(&input);
+    // Deserialize once, extract project root for config, then render
+    let payload: StdinPayload = match serde_json::from_str(&input) {
+        Ok(p) => p,
+        Err(err) => {
+            eprintln!("invalid stdin JSON: {err}");
+            std::process::exit(1);
+        }
+    };
+
+    let project_root = payload.resolve_project_path();
     let pulseline_config = load_merged_config(project_root.as_deref());
     let render_config = build_render_config(&pulseline_config);
 
-    let lines = match run_from_str(&input, render_config) {
+    let lines = match PulseLineRunner::default().run_from_payload(&payload, render_config) {
         Ok(lines) => lines,
         Err(err) => {
             eprintln!("{err}");
@@ -77,18 +86,20 @@ fn main() {
     println!("{}", lines.join("\n"));
 }
 
-/// Extract project root from stdin JSON without full deserialization.
-fn extract_project_root(input: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(input).ok()?;
-    value["workspace"]["current_dir"]
-        .as_str()
-        .map(String::from)
-        .or_else(|| value["cwd"].as_str().map(String::from))
+fn init_config() {
+    write_init_file(&config_path(), default_config_toml());
 }
 
-fn init_config() {
-    let path = config_path();
+fn init_project_config() {
+    let cwd = std::env::current_dir().unwrap_or_else(|err| {
+        eprintln!("failed to get current directory: {err}");
+        std::process::exit(1);
+    });
+    let cwd_str = cwd.to_str().unwrap_or(".");
+    write_init_file(&project_config_path(cwd_str), default_project_config_toml());
+}
 
+fn write_init_file(path: &std::path::Path, content: &str) {
     if path.exists() {
         eprintln!("config already exists: {}", path.display());
         std::process::exit(1);
@@ -101,36 +112,8 @@ fn init_config() {
         }
     }
 
-    if let Err(err) = std::fs::write(&path, default_config_toml()) {
-        eprintln!("failed to write config {}: {err}", path.display());
-        std::process::exit(1);
-    }
-
-    println!("created {}", path.display());
-}
-
-fn init_project_config() {
-    let cwd = std::env::current_dir().unwrap_or_else(|err| {
-        eprintln!("failed to get current directory: {err}");
-        std::process::exit(1);
-    });
-    let cwd_str = cwd.to_str().unwrap_or(".");
-    let path = project_config_path(cwd_str);
-
-    if path.exists() {
-        eprintln!("project config already exists: {}", path.display());
-        std::process::exit(1);
-    }
-
-    if let Some(parent) = path.parent() {
-        if let Err(err) = std::fs::create_dir_all(parent) {
-            eprintln!("failed to create directory {}: {err}", parent.display());
-            std::process::exit(1);
-        }
-    }
-
-    if let Err(err) = std::fs::write(&path, default_project_config_toml()) {
-        eprintln!("failed to write project config {}: {err}", path.display());
+    if let Err(err) = std::fs::write(path, content) {
+        eprintln!("failed to write {}: {err}", path.display());
         std::process::exit(1);
     }
 
@@ -170,7 +153,6 @@ fn print_config(project_root: Option<&str>) {
     println!("[display]");
     println!("theme = {:?}", config.display.theme);
     println!("icons = {}", config.display.icons);
-    println!("tokyo_bg = {}", config.display.tokyo_bg);
     println!();
     println!("[segments.identity]");
     println!("show_model = {}", config.segments.identity.show_model);
@@ -182,6 +164,7 @@ fn print_config(project_root: Option<&str>) {
     println!("[segments.config]");
     println!("show_claude_md = {}", config.segments.config.show_claude_md);
     println!("show_rules = {}", config.segments.config.show_rules);
+    println!("show_memory = {}", config.segments.config.show_memory);
     println!("show_hooks = {}", config.segments.config.show_hooks);
     println!("show_mcp = {}", config.segments.config.show_mcp);
     println!("show_skills = {}", config.segments.config.show_skills);

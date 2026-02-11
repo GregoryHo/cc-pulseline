@@ -29,6 +29,7 @@ pub const STABLE_GREEN: &str = "\x1b[38;5;71m";
 // ── INDICATOR tier — muted accents for L2 metric icons ──
 pub const INDICATOR_CLAUDE_MD: &str = "\x1b[38;5;109m"; // Muted steel — documentation
 pub const INDICATOR_RULES: &str = "\x1b[38;5;108m"; // Muted sage — governance
+pub const INDICATOR_MEMORY: &str = "\x1b[38;5;182m"; // Muted lilac — knowledge/memories
 pub const INDICATOR_HOOKS: &str = "\x1b[38;5;179m"; // Muted amber — active/intercepting
 pub const INDICATOR_MCP: &str = "\x1b[38;5;139m"; // Muted lavender — extensions
 pub const INDICATOR_SKILLS: &str = "\x1b[38;5;73m"; // Muted teal — capabilities
@@ -44,7 +45,6 @@ pub const COST_MED_RATE: &str = "\x1b[38;5;221m";
 pub const COST_HIGH_RATE: &str = "\x1b[38;5;201m";
 
 // Legacy aliases → tier-based constants
-pub const MODEL_BLUE: &str = STABLE_BLUE;
 pub const GIT_GREEN: &str = STABLE_GREEN;
 pub const GIT_MODIFIED: &str = ALERT_ORANGE;
 pub const GIT_AHEAD: &str = ACTIVE_CORAL;
@@ -148,18 +148,18 @@ mod tests {
 
     #[test]
     fn colorize_enabled() {
-        let result = colorize("hello", MODEL_BLUE, true);
+        let result = colorize("hello", STABLE_BLUE, true);
         assert_eq!(result, "\x1b[38;5;111mhello\x1b[0m");
     }
 
     #[test]
     fn colorize_disabled() {
-        assert_eq!(colorize("hello", MODEL_BLUE, false), "hello");
+        assert_eq!(colorize("hello", STABLE_BLUE, false), "hello");
     }
 
     #[test]
     fn strip_ansi_removes_escapes() {
-        let colored = format!("{MODEL_BLUE}hello{RESET} {TOOL_BLUE}world{RESET}");
+        let colored = format!("{STABLE_BLUE}hello{RESET} {TOOL_BLUE}world{RESET}");
         assert_eq!(strip_ansi(&colored), "hello world");
     }
 
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn visible_width_ignores_ansi() {
-        let colored = format!("{MODEL_BLUE}M:{RESET}{MODEL_BLUE}Opus{RESET}");
+        let colored = format!("{STABLE_BLUE}M:{RESET}{STABLE_BLUE}Opus{RESET}");
         assert_eq!(visible_width(&colored), 6); // "M:Opus"
     }
 
@@ -217,6 +217,7 @@ mod tests {
         let indicators = [
             INDICATOR_CLAUDE_MD,
             INDICATOR_RULES,
+            INDICATOR_MEMORY,
             INDICATOR_HOOKS,
             INDICATOR_MCP,
             INDICATOR_SKILLS,

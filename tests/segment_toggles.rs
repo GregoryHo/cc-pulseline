@@ -79,6 +79,24 @@ fn line1_shows_only_model_and_git() {
 // ── Line 2 toggles ──────────────────────────────────────────────────
 
 #[test]
+fn line2_hides_memory_when_disabled() {
+    let config = RenderConfig {
+        show_memory: false,
+        ..RenderConfig::default()
+    };
+    let lines = run_from_str(&basic_input(), config).unwrap();
+    assert!(
+        !lines[1].contains("memories"),
+        "L2 should not contain memories when show_memory=false"
+    );
+    assert!(
+        lines[1].contains("CLAUDE.md"),
+        "L2 should still show CLAUDE.md"
+    );
+    assert!(lines[1].contains("rules"), "L2 should still show rules");
+}
+
+#[test]
 fn line2_hides_tokens_and_rules() {
     let config = RenderConfig {
         show_rules: false,
@@ -108,6 +126,7 @@ fn line2_hides_tokens_and_rules() {
 fn line2_shows_only_claude_md_and_mcp() {
     let config = RenderConfig {
         show_rules: false,
+        show_memory: false,
         show_hooks: false,
         show_skills: false,
         show_duration: false,
@@ -117,6 +136,10 @@ fn line2_shows_only_claude_md_and_mcp() {
     assert!(lines[1].contains("CLAUDE.md"), "L2 should show CLAUDE.md");
     assert!(lines[1].contains("MCPs"), "L2 should show MCPs");
     assert!(!lines[1].contains("rules"), "L2 should not show rules");
+    assert!(
+        !lines[1].contains("memories"),
+        "L2 should not show memories"
+    );
     assert!(!lines[1].contains("hooks"), "L2 should not show hooks");
     assert!(!lines[1].contains("skills"), "L2 should not show skills");
 }
