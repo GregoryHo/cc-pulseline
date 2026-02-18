@@ -124,7 +124,7 @@ Three segments tracking resource consumption.
 | Context | `CTX:` | `payload.conversation.context_window.*` | Percentage = used/total, formatted as `pct% (used/total)` | L3 all-or-nothing fallback | State-driven (see below) |
 | Tokens | `TOK:` | `payload.conversation.usage.*` | Four sub-fields: I (input), O (output), C (cache_creation), R (cache_read) | L3 all-or-nothing fallback | tier.structural labels, tier.secondary values |
 | Cost | `$` | `payload.conversation.usage.costUSD` + elapsed time | Total cost + computed burn rate ($/h) | L3 all-or-nothing fallback | COST_BASE (222) + rate-based gradient |
-| Speed | `↗N/s` (inline in TOK) | Computed from successive output token snapshots | Delta-based tok/s with 2s window; holds last known value when idle | SessionState in-memory | tier.secondary (inline after output tokens) |
+| Speed | `↗N/s` (inline in TOK) | Computed from successive output token snapshots | Delta-based tok/s with 2s window; holds last known value when idle | SessionState in-memory | tier.primary when data exists, tier.structural when absent (matches token values) |
 
 ### Context Color States
 
@@ -194,7 +194,7 @@ CTX:--% (--/--) | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)
 
 ## Quota Line
 
-Usage quota bar rendered between L3 and activity lines. Shows subscription usage with visual progress bar.
+Usage quota rendered between L3 and activity lines. Shows subscription usage percentage.
 
 | Metric | Data Source | Parsing Method | Cache | Color |
 |--------|-------------|----------------|-------|-------|
@@ -229,10 +229,10 @@ Uses the same CTX threshold colors as context percentage:
 
 | State | Display |
 |-------|---------|
-| Normal (75%) | `Q:Pro 5h: ████████░░ 75% (resets 2h)` |
+| Normal (75%) | `Q:Pro 5h: 75% (resets 2h 0m)` |
 | Limit reached | `Q:Max 5h: Limit reached (resets 15m)` |
-| Reset unknown | `Q:Pro 5h: ███░░░░░░░ 25%` |
-| Reset ≥24h | `Q:Max 7d: ██████░░░░ 55% (resets 2d)` |
+| Reset unknown | `Q:Pro 5h: 25%` |
+| Reset ≥24h | `Q:Max 7d: 55% (resets 2d 0h 0m)` |
 | Unavailable | `Q:Pro 5h: --` |
 | API user | (no quota line) |
 

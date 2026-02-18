@@ -12,7 +12,7 @@ use super::color::{
     INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY,
     INDICATOR_RULES, INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
-use super::fmt::{format_duration, format_number, format_speed};
+use super::fmt::{format_duration, format_number, format_reset_duration, format_speed};
 use super::icons::*;
 
 /// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
@@ -507,7 +507,7 @@ fn format_tokens_segment(
 
     // Speed inline after output tokens: "O:20.0k ↗1.5K/s"
     let speed_part = speed
-        .map(|s| colorize(&format!(" {}", format_speed(s)), tier.secondary, color))
+        .map(|s| colorize(&format!(" {}", format_speed(s)), val_color, color))
         .unwrap_or_default();
 
     let label = colorize("TOK ", tier.structural, color);
@@ -573,8 +573,6 @@ fn capitalize_first(s: &str) -> String {
     }
 }
 
-const QUOTA_BAR_WIDTH: usize = 10;
-
 fn format_quota_line(
     quota: &QuotaMetrics,
     config: &RenderConfig,
@@ -623,8 +621,7 @@ fn format_quota_line(
         return None;
     }
 
-    let sep = colorize(" | ", tier.separator, color);
-    Some(format!("{prefix}{}", parts.join(&sep)))
+    Some(format!("{prefix}{}", parts.join(" ")))
 }
 
 fn format_quota_period(
@@ -638,7 +635,7 @@ fn format_quota_period(
 
     match pct {
         Some(p) => {
-            let bar_color = if p >= 85.0 {
+            let pct_color = if p >= 85.0 {
                 CTX_CRITICAL
             } else if p >= 50.0 {
                 CTX_WARN
@@ -646,25 +643,12 @@ fn format_quota_period(
                 CTX_GOOD
             };
 
-            let filled = ((p / 100.0) * QUOTA_BAR_WIDTH as f64).round() as usize;
-            let empty = QUOTA_BAR_WIDTH.saturating_sub(filled);
-
-            let bar_filled = colorize(&"█".repeat(filled), bar_color, color);
-            let bar_empty = colorize(&"░".repeat(empty), tier.separator, color);
-            let pct_str = colorize(&format!("{p:.0}%"), bar_color, color);
+            let pct_str = colorize(&format!("{p:.0}%"), pct_color, color);
             let label_str = colorize(&format!("{label}:"), tier.secondary, color);
 
             let reset_part = reset_minutes
                 .map(|m| {
-                    let duration = if m == 0 {
-                        "<1m".to_string()
-                    } else if m < 60 {
-                        format!("{m}m")
-                    } else if m < 1440 {
-                        format!("{}h", m / 60)
-                    } else {
-                        format!("{}d", m / 1440)
-                    };
+                    let duration = format_reset_duration(m);
                     let open = colorize(" (", tier.separator, color);
                     let txt = colorize(&format!("resets {duration}"), tier.structural, color);
                     let close = colorize(")", tier.separator, color);
@@ -676,7 +660,7 @@ fn format_quota_period(
                 let limit_text = colorize("Limit reached", CTX_CRITICAL, color);
                 format!("{label_str} {limit_text}{reset_part}")
             } else {
-                format!("{label_str} {bar_filled}{bar_empty} {pct_str}{reset_part}")
+                format!("{label_str} {pct_str}{reset_part}")
             }
         }
         None => {

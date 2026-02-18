@@ -125,7 +125,7 @@ Formats the `RenderFrame` into output lines:
 - **L1**: Identity (model, style, version, project, git + file stats)
 - **L2**: Config counts (CLAUDE.md, rules, memories, hooks, MCPs, skills, duration)
 - **L3**: Budget (context, tokens, cost, speed)
-- **Quota**: Usage quota bar (5-hour and 7-day periods, between L3 and activity)
+- **Quota**: Usage quota (5-hour and 7-day periods, between L3 and activity)
 - **L4+**: Activity (tools, agents, todos -- only when active)
 
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
@@ -193,7 +193,7 @@ Backward compatibility with older transcript formats and test fixtures:
 - **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [up-n] [down-n] [!3 +1 ✘2 ?4]`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10k O:20k C:30k/40k | ↗42/s | $3.50 ($3.50/h)`
-- **Quota**: `Q:Pro 5h: ████████░░ 75% (resets 2h)`
+- **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)`
 - **L4**: `T:Read: .../main.rs | T:Bash: cargo test | checkmark-Read x5`
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`
 

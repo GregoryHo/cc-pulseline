@@ -27,6 +27,7 @@ cc-pulseline --init           # Create user config (~/.claude/pulseline/config.t
 cc-pulseline --init --project # Create project config (.claude/pulseline.toml)
 cc-pulseline --check          # Validate config files
 cc-pulseline --print          # Show effective merged config
+cc-pulseline --fetch-quota    # Internal: background subprocess that fetches usage quota
 ```
 
 ### Configuration
@@ -55,27 +56,30 @@ stdin JSON → StdinPayload (deserialize)
 
 - **`providers/`** — Trait-based collectors that gather data from external sources. Each has a real implementation and a `Stub*` for testing:
   - `env.rs` — `EnvCollector` scans for CLAUDE.md files, rules, memories, hooks, MCP servers, and skills. MCP parsing uses scoped dedup: user scope (`~/.claude/settings.json` + `~/.claude.json` minus `disabledMcpServers`) and project scope (`.mcp.json` + `.claude/settings.json` + `.claude/settings.local.json` minus `disabledMcpjsonServers`). Memory files are counted from `~/.claude/projects/{encoded-path}/memory/` (flat `.md` scan).
-  - `git.rs` — `GitCollector` shells out to `git` for branch, dirty state, ahead/behind
+  - `git.rs` — `GitCollector` shells out to `git` for branch, dirty state, ahead/behind, file stats
   - `transcript.rs` — `TranscriptCollector` does incremental JSONL parsing of the Claude Code transcript file with seek-based offsets and poll throttling. This is the most complex provider — it maintains active tool/agent/todo state via `SessionState`
+  - `quota.rs` — `QuotaCollector` reads a quota cache file written by the background fetch subprocess. `CachedFileQuotaCollector` is the real implementation; `StubQuotaCollector` for tests.
+  - `quota_fetch.rs` — Entry point for the `--fetch-quota` background subprocess. Reads OAuth credentials (macOS Keychain or file fallback), calls the Anthropic usage API, and writes the quota cache file.
 
 - **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
   - `state/cache.rs` — Persists `SessionState` to `{temp_dir}/cc-pulseline-{hash}.json` across process invocations (prevents L3 metric flicker). Uses atomic writes (.tmp + rename) with silent failure on errors.
 
-- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, and width degradation strategy order.
+- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, and segment toggles (`show_git_stats`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`).
 
 - **`render/`** — Pure rendering logic, split into submodules:
   - `layout.rs` — Formats the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines.
   - `color.rs` — 256-color ANSI palette with semantic color constants and `EmphasisTier` theme logic
-  - `fmt.rs` — Number formatting (`format_number`) and duration formatting (`format_duration`)
+  - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), and reset duration formatting (`format_reset_duration`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
 - **`lib.rs`** — Orchestrates the pipeline: `PulseLineRunner` manages sessions, calls providers, assembles the `RenderFrame`, and delegates to the renderer. Also exposes `run_from_str()` as a stateless convenience.
 
 ### Output Line Format
 
-- **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n]`
+- **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n]`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK:I:10 O:20 C:30 R:40 | $3.50 ($3.50/h)`
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)`
+- **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)` (usage quota, between L3 and activity)
 - **L4**: `T:Read: .../main.rs | T:Bash: cargo test | ✓Read ×5` (running tools + completed counts)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)` (agents — active first, then recent completed)
 
@@ -90,6 +94,9 @@ Tests are integration-level in `tests/` and use `tempfile::TempDir` for filesyst
 - **`config_merge.rs`** — Tests user + project config deep merge logic
 - **`segment_toggles.rs`** — Tests individual segment show/hide config toggles
 - **`session_cache.rs`** — Tests session state persistence and L3 cache fallback
+- **`git_file_stats.rs`** — Tests git file stats (modified/added/deleted/untracked counts)
+- **`output_speed.rs`** — Tests output speed tracking (delta-based tok/s computation)
+- **`quota_display.rs`** — Tests quota percentage rendering, color thresholds, reset format, width degradation
 
 Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl` (transcript streams).
 

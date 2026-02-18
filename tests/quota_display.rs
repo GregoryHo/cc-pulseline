@@ -58,7 +58,7 @@ fn quota_hidden_by_default() {
 }
 
 #[test]
-fn quota_shows_bar_at_75pct() {
+fn quota_shows_pct_at_75pct() {
     let quota = QuotaMetrics {
         plan_type: Some("pro".to_string()),
         five_hour_pct: Some(75.0),
@@ -75,11 +75,14 @@ fn quota_shows_bar_at_75pct() {
     let lines = render_with_quota(quota, config);
     assert!(lines.len() > 3, "should have quota line after L3");
     let quota_line = &lines[3];
-    assert!(quota_line.contains("█"), "should contain filled bar chars");
-    assert!(quota_line.contains("░"), "should contain empty bar chars");
+    assert!(!quota_line.contains("█"), "should NOT contain bar chars");
+    assert!(!quota_line.contains("░"), "should NOT contain bar chars");
     assert!(quota_line.contains("75%"), "should show percentage");
     assert!(quota_line.contains(CTX_WARN), "75% should use warn color");
-    assert!(quota_line.contains("resets 2h"), "should show reset time");
+    assert!(
+        quota_line.contains("resets 2h 0m"),
+        "should show reset time"
+    );
 }
 
 #[test]
@@ -211,7 +214,7 @@ fn quota_reset_shows_days() {
     let lines = render_with_quota(quota, config);
     let quota_line = &lines[3];
     assert!(
-        quota_line.contains("resets 2d"),
+        quota_line.contains("resets 2d 0h 0m"),
         "should show days for reset ≥24h, got: {quota_line}"
     );
 }
