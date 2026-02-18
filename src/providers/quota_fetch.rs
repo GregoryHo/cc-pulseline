@@ -32,37 +32,33 @@ pub fn run_fetch_quota() {
 
 fn fetch_quota_snapshot() -> Result<QuotaSnapshot, String> {
     let creds = read_credentials()?;
-
-    let access_token = creds
+    let oauth = creds
         .claude_ai_oauth
         .as_ref()
-        .and_then(|o| o.access_token.clone())
+        .ok_or_else(|| "no OAuth credentials found".to_string())?;
+
+    let access_token = oauth
+        .access_token
+        .clone()
         .ok_or_else(|| "no access token found".to_string())?;
 
-    let sub_type = creds
-        .claude_ai_oauth
-        .as_ref()
-        .and_then(|o| o.subscription_type.clone());
-
     // Skip API users — they don't have subscription quotas
-    if sub_type.as_deref() == Some("api") {
+    if oauth.subscription_type.as_deref() == Some("api") {
         return Ok(QuotaSnapshot {
-            plan_type: None,
-            available: false,
             error: Some("api user — no quota".to_string()),
             ..Default::default()
         });
     }
 
     // Check token expiry
-    if let Some(expires_at) = creds.claude_ai_oauth.as_ref().and_then(|o| o.expires_at) {
-        let now_ms = crate::state::cache::now_epoch_ms();
-        if now_ms > expires_at {
+    if let Some(expires_at) = oauth.expires_at {
+        if crate::state::cache::now_epoch_ms() > expires_at {
             return Err("access token expired".to_string());
         }
     }
 
-    let plan_type = sub_type
+    let plan_type = oauth
+        .subscription_type
         .as_deref()
         .map(normalize_plan_type)
         .map(String::from);
@@ -71,8 +67,6 @@ fn fetch_quota_snapshot() -> Result<QuotaSnapshot, String> {
     let usage: UsageApiResponse =
         serde_json::from_str(&response_json).map_err(|e| format!("parse usage response: {e}"))?;
 
-    let now_ms = crate::state::cache::now_epoch_ms();
-
     Ok(QuotaSnapshot {
         plan_type,
         five_hour_pct: usage.five_hour.as_ref().map(|h| h.utilization),
@@ -80,13 +74,13 @@ fn fetch_quota_snapshot() -> Result<QuotaSnapshot, String> {
             .five_hour
             .as_ref()
             .and_then(|h| h.resets_at.as_deref())
-            .and_then(|s| parse_iso_to_epoch_ms(s, now_ms)),
+            .and_then(parse_iso_to_epoch_ms),
         seven_day_pct: usage.seven_day.as_ref().map(|d| d.utilization),
         seven_day_reset_at: usage
             .seven_day
             .as_ref()
             .and_then(|d| d.resets_at.as_deref())
-            .and_then(|s| parse_iso_to_epoch_ms(s, now_ms)),
+            .and_then(parse_iso_to_epoch_ms),
         available: true,
         error: None,
     })
@@ -246,7 +240,7 @@ fn normalize_plan_type(sub_type: &str) -> &str {
 
 /// Parse ISO 8601 timestamp to epoch ms. Returns None on parse failure.
 /// Handles `YYYY-MM-DDTHH:MM:SSZ` and `YYYY-MM-DDTHH:MM:SS+HH:MM` formats.
-fn parse_iso_to_epoch_ms(iso: &str, _now_ms: u64) -> Option<u64> {
+fn parse_iso_to_epoch_ms(iso: &str) -> Option<u64> {
     // Strip timezone suffix: Z or +HH:MM / -HH:MM
     let trimmed = iso.trim().trim_end_matches('Z');
     // Strip +/-HH:MM timezone offset (e.g., "+05:30", "-08:00")
@@ -372,7 +366,7 @@ mod tests {
 
     #[test]
     fn parse_iso_timestamp() {
-        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z", 0);
+        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z");
         assert!(ms.is_some());
         // 2025-11-04T04:59:59Z should be a reasonable epoch ms value
         let val = ms.unwrap();
@@ -383,18 +377,18 @@ mod tests {
     #[test]
     fn parse_iso_with_timezone_offset() {
         // Same instant: Z and +00:00 should produce the same result
-        let z_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z", 0);
-        let offset_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59+00:00", 0);
+        let z_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z");
+        let offset_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59+00:00");
         assert_eq!(z_val, offset_val, "Z and +00:00 should match");
 
         // Negative offset should also parse without error
-        let neg_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59-08:00", 0);
+        let neg_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59-08:00");
         assert!(neg_val.is_some(), "negative offset should parse");
     }
 
     #[test]
     fn parse_iso_with_fractional_seconds() {
-        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59.123Z", 0);
+        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59.123Z");
         assert!(ms.is_some(), "should parse .123Z fractional seconds");
         let val = ms.unwrap();
         assert!(val > 1_700_000_000_000);
@@ -403,16 +397,16 @@ mod tests {
 
     #[test]
     fn parse_iso_with_microsecond_fractional() {
-        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59.123456Z", 0);
+        let ms = parse_iso_to_epoch_ms("2025-11-04T04:59:59.123456Z");
         assert!(ms.is_some(), "should parse .123456Z fractional seconds");
         // Should produce the same epoch value as without fractional part
-        let without_frac = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z", 0);
+        let without_frac = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z");
         assert_eq!(ms, without_frac, "fractional stripped — same epoch");
     }
 
     #[test]
     fn parse_iso_invalid_returns_none() {
-        assert!(parse_iso_to_epoch_ms("not-a-date", 0).is_none());
-        assert!(parse_iso_to_epoch_ms("", 0).is_none());
+        assert!(parse_iso_to_epoch_ms("not-a-date").is_none());
+        assert!(parse_iso_to_epoch_ms("").is_none());
     }
 }

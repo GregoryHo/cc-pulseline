@@ -188,6 +188,23 @@ pub struct QuotaMetrics {
     pub available: bool,
 }
 
+impl QuotaMetrics {
+    /// Convert a QuotaSnapshot into render-ready metrics.
+    /// Converts absolute reset timestamps to relative minutes-from-now.
+    pub fn from_snapshot(snapshot: &crate::providers::quota::QuotaSnapshot, now_ms: u64) -> Self {
+        let reset_to_minutes = |reset_ms: u64| -> u64 { reset_ms.saturating_sub(now_ms) / 60_000 };
+
+        Self {
+            plan_type: snapshot.plan_type.clone(),
+            five_hour_pct: snapshot.five_hour_pct,
+            five_hour_reset_minutes: snapshot.five_hour_reset_at.map(reset_to_minutes),
+            seven_day_pct: snapshot.seven_day_pct,
+            seven_day_reset_minutes: snapshot.seven_day_reset_at.map(reset_to_minutes),
+            available: snapshot.available,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,

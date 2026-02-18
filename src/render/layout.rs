@@ -404,39 +404,20 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
 
     // File stats: !3 +1 ✘2 ?4 (Starship-style, zero counts omitted)
     if config.show_git_stats {
-        let has_stats = line1.git_modified > 0
-            || line1.git_added > 0
-            || line1.git_deleted > 0
-            || line1.git_untracked > 0;
+        let stats: Vec<String> = [
+            ('!', line1.git_modified, GIT_MODIFIED),
+            ('+', line1.git_added, GIT_ADDED),
+            ('✘', line1.git_deleted, GIT_DELETED),
+            ('?', line1.git_untracked, tier.structural),
+        ]
+        .iter()
+        .filter(|(_, count, _)| *count > 0)
+        .map(|(prefix, count, stat_color)| colorize(&format!("{prefix}{count}"), stat_color, color))
+        .collect();
 
-        if has_stats {
+        if !stats.is_empty() {
             status.push(' ');
-            let mut stat_parts: Vec<String> = Vec::new();
-            if line1.git_modified > 0 {
-                stat_parts.push(colorize(
-                    &format!("!{}", line1.git_modified),
-                    GIT_MODIFIED,
-                    color,
-                ));
-            }
-            if line1.git_added > 0 {
-                stat_parts.push(colorize(&format!("+{}", line1.git_added), GIT_ADDED, color));
-            }
-            if line1.git_deleted > 0 {
-                stat_parts.push(colorize(
-                    &format!("✘{}", line1.git_deleted),
-                    GIT_DELETED,
-                    color,
-                ));
-            }
-            if line1.git_untracked > 0 {
-                stat_parts.push(colorize(
-                    &format!("?{}", line1.git_untracked),
-                    tier.structural,
-                    color,
-                ));
-            }
-            status.push_str(&stat_parts.join(" "));
+            status.push_str(&stats.join(" "));
         }
     }
 
@@ -673,15 +654,11 @@ fn format_quota_period(
             let pct_str = colorize(&format!("{p:.0}%"), bar_color, color);
             let label_str = colorize(&format!("{label}:"), tier.secondary, color);
 
-            let reset_part = match reset_minutes {
-                Some(0) => {
-                    let open = colorize(" (", tier.separator, color);
-                    let txt = colorize("resets <1m", tier.structural, color);
-                    let close = colorize(")", tier.separator, color);
-                    format!("{open}{txt}{close}")
-                }
-                Some(m) => {
-                    let reset_text = if m < 60 {
+            let reset_part = reset_minutes
+                .map(|m| {
+                    let duration = if m == 0 {
+                        "<1m".to_string()
+                    } else if m < 60 {
                         format!("{m}m")
                     } else if m < 1440 {
                         format!("{}h", m / 60)
@@ -689,12 +666,11 @@ fn format_quota_period(
                         format!("{}d", m / 1440)
                     };
                     let open = colorize(" (", tier.separator, color);
-                    let txt = colorize(&format!("resets {reset_text}"), tier.structural, color);
+                    let txt = colorize(&format!("resets {duration}"), tier.structural, color);
                     let close = colorize(")", tier.separator, color);
                     format!("{open}{txt}{close}")
-                }
-                None => String::new(),
-            };
+                })
+                .unwrap_or_default();
 
             if p >= 100.0 {
                 let limit_text = colorize("Limit reached", CTX_CRITICAL, color);

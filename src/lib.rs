@@ -89,23 +89,9 @@ impl PulseLineRunner {
 
         // Quota: single cache file read (no network I/O in render path)
         if config.show_quota {
-            let quota_collector = CachedFileQuotaCollector;
-            let (snapshot, is_stale) = quota_collector.collect_quota();
-            let now_ms = cache::now_epoch_ms();
-            frame.quota = types::QuotaMetrics {
-                plan_type: snapshot.plan_type,
-                five_hour_pct: snapshot.five_hour_pct,
-                five_hour_reset_minutes: snapshot
-                    .five_hour_reset_at
-                    .map(|reset_ms| reset_ms.saturating_sub(now_ms) / 60_000),
-                seven_day_pct: snapshot.seven_day_pct,
-                seven_day_reset_minutes: snapshot
-                    .seven_day_reset_at
-                    .map(|reset_ms| reset_ms.saturating_sub(now_ms) / 60_000),
-                available: snapshot.available,
-            };
+            let (snapshot, is_stale) = CachedFileQuotaCollector.collect_quota();
+            frame.quota = types::QuotaMetrics::from_snapshot(&snapshot, cache::now_epoch_ms());
 
-            // Trigger background fetch if cache is stale or missing
             if is_stale {
                 providers::quota::spawn_background_fetch();
             }
