@@ -480,6 +480,19 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [segments.budget]
 # show_tokens = false
+
+# [segments.tools]
+# enabled = true
+# max_lines = 2
+# max_completed = 4
+
+# [segments.agents]
+# enabled = true
+# max_lines = 2
+
+# [segments.todo]
+# enabled = true
+# max_lines = 2
 "#
 }
 
@@ -589,7 +602,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         GlyphMode::Ascii
     };
 
-    let color_theme = match pulseline.display.theme.as_str() {
+    let color_theme = match pulseline.display.theme.to_lowercase().as_str() {
         "light" => ColorTheme::Light,
         _ => ColorTheme::Dark,
     };

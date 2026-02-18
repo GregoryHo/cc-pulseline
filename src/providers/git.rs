@@ -99,7 +99,6 @@ fn parse_status_output(status_output: &str, snapshot: &mut GitSnapshot) {
             || line.starts_with("2 ")
             || line.starts_with("u ")
             || line.starts_with("? ")
-            || line.starts_with("! ")
         {
             snapshot.dirty = true;
         }
