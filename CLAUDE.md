@@ -15,9 +15,10 @@ cargo test           # Run all tests
 cargo test <name>    # Run a single test by name, e.g. cargo test renders_core_metrics
 cargo clippy -- -D warnings  # Lint (CI-enforced)
 cargo fmt --check             # Format check (CI-enforced)
+cargo bench          # Run benchmarks (benches/render_pipeline.rs)
 ```
 
-The project uses Rust 2021 edition with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
+The project uses Rust 2021 edition (MSRV 1.74) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
 
 ### CLI Flags
 
