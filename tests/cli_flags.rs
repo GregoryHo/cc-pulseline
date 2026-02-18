@@ -1,6 +1,39 @@
 use std::process::Command;
 
 #[test]
+fn print_flag_shows_new_fields() {
+    let output = Command::new(env!("CARGO_BIN_EXE_cc-pulseline"))
+        .arg("--print")
+        .output()
+        .expect("failed to run binary");
+
+    assert!(output.status.success(), "should exit 0");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // New fields from feature/adjust-metrics should appear
+    assert!(
+        stdout.contains("show_git_stats"),
+        "should show show_git_stats field"
+    );
+    assert!(
+        stdout.contains("show_speed"),
+        "should show show_speed field"
+    );
+    assert!(
+        stdout.contains("[segments.quota]"),
+        "should show quota section"
+    );
+    assert!(
+        stdout.contains("show_five_hour"),
+        "should show show_five_hour field"
+    );
+    assert!(
+        stdout.contains("show_seven_day"),
+        "should show show_seven_day field"
+    );
+}
+
+#[test]
 fn help_flag_exits_zero_with_usage() {
     let output = Command::new(env!("CARGO_BIN_EXE_cc-pulseline"))
         .arg("--help")

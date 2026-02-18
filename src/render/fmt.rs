@@ -34,6 +34,14 @@ pub fn format_duration(minutes: u64) -> String {
     }
 }
 
+pub fn format_speed(toks_per_sec: f64) -> String {
+    if toks_per_sec >= 1000.0 {
+        format!("↗{:.1}K/s", toks_per_sec / 1000.0)
+    } else {
+        format!("↗{:.0}/s", toks_per_sec)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,5 +119,25 @@ mod tests {
     #[test]
     fn duration_days_only_no_leftover_hours() {
         assert_eq!(format_duration(2880), "2d");
+    }
+
+    #[test]
+    fn speed_below_thousand() {
+        assert_eq!(format_speed(999.0), "↗999/s");
+    }
+
+    #[test]
+    fn speed_at_thousand_boundary() {
+        assert_eq!(format_speed(1000.0), "↗1.0K/s");
+    }
+
+    #[test]
+    fn speed_above_thousand() {
+        assert_eq!(format_speed(1500.0), "↗1.5K/s");
+    }
+
+    #[test]
+    fn speed_small_value() {
+        assert_eq!(format_speed(42.0), "↗42/s");
     }
 }

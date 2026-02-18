@@ -44,6 +44,13 @@ pub struct SessionCache {
     pub task_counter: u32,
     // L3 metrics (all-or-nothing fallback)
     pub line3: Option<Line3Metrics>,
+    // Token speed tracking (output only)
+    #[serde(default)]
+    pub last_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub last_output_token_time_ms: Option<u64>,
+    #[serde(default)]
+    pub output_speed_toks_per_sec: Option<f64>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

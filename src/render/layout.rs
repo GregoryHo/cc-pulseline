@@ -2,17 +2,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
-    types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame},
+    types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame},
 };
 
 use super::color::{
     colorize, emphasis_for_theme, take_visible_chars, visible_width, EmphasisTier, AGENT_PURPLE,
     COMPLETED_CHECK, COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL,
-    CTX_GOOD, CTX_WARN, GIT_AHEAD, GIT_BEHIND, GIT_GREEN, GIT_MODIFIED, INDICATOR_CLAUDE_MD,
-    INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY, INDICATOR_RULES,
-    INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
+    CTX_GOOD, CTX_WARN, GIT_ADDED, GIT_AHEAD, GIT_BEHIND, GIT_DELETED, GIT_GREEN, GIT_MODIFIED,
+    INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY,
+    INDICATOR_RULES, INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
-use super::fmt::{format_duration, format_number};
+use super::fmt::{format_duration, format_number, format_speed};
 use super::icons::*;
 
 /// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
@@ -22,6 +22,10 @@ const CTX_WARN_THRESHOLD: u64 = 55;
 /// Context usage percentage at which the critical color (ALERT_RED) activates.
 /// Set below auto-compact (~80%) so users see red before compaction fires.
 const CTX_CRITICAL_THRESHOLD: u64 = 70;
+
+/// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
+/// Used in width degradation to determine what counts as "activity" lines.
+const CORE_LINE_COUNT: usize = 3;
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mode = config.glyph_mode;
@@ -33,6 +37,13 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         format_line2(frame, config, " | ", &tier),
         format_line3(frame, config, &tier),
     ];
+
+    // Quota line: between L3 and activity lines
+    if config.show_quota {
+        if let Some(line) = format_quota_line(&frame.quota, config, &tier) {
+            lines.push(line);
+        }
+    }
 
     // Tool line: running + completed on a single line (claude-hud style)
     if config.show_tools && (!frame.tools.is_empty() || !frame.completed_tools.is_empty()) {
@@ -241,7 +252,7 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
 
     if config.show_git {
         let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);
-        let git_val = format_git_status(&frame.line1, config);
+        let git_val = format_git_status(&frame.line1, config, tier);
         parts.push(format!("{git_label}{git_val}"));
     }
 
@@ -351,7 +362,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
         parts.push(format_context_segment(&frame.line3, config, tier));
     }
     if config.show_tokens {
-        parts.push(format_tokens_segment(&frame.line3, config, tier));
+        let speed = if config.show_speed {
+            frame.line3.output_speed_toks_per_sec
+        } else {
+            None
+        };
+        parts.push(format_tokens_segment(&frame.line3, speed, config, tier));
     }
     if config.show_cost {
         parts.push(format_cost_segment(&frame.line3, config, tier));
@@ -360,11 +376,11 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
     parts.join(&sep)
 }
 
-fn format_git_status(line1: &Line1Metrics, config: &RenderConfig) -> String {
+fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let color = config.color_enabled;
 
     if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        return "unknown".to_string();
+        return colorize("unknown", tier.structural, color);
     }
 
     let mut status = colorize(&line1.git_branch, GIT_GREEN, color);
@@ -384,6 +400,44 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig) -> String {
             GIT_BEHIND,
             color,
         ));
+    }
+
+    // File stats: !3 +1 ✘2 ?4 (Starship-style, zero counts omitted)
+    if config.show_git_stats {
+        let has_stats = line1.git_modified > 0
+            || line1.git_added > 0
+            || line1.git_deleted > 0
+            || line1.git_untracked > 0;
+
+        if has_stats {
+            status.push(' ');
+            let mut stat_parts: Vec<String> = Vec::new();
+            if line1.git_modified > 0 {
+                stat_parts.push(colorize(
+                    &format!("!{}", line1.git_modified),
+                    GIT_MODIFIED,
+                    color,
+                ));
+            }
+            if line1.git_added > 0 {
+                stat_parts.push(colorize(&format!("+{}", line1.git_added), GIT_ADDED, color));
+            }
+            if line1.git_deleted > 0 {
+                stat_parts.push(colorize(
+                    &format!("✘{}", line1.git_deleted),
+                    GIT_DELETED,
+                    color,
+                ));
+            }
+            if line1.git_untracked > 0 {
+                stat_parts.push(colorize(
+                    &format!("?{}", line1.git_untracked),
+                    tier.structural,
+                    color,
+                ));
+            }
+            status.push_str(&stat_parts.join(" "));
+        }
     }
 
     status
@@ -433,6 +487,7 @@ fn format_context_segment(
 
 fn format_tokens_segment(
     line3: &Line3Metrics,
+    speed: Option<f64>,
     config: &RenderConfig,
     tier: &EmphasisTier,
 ) -> String {
@@ -469,25 +524,27 @@ fn format_tokens_segment(
         "--/--".to_string()
     };
 
+    // Speed inline after output tokens: "O:20.0k ↗1.5K/s"
+    let speed_part = speed
+        .map(|s| colorize(&format!(" {}", format_speed(s)), tier.secondary, color))
+        .unwrap_or_default();
+
     let label = colorize("TOK ", tier.structural, color);
     let parts = [
         format!(
             "{}{}",
-            colorize(
-                &glyph(mode, ICON_TOKEN_INPUT, "I: "),
-                tier.structural,
-                color
-            ),
+            colorize(&glyph(mode, ICON_TOKEN_INPUT, "I:"), tier.structural, color),
             colorize(&input_str, val_color, color),
         ),
         format!(
-            "{}{}",
+            "{}{}{}",
             colorize(
-                &glyph(mode, ICON_TOKEN_OUTPUT, "O: "),
+                &glyph(mode, ICON_TOKEN_OUTPUT, "O:"),
                 tier.structural,
                 color
             ),
             colorize(&output_str, val_color, color),
+            speed_part,
         ),
         format!(
             "{}{}",
@@ -527,6 +584,133 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &Empha
     format!("{total_str} {open_paren}{rate_str}{close_paren}")
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+const QUOTA_BAR_WIDTH: usize = 10;
+
+fn format_quota_line(
+    quota: &QuotaMetrics,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> Option<String> {
+    // Hidden entirely for API users (no plan_type)
+    if quota.plan_type.is_none() && !quota.available {
+        return None;
+    }
+
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    let plan_str = quota
+        .plan_type
+        .as_deref()
+        .map(capitalize_first)
+        .unwrap_or_else(|| "--".to_string());
+    let icon_str = colorize(&glyph(mode, ICON_QUOTA, "Q:"), tier.structural, color);
+    let plan_part = colorize(&format!("{plan_str} "), tier.secondary, color);
+    let prefix = format!("{icon_str}{plan_part}");
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if config.show_quota_five_hour {
+        parts.push(format_quota_period(
+            "5h",
+            quota.five_hour_pct,
+            quota.five_hour_reset_minutes,
+            config,
+            tier,
+        ));
+    }
+
+    if config.show_quota_seven_day {
+        parts.push(format_quota_period(
+            "7d",
+            quota.seven_day_pct,
+            quota.seven_day_reset_minutes,
+            config,
+            tier,
+        ));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let sep = colorize(" | ", tier.separator, color);
+    Some(format!("{prefix}{}", parts.join(&sep)))
+}
+
+fn format_quota_period(
+    label: &str,
+    pct: Option<f64>,
+    reset_minutes: Option<u64>,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
+    let color = config.color_enabled;
+
+    match pct {
+        Some(p) => {
+            let bar_color = if p >= 85.0 {
+                CTX_CRITICAL
+            } else if p >= 50.0 {
+                CTX_WARN
+            } else {
+                CTX_GOOD
+            };
+
+            let filled = ((p / 100.0) * QUOTA_BAR_WIDTH as f64).round() as usize;
+            let empty = QUOTA_BAR_WIDTH.saturating_sub(filled);
+
+            let bar_filled = colorize(&"█".repeat(filled), bar_color, color);
+            let bar_empty = colorize(&"░".repeat(empty), tier.separator, color);
+            let pct_str = colorize(&format!("{p:.0}%"), bar_color, color);
+            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
+
+            let reset_part = match reset_minutes {
+                Some(0) => {
+                    let open = colorize(" (", tier.separator, color);
+                    let txt = colorize("resets <1m", tier.structural, color);
+                    let close = colorize(")", tier.separator, color);
+                    format!("{open}{txt}{close}")
+                }
+                Some(m) => {
+                    let reset_text = if m < 60 {
+                        format!("{m}m")
+                    } else if m < 1440 {
+                        format!("{}h", m / 60)
+                    } else {
+                        format!("{}d", m / 1440)
+                    };
+                    let open = colorize(" (", tier.separator, color);
+                    let txt = colorize(&format!("resets {reset_text}"), tier.structural, color);
+                    let close = colorize(")", tier.separator, color);
+                    format!("{open}{txt}{close}")
+                }
+                None => String::new(),
+            };
+
+            if p >= 100.0 {
+                let limit_text = colorize("Limit reached", CTX_CRITICAL, color);
+                format!("{label_str} {limit_text}{reset_part}")
+            } else {
+                format!("{label_str} {bar_filled}{bar_empty} {pct_str}{reset_part}")
+            }
+        }
+        None => {
+            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
+            let dash = colorize("--", tier.structural, color);
+            format!("{label_str} {dash}")
+        }
+    }
+}
+
 fn apply_width_degradation(
     mut lines: Vec<String>,
     width: usize,
@@ -549,8 +733,8 @@ fn apply_width_degradation(
 
         match strategy {
             WidthDegradeStrategy::DropActivityLinesFirst => {
-                if lines.len() > 3 {
-                    lines.truncate(3);
+                if lines.len() > CORE_LINE_COUNT {
+                    lines.truncate(CORE_LINE_COUNT);
                 }
             }
             WidthDegradeStrategy::CompressLine2 => {
@@ -559,7 +743,7 @@ fn apply_width_degradation(
                 }
             }
             WidthDegradeStrategy::CompressCoreLines => {
-                for index in 0..lines.len().min(3) {
+                for index in 0..lines.len().min(CORE_LINE_COUNT) {
                     lines[index] = truncate_to_width(&lines[index], width, color_enabled);
                 }
             }

@@ -88,6 +88,10 @@ pub struct Line1Metrics {
     pub git_dirty: bool,
     pub git_ahead: u32,
     pub git_behind: u32,
+    pub git_modified: u32,
+    pub git_added: u32,
+    pub git_deleted: u32,
+    pub git_untracked: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -111,6 +115,9 @@ pub struct Line3Metrics {
     pub cache_read_tokens: Option<u64>,
     pub total_cost_usd: Option<f64>,
     pub total_duration_ms: Option<u64>,
+    /// Output speed in tokens/second (independently computed, NOT from payload).
+    #[serde(default)]
+    pub output_speed_toks_per_sec: Option<f64>,
 }
 
 impl Line3Metrics {
@@ -171,6 +178,16 @@ impl AgentSummary {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QuotaMetrics {
+    pub five_hour_pct: Option<f64>,
+    pub five_hour_reset_minutes: Option<u64>,
+    pub seven_day_pct: Option<f64>,
+    pub seven_day_reset_minutes: Option<u64>,
+    pub plan_type: Option<String>,
+    pub available: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,
@@ -188,6 +205,7 @@ pub struct RenderFrame {
     pub completed_tools: Vec<CompletedToolCount>,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
+    pub quota: QuotaMetrics,
 }
 
 impl RenderFrame {
@@ -231,6 +249,10 @@ impl RenderFrame {
                 git_dirty: false,
                 git_ahead: 0,
                 git_behind: 0,
+                git_modified: 0,
+                git_added: 0,
+                git_deleted: 0,
+                git_untracked: 0,
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
@@ -253,11 +275,13 @@ impl RenderFrame {
                     .cost
                     .as_ref()
                     .and_then(|cost| cost.total_duration_ms),
+                output_speed_toks_per_sec: None,
             },
             tools: Vec::new(),
             completed_tools: Vec::new(),
             agents: Vec::new(),
             todo: None,
+            quota: QuotaMetrics::default(),
         }
     }
 }

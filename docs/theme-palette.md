@@ -198,7 +198,8 @@ ASCII mode — L1 through L5 with every color annotated:
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
 [primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [secondary]↗1.5K/s [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[structural(60)]Q:[secondary(146)]Pro [secondary]5h: [CTX_GOOD(71)]████████░░ [CTX_GOOD]25% [separator(238)]([structural(60)]resets 2h[separator])
 [ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test [separator]| [COMPLETED_CHECK(67)]✓ Read [secondary]×12 [separator]| [COMPLETED_CHECK]✓ Bash [secondary]×5
 [ACTIVE_PURPLE(183)]A:Explore [structural(60)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
 ```
@@ -222,7 +223,7 @@ Same output, different emphasis tier codes — semantic colors are unchanged:
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(252)]| [secondary(240)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main
 [primary(234)]1 [structural(247)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(247)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(247)]TOK [structural]I: [secondary]10.0k [structural]O: [secondary]20.0k [secondary]↗1.5K/s [structural]C:[secondary]30.0k[separator]/[secondary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 ```
 
 Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 60→247, Separator 238→252. All semantic colors (STABLE_BLUE 111, STABLE_GREEN 71, COST_BASE 222, etc.) remain identical.

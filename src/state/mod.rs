@@ -33,6 +33,10 @@ pub struct SessionState {
     pub cached_env: Option<(String, EnvSnapshot)>,
     pub cached_git: Option<(String, GitSnapshot)>,
     pub cached_line3: Option<Line3Metrics>,
+    // Token speed tracking (output only)
+    pub last_output_tokens: Option<u64>,
+    pub last_output_token_time_ms: Option<u64>,
+    pub output_speed_toks_per_sec: Option<f64>,
 }
 
 impl SessionState {
@@ -51,7 +55,39 @@ impl SessionState {
             self.task_items.clear();
             self.task_counter = 0;
             self.cached_line3 = None;
+            self.last_output_tokens = None;
+            self.last_output_token_time_ms = None;
+            self.output_speed_toks_per_sec = None;
         }
+    }
+
+    /// Compute output token speed from successive payload snapshots.
+    /// Returns the current speed estimate, or keeps the last known value if the
+    /// delta window exceeds 2 seconds (likely idle/paused).
+    /// When `current_tokens` is `None`, returns the last known speed without
+    /// corrupting the time anchor (bug #2 fix).
+    pub fn update_output_speed(&mut self, current_tokens: Option<u64>) -> Option<f64> {
+        let curr = match current_tokens {
+            Some(c) => c,
+            None => return self.output_speed_toks_per_sec, // early-return: don't touch state
+        };
+        let now_ms = cache::now_epoch_ms();
+        let result = match (self.last_output_tokens, self.last_output_token_time_ms) {
+            (Some(prev), Some(prev_time)) => {
+                let delta_ms = now_ms.saturating_sub(prev_time);
+                let delta_toks = curr.saturating_sub(prev);
+                if delta_ms > 0 && delta_ms <= 2000 && delta_toks > 0 {
+                    Some(delta_toks as f64 / delta_ms as f64 * 1000.0)
+                } else {
+                    self.output_speed_toks_per_sec // keep last known
+                }
+            }
+            _ => None,
+        };
+        self.last_output_tokens = Some(curr);
+        self.last_output_token_time_ms = Some(now_ms);
+        self.output_speed_toks_per_sec = result;
+        result
     }
 
     pub fn cached_env_for(&self, cwd: &str) -> Option<EnvSnapshot> {
@@ -318,6 +354,9 @@ impl SessionState {
         self.task_items = cache.task_items;
         self.task_counter = cache.task_counter;
         self.cached_line3 = cache.line3;
+        self.last_output_tokens = cache.last_output_tokens;
+        self.last_output_token_time_ms = cache.last_output_token_time_ms;
+        self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -348,6 +387,9 @@ impl SessionState {
             task_items: self.task_items.clone(),
             task_counter: self.task_counter,
             line3: self.cached_line3.clone(),
+            last_output_tokens: self.last_output_tokens,
+            last_output_token_time_ms: self.last_output_token_time_ms,
+            output_speed_toks_per_sec: self.output_speed_toks_per_sec,
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),
@@ -359,5 +401,86 @@ impl SessionState {
                 cached_at_ms: now,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_output_speed_first_call_returns_none() {
+        let mut state = SessionState::default();
+        let result = state.update_output_speed(Some(100));
+        assert!(result.is_none(), "first call has no previous data");
+        assert_eq!(state.last_output_tokens, Some(100));
+    }
+
+    #[test]
+    fn update_output_speed_computes_rate_within_window() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+
+        state.last_output_tokens = Some(100);
+        state.last_output_token_time_ms = Some(now.saturating_sub(500));
+        state.output_speed_toks_per_sec = None;
+
+        let result = state.update_output_speed(Some(150));
+        assert!(result.is_some(), "should compute speed");
+        let speed = result.unwrap();
+        assert!(
+            speed > 50.0 && speed < 200.0,
+            "speed {speed} should be ~100 tok/s"
+        );
+    }
+
+    #[test]
+    fn update_output_speed_keeps_last_beyond_2s() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+
+        state.last_output_tokens = Some(100);
+        state.last_output_token_time_ms = Some(now.saturating_sub(3000));
+        state.output_speed_toks_per_sec = Some(42.0);
+
+        let result = state.update_output_speed(Some(200));
+        assert_eq!(result, Some(42.0), "should keep last known speed");
+    }
+
+    #[test]
+    fn update_speed_resets_on_transcript_change() {
+        let mut state = SessionState::default();
+        state.last_output_tokens = Some(100);
+        state.last_output_token_time_ms = Some(1000);
+        state.output_speed_toks_per_sec = Some(50.0);
+        state.last_transcript_path = Some("/old/path".to_string());
+
+        state.reset_transcript_if_path_changed("/new/path");
+
+        assert!(state.last_output_tokens.is_none());
+        assert!(state.last_output_token_time_ms.is_none());
+        assert!(state.output_speed_toks_per_sec.is_none());
+    }
+
+    #[test]
+    fn update_output_speed_none_tokens_preserves_state() {
+        let mut state = SessionState::default();
+        state.last_output_tokens = Some(100);
+        state.last_output_token_time_ms = Some(1000);
+        state.output_speed_toks_per_sec = Some(50.0);
+
+        let result = state.update_output_speed(None);
+        // Bug #2 fix: None tokens should NOT corrupt state
+        assert_eq!(result, Some(50.0), "should return last known speed");
+        assert_eq!(
+            state.last_output_tokens,
+            Some(100),
+            "should not overwrite tokens"
+        );
+        assert_eq!(
+            state.last_output_token_time_ms,
+            Some(1000),
+            "should not overwrite time"
+        );
     }
 }

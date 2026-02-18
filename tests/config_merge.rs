@@ -198,6 +198,81 @@ max_lines = 1
 }
 
 #[test]
+fn merge_project_overrides_git_stats() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[segments.identity]
+show_git_stats = true
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    assert!(
+        merged.segments.identity.show_git_stats,
+        "git_stats should be overridden to true"
+    );
+    assert!(
+        merged.segments.identity.show_git,
+        "show_git should inherit default (true)"
+    );
+}
+
+#[test]
+fn merge_project_overrides_show_speed() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[segments.budget]
+show_speed = true
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    assert!(
+        merged.segments.budget.show_speed,
+        "show_speed should be overridden to true"
+    );
+    assert!(
+        merged.segments.budget.show_context,
+        "show_context should inherit default (true)"
+    );
+    assert!(
+        merged.segments.budget.show_cost,
+        "show_cost should inherit default (true)"
+    );
+}
+
+#[test]
+fn merge_project_overrides_quota() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[segments.quota]
+enabled = true
+show_seven_day = true
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    assert!(
+        merged.segments.quota.enabled,
+        "quota enabled should be overridden to true"
+    );
+    assert!(
+        merged.segments.quota.show_seven_day,
+        "show_seven_day should be overridden to true"
+    );
+    assert!(
+        merged.segments.quota.show_five_hour,
+        "show_five_hour should inherit default (true)"
+    );
+}
+
+#[test]
 fn project_override_config_deserializes_empty() {
     let project: ProjectOverrideConfig = toml::from_str("").unwrap();
     assert!(project.display.is_none());

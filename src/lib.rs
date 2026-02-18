@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use config::RenderConfig;
 use providers::{
+    quota::{CachedFileQuotaCollector, QuotaCollector},
     EnvCollector, EnvSnapshot, FileSystemEnvCollector, FileTranscriptCollector, GitCollector,
     GitSnapshot, LocalGitCollector, TranscriptCollector, TranscriptSnapshot,
 };
@@ -76,6 +77,40 @@ impl PulseLineRunner {
             frame.line3 = cached.clone();
         }
 
+        // Token speed: compute delta-based tok/s for output stream
+        if config.show_speed {
+            let usage = payload
+                .context_window
+                .as_ref()
+                .and_then(|c| c.current_usage.as_ref());
+            let output_tokens = usage.and_then(|u| u.output_tokens);
+            frame.line3.output_speed_toks_per_sec = state.update_output_speed(output_tokens);
+        }
+
+        // Quota: single cache file read (no network I/O in render path)
+        if config.show_quota {
+            let quota_collector = CachedFileQuotaCollector;
+            let (snapshot, is_stale) = quota_collector.collect_quota();
+            let now_ms = cache::now_epoch_ms();
+            frame.quota = types::QuotaMetrics {
+                plan_type: snapshot.plan_type,
+                five_hour_pct: snapshot.five_hour_pct,
+                five_hour_reset_minutes: snapshot
+                    .five_hour_reset_at
+                    .map(|reset_ms| reset_ms.saturating_sub(now_ms) / 60_000),
+                seven_day_pct: snapshot.seven_day_pct,
+                seven_day_reset_minutes: snapshot
+                    .seven_day_reset_at
+                    .map(|reset_ms| reset_ms.saturating_sub(now_ms) / 60_000),
+                available: snapshot.available,
+            };
+
+            // Trigger background fetch if cache is stale or missing
+            if is_stale {
+                providers::quota::spawn_background_fetch();
+            }
+        }
+
         let lines = render::layout::render_frame(&frame, &config);
 
         // Save cache to disk
@@ -139,6 +174,10 @@ fn build_render_frame(
     frame.line1.git_dirty = git_snapshot.dirty;
     frame.line1.git_ahead = git_snapshot.ahead;
     frame.line1.git_behind = git_snapshot.behind;
+    frame.line1.git_modified = git_snapshot.modified_count;
+    frame.line1.git_added = git_snapshot.added_count;
+    frame.line1.git_deleted = git_snapshot.deleted_count;
+    frame.line1.git_untracked = git_snapshot.untracked_count;
 
     frame.line2.claude_md_count = env_snapshot.claude_md_count;
     frame.line2.rules_count = env_snapshot.rules_count;
