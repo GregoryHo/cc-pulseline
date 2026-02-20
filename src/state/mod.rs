@@ -8,11 +8,13 @@ use std::{
 use crate::{
     providers::{EnvSnapshot, GitSnapshot},
     types::{
-        AgentSummary, CompletedToolCount, Line3Metrics, PendingTask, TaskItem, TodoSummary,
-        ToolSummary,
+        AgentSummary, CompletedToolCount, Line3Metrics, PendingTask, TaskItem, TodoInProgressItem,
+        TodoSummary, ToolSummary,
     },
 };
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
+
+const MAX_RECENT_TOOLS_CAP: usize = 10;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionState {
@@ -20,6 +22,7 @@ pub struct SessionState {
     pub last_transcript_path: Option<String>,
     pub last_transcript_poll: Option<Instant>,
     pub active_tools: Vec<ToolSummary>,
+    pub recent_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,
@@ -46,6 +49,7 @@ impl SessionState {
             self.last_transcript_offset = 0;
             self.last_transcript_poll = None;
             self.active_tools.clear();
+            self.recent_tools.clear();
             self.active_agents.clear();
             self.completed_agents.clear();
             self.completed_tool_counts.clear();
@@ -122,7 +126,16 @@ impl SessionState {
         if let Some(position) = self.active_tools.iter().position(|tool| tool.id == id) {
             self.active_tools.remove(position);
         }
-        self.active_tools.push(ToolSummary { id, name, target });
+        let tool = ToolSummary { id, name, target };
+        self.active_tools.push(tool.clone());
+
+        // recent_tools: display list (dedup, push, cap)
+        self.recent_tools.retain(|t| t.id != tool.id);
+        self.recent_tools.push(tool);
+        if self.recent_tools.len() > MAX_RECENT_TOOLS_CAP {
+            self.recent_tools
+                .drain(..self.recent_tools.len() - MAX_RECENT_TOOLS_CAP);
+        }
     }
 
     pub fn remove_tool(&mut self, id: &str) {
@@ -130,6 +143,7 @@ impl SessionState {
             self.record_tool_completion(&tool.name.clone());
         }
         self.active_tools.retain(|tool| tool.id != id);
+        // recent_tools: intentionally NOT touched — tool stays visible until displaced
     }
 
     pub fn record_tool_completion(&mut self, name: &str) {
@@ -259,7 +273,7 @@ impl SessionState {
 
     // ── Todo tracking methods ────────────────────────────────────────
 
-    pub fn create_task_item(&mut self, subject: String) {
+    pub fn create_task_item(&mut self, subject: String, active_form: Option<String>) {
         self.task_counter += 1;
         let id = self.task_counter.to_string();
         self.task_items.insert(
@@ -267,6 +281,8 @@ impl SessionState {
             TaskItem {
                 subject,
                 status: "pending".to_string(),
+                active_form,
+                started_at: None,
             },
         );
         self.rebuild_todo_from_tasks();
@@ -276,6 +292,9 @@ impl SessionState {
         if status == "deleted" {
             self.task_items.remove(task_id);
         } else if let Some(item) = self.task_items.get_mut(task_id) {
+            if status == "in_progress" && item.status != "in_progress" {
+                item.started_at = Some(cache::now_epoch_ms());
+            }
             item.status = status.to_string();
         }
         self.rebuild_todo_from_tasks();
@@ -293,15 +312,32 @@ impl SessionState {
             .filter(|item| item.status == "completed")
             .count();
         let pending = total.saturating_sub(completed);
-        if pending == 0 {
-            self.todo = None;
-            return;
-        }
+
+        // Collect in-progress items, sorted by started_at (earliest first)
+        let mut in_progress_items: Vec<TodoInProgressItem> = self
+            .task_items
+            .values()
+            .filter(|item| item.status == "in_progress")
+            .map(|item| TodoInProgressItem {
+                text: item
+                    .active_form
+                    .clone()
+                    .unwrap_or_else(|| item.subject.clone()),
+                started_at: item.started_at,
+            })
+            .collect();
+        in_progress_items.sort_by_key(|item| item.started_at.unwrap_or(u64::MAX));
+
+        let all_done = pending == 0 && completed > 0;
+
         self.todo = Some(TodoSummary {
             text: format!("{completed}/{total} done, {pending} pending"),
             pending,
             completed,
             total,
+            in_progress_items,
+            all_done,
+            is_task_api: true,
         });
     }
 
@@ -309,8 +345,8 @@ impl SessionState {
         if max_lines == 0 {
             return Vec::new();
         }
-        let start = self.active_tools.len().saturating_sub(max_lines);
-        self.active_tools[start..].to_vec()
+        let start = self.recent_tools.len().saturating_sub(max_lines);
+        self.recent_tools[start..].to_vec()
     }
 
     /// Active agents first, then most recent completed, sliced to max_total.
@@ -345,6 +381,7 @@ impl SessionState {
         self.last_transcript_offset = cache.transcript_offset;
         self.last_transcript_path = cache.transcript_path;
         self.active_tools = cache.active_tools;
+        self.recent_tools = cache.recent_tools;
         self.active_agents = cache.active_agents;
         self.completed_agents = cache.completed_agents;
         self.completed_tool_counts = cache.completed_tool_counts;
@@ -378,6 +415,7 @@ impl SessionState {
             transcript_offset: self.last_transcript_offset,
             transcript_path: self.last_transcript_path.clone(),
             active_tools: self.active_tools.clone(),
+            recent_tools: self.recent_tools.clone(),
             active_agents: self.active_agents.clone(),
             completed_agents: self.completed_agents.clone(),
             completed_tool_counts: self.completed_tool_counts.clone(),

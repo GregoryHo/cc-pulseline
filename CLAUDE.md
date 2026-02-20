@@ -61,7 +61,7 @@ stdin JSON → StdinPayload (deserialize)
   - `quota.rs` — `QuotaCollector` reads a quota cache file written by the background fetch subprocess. `CachedFileQuotaCollector` is the real implementation; `StubQuotaCollector` for tests.
   - `quota_fetch.rs` — Entry point for the `--fetch-quota` background subprocess. Reads OAuth credentials (macOS Keychain or file fallback), calls the Anthropic usage API, and writes the quota cache file.
 
-- **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
+- **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, recent tools (persist after completion for display), and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
   - `state/cache.rs` — Persists `SessionState` to `{temp_dir}/cc-pulseline-{hash}.json` across process invocations (prevents L3 metric flicker). Uses atomic writes (.tmp + rename) with silent failure on errors.
 
 - **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, and segment toggles (`show_git_stats`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`).
@@ -69,7 +69,7 @@ stdin JSON → StdinPayload (deserialize)
 - **`render/`** — Pure rendering logic, split into submodules:
   - `layout.rs` — Formats the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines.
   - `color.rs` — 256-color ANSI palette with semantic color constants and `EmphasisTier` theme logic
-  - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), and reset duration formatting (`format_reset_duration`)
+  - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
 - **`lib.rs`** — Orchestrates the pipeline: `PulseLineRunner` manages sessions, calls providers, assembles the `RenderFrame`, and delegates to the renderer. Also exposes `run_from_str()` as a stateless convenience.
@@ -80,8 +80,14 @@ stdin JSON → StdinPayload (deserialize)
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)`
 - **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)` (usage quota, between L3 and activity)
-- **L4**: `T:Read: .../main.rs | T:Bash: cargo test | ✓Read ×5` (running tools + completed counts)
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed tool counts — stable, accumulates over session)
+- **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools with targets — volatile)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)` (agents — active first, then recent completed)
+- **TODO variants**:
+  - In-progress: `TODO:Fixing auth bug (1/3) (5s)` or `(1/3, 3 active)` (multi-line, capped by `max_todo_lines`)
+  - Pending only: `TODO:3 tasks (0/3)` (task API, no in-progress items)
+  - All done: `✓ All todos complete (3/3)` (celebration line)
+  - Legacy: `TODO:1/3 done, 2 pending` (old TodoWrite path)
 
 ### Testing Patterns
 

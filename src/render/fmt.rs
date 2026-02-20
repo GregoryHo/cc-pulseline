@@ -42,6 +42,17 @@ pub fn format_speed(toks_per_sec: f64) -> String {
     }
 }
 
+/// Format elapsed seconds for agent/todo display.
+pub fn format_agent_elapsed(secs: u64) -> String {
+    if secs == 0 {
+        "<1s".to_string()
+    } else if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m", secs / 60)
+    }
+}
+
 /// Formats a reset duration in minutes with adaptive granularity.
 /// Unlike `format_duration()` which omits trailing zeros for brevity,
 /// this always shows sub-units for precision:

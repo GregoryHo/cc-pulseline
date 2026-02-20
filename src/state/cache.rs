@@ -28,6 +28,8 @@ pub struct SessionCache {
     pub transcript_offset: u64,
     pub transcript_path: Option<String>,
     pub active_tools: Vec<ToolSummary>,
+    #[serde(default)]
+    pub recent_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,

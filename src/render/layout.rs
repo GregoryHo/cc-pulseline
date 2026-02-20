@@ -2,7 +2,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
-    types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame},
+    types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame, TodoSummary},
 };
 
 use super::color::{
@@ -12,7 +12,9 @@ use super::color::{
     INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY,
     INDICATOR_RULES, INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
-use super::fmt::{format_duration, format_number, format_reset_duration, format_speed};
+use super::fmt::{
+    format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
+};
 use super::icons::*;
 
 /// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
@@ -28,7 +30,6 @@ const CTX_CRITICAL_THRESHOLD: u64 = 70;
 const CORE_LINE_COUNT: usize = 3;
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    let mode = config.glyph_mode;
     let color = config.color_enabled;
     let tier = emphasis_for_theme(config.color_theme);
 
@@ -45,9 +46,14 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         }
     }
 
-    // Tool line: running + completed on a single line (claude-hud style)
-    if config.show_tools && (!frame.tools.is_empty() || !frame.completed_tools.is_empty()) {
-        lines.push(format_tool_line(frame, config, &tier));
+    // Tool lines: completed counts (stable) then recent tools (volatile)
+    if config.show_tools {
+        if !frame.completed_tools.is_empty() {
+            lines.push(format_completed_tool_line(frame, config, &tier));
+        }
+        if !frame.tools.is_empty() {
+            lines.push(format_recent_tool_line(frame, config, &tier));
+        }
     }
 
     // Agent lines: one per agent, conditional
@@ -58,12 +64,10 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         }
     }
 
-    // Todo line: conditional
+    // Todo lines: conditional
     if config.show_todo {
         if let Some(todo) = &frame.todo {
-            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
-            let text = colorize(&todo.text, TODO_TEAL, color);
-            lines.push(format!("{prefix}{text}"));
+            lines.extend(format_todo_lines(todo, config, &tier));
         }
     }
 
@@ -76,37 +80,172 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     lines
 }
 
-/// Format a single tool line combining running tools and completed counts.
-/// Running:   `T:Read: .../main.rs | T:Bash: cargo test`
-/// Completed: `✓Read ×5 | ✓Bash ×3`
-fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
+/// Format the completed tool counts line.
+/// Example: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5`
+fn format_completed_tool_line(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
+    let color = config.color_enabled;
+    let sep = colorize(" | ", tier.separator, color);
+
+    let parts: Vec<String> = frame
+        .completed_tools
+        .iter()
+        .map(|completed| {
+            let check = colorize("✓", COMPLETED_CHECK, color);
+            let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
+            let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
+            format!("{check} {name_str}{count_str}")
+        })
+        .collect();
+
+    parts.join(&sep)
+}
+
+/// Format the recent/running tools line with targets.
+/// Example: `T:Read: .../main.rs | T:Bash: cargo test`
+fn format_recent_tool_line(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
     let sep = colorize(" | ", tier.separator, color);
 
-    let mut parts: Vec<String> = Vec::new();
-
-    // Running tools (most recent N)
-    for tool in frame.tools.iter().take(config.max_tool_lines) {
-        let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
-        let name_str = colorize(&tool.name, TOOL_BLUE, color);
-        if let Some(target) = &tool.target {
-            let target_str = colorize(&format!(": {target}"), tier.secondary, color);
-            parts.push(format!("{prefix}{name_str}{target_str}"));
-        } else {
-            parts.push(format!("{prefix}{name_str}"));
-        }
-    }
-
-    // Completed tool counts (top N by frequency)
-    for completed in &frame.completed_tools {
-        let check = colorize("✓", COMPLETED_CHECK, color);
-        let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
-        let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
-        parts.push(format!("{check} {name_str}{count_str}"));
-    }
+    let parts: Vec<String> = frame
+        .tools
+        .iter()
+        .take(config.max_tool_lines)
+        .map(|tool| {
+            let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
+            let name_str = colorize(&tool.name, TOOL_BLUE, color);
+            if let Some(target) = &tool.target {
+                let target_str = colorize(&format!(": {target}"), tier.secondary, color);
+                format!("{prefix}{name_str}{target_str}")
+            } else {
+                format!("{prefix}{name_str}")
+            }
+        })
+        .collect();
 
     parts.join(&sep)
+}
+
+/// Max chars for todo task text truncation (same as agent descriptions).
+const TODO_TEXT_MAX_CHARS: usize = 40;
+
+/// Format todo display lines, capped by `config.max_todo_lines`.
+fn format_todo_lines(
+    todo: &TodoSummary,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> Vec<String> {
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    // All done: celebration line
+    if todo.all_done {
+        let check = colorize("✓", COMPLETED_CHECK, color);
+        let text = colorize(" All todos complete", COMPLETED_CHECK, color);
+        let open = colorize(" (", tier.separator, color);
+        let counts = colorize(
+            &format!("{}/{}", todo.completed, todo.total),
+            tier.secondary,
+            color,
+        );
+        let close = colorize(")", tier.separator, color);
+        return vec![format!("{check}{text}{open}{counts}{close}")];
+    }
+
+    // Task API path with in-progress items
+    if todo.is_task_api && !todo.in_progress_items.is_empty() {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let total_active = todo.in_progress_items.len();
+        let mut lines = Vec::new();
+
+        for (idx, item) in todo
+            .in_progress_items
+            .iter()
+            .take(config.max_todo_lines)
+            .enumerate()
+        {
+            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+
+            // Truncate task text
+            let text_display = if item.text.chars().count() > TODO_TEXT_MAX_CHARS {
+                let truncated: String = item.text.chars().take(TODO_TEXT_MAX_CHARS).collect();
+                format!("{truncated}…")
+            } else {
+                item.text.clone()
+            };
+            let text_str = colorize(&text_display, TODO_TEAL, color);
+
+            // Elapsed time
+            let elapsed_part = item
+                .started_at
+                .map(|start_ms| {
+                    let secs = now_ms.saturating_sub(start_ms) / 1000;
+                    let open = colorize(" (", tier.separator, color);
+                    let time = colorize(&format_agent_elapsed(secs), tier.structural, color);
+                    let close = colorize(")", tier.separator, color);
+                    format!("{open}{time}{close}")
+                })
+                .unwrap_or_default();
+
+            if idx == 0 {
+                // First line: includes progress indicator (completed/total)
+                let open = colorize(" (", tier.separator, color);
+                let progress = colorize(
+                    &format!("{}/{}", todo.completed, todo.total),
+                    tier.secondary,
+                    color,
+                );
+                let shown = total_active.min(config.max_todo_lines);
+                let overflow_part = if total_active > shown {
+                    let overflow =
+                        colorize(&format!(", {} active", total_active), tier.secondary, color);
+                    overflow
+                } else {
+                    String::new()
+                };
+                let close = colorize(")", tier.separator, color);
+                lines.push(format!(
+                    "{prefix}{text_str}{open}{progress}{overflow_part}{close}{elapsed_part}"
+                ));
+            } else {
+                // Subsequent lines: just task text + elapsed
+                lines.push(format!("{prefix}{text_str}{elapsed_part}"));
+            }
+        }
+
+        return lines;
+    }
+
+    // Task API path with pending only (no in-progress items)
+    if todo.is_task_api {
+        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+        let label = colorize(&format!("{} tasks", todo.total), TODO_TEAL, color);
+        let open = colorize(" (", tier.separator, color);
+        let counts = colorize(
+            &format!("{}/{}", todo.completed, todo.total),
+            tier.secondary,
+            color,
+        );
+        let close = colorize(")", tier.separator, color);
+        return vec![format!("{prefix}{label}{open}{counts}{close}")];
+    }
+
+    // Legacy fallback (TodoWrite path)
+    let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+    let text = colorize(&todo.text, TODO_TEAL, color);
+    vec![format!("{prefix}{text}")]
 }
 
 /// Format a single agent line.
@@ -206,16 +345,6 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     } else {
         let desc_str = colorize(&desc_truncated, accent_color, color);
         format!("{prefix}{desc_str}{model_part}{done_tag}{elapsed_part}")
-    }
-}
-
-fn format_agent_elapsed(secs: u64) -> String {
-    if secs == 0 {
-        "<1s".to_string()
-    } else if secs < 60 {
-        format!("{secs}s")
-    } else {
-        format!("{}m", secs / 60)
     }
 }
 

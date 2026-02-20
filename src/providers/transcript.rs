@@ -144,6 +144,7 @@ impl TranscriptCollector for FileTranscriptCollector {
         if file_len < state.last_transcript_offset {
             state.last_transcript_offset = 0;
             state.active_tools.clear();
+            state.recent_tools.clear();
             state.active_agents.clear();
             state.completed_tool_counts.clear();
             state.todo = None;
@@ -424,13 +425,16 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
 
 // ── Shared task/todo dispatch helpers ─────────────────────────────────
 
-/// Handle a TaskCreate event by extracting the subject from multiple possible locations.
+/// Handle a TaskCreate event by extracting the subject and activeForm from multiple possible locations.
 fn dispatch_task_create(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
     let subject = find_string(event, &["subject"])
         .or_else(|| find_nested_string(event, &[&["input", "subject"]]))
         .or_else(|| fallback.and_then(|v| find_string(v, &["subject"])));
+    let active_form = find_string(event, &["activeForm"])
+        .or_else(|| find_nested_string(event, &[&["input", "activeForm"]]))
+        .or_else(|| fallback.and_then(|v| find_string(v, &["activeForm"])));
     if let Some(subject) = subject {
-        state.create_task_item(subject);
+        state.create_task_item(subject, active_form);
     }
 }
 
@@ -741,6 +745,7 @@ fn extract_todo_summary(value: &Value) -> Option<TodoSummary> {
         pending,
         completed,
         total,
+        ..Default::default()
     })
 }
 

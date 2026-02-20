@@ -160,6 +160,10 @@ pub struct PendingTask {
 pub struct TaskItem {
     pub subject: String,
     pub status: String,
+    #[serde(default)]
+    pub active_form: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,11 +210,24 @@ impl QuotaMetrics {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TodoInProgressItem {
+    pub text: String,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,
     pub pending: usize,
     pub completed: usize,
     pub total: usize,
+    #[serde(default)]
+    pub in_progress_items: Vec<TodoInProgressItem>,
+    #[serde(default)]
+    pub all_done: bool,
+    #[serde(default)]
+    pub is_task_api: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

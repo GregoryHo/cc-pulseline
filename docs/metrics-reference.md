@@ -242,16 +242,27 @@ Config toggles: `show_quota` (master), `show_quota_five_hour`, `show_quota_seven
 
 Dynamic lines that appear only when tools, agents, or todos are active. Controlled by `show_tools`, `show_agents`, `show_todo` config flags.
 
-### Tools (L4)
+### Completed Tool Counts (L4a)
 
-Single line combining running tools and completed counts, pipe-separated.
+Dedicated line for accumulated completion counts — stable, grows over the session.
 
 | Component | Data Source | Parsing Method | Color |
 |-----------|-------------|----------------|-------|
-| Running tools | Transcript JSONL (Path 1 or 3) | `tool_use` events -> upsert with target extraction | ACTIVE_CYAN (117) |
 | Completed tools | SessionState completed counts | Accumulate on `tool_result` events | COMPLETED_CHECK (67) |
 
-**Display format**: `T:Read: .../main.rs | T:Bash: cargo test | checkmark-Read x5 | checkmark-Bash x3`
+**Display format**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5`
+
+Capped by `max_completed_tools` config value.
+
+### Running/Recent Tools (L4b)
+
+Dedicated line for running and recently used tools with targets — volatile, changes with each tool use.
+
+| Component | Data Source | Parsing Method | Color |
+|-----------|-------------|----------------|-------|
+| Running/recent tools | Transcript JSONL (Path 1 or 3) | `tool_use` events -> upsert with target extraction | ACTIVE_CYAN (117) |
+
+**Display format**: `T:Read: .../main.rs | T:Bash: cargo test`
 
 #### Tool Target Extraction
 
@@ -262,7 +273,7 @@ Single line combining running tools and completed counts, pipe-separated.
 | Glob, Grep | `input.pattern` | `T:Grep: TODO` |
 | Other | (none) | `T:WebSearch` |
 
-Completed tool display is capped by `max_completed_tools` config value.
+Both lines are controlled by a single `show_tools` toggle. Display capped by `max_tool_lines`.
 
 ### Agents (L5+)
 
@@ -285,14 +296,22 @@ Completed agents are stored in a FIFO buffer (max 10), pruned when exceeded.
 |-----------|-------------|----------------|-------|
 | Todo items | Transcript JSONL (TaskCreate/TaskUpdate events) | Todo lifecycle tracking | ACTIVE_TEAL (80) |
 
-**Display format**: `TODO: 3/5 complete`
+**Display variants**:
+- In-progress (task API): `TODO:Fixing auth bug (1/3) (5s)` — shows active_form text, progress, elapsed
+- Multi in-progress: `TODO:Fixing auth bug (1/3, 3 active) (5s)` — overflow count when >1 active
+- Pending only (task API): `TODO:3 tasks (0/3)` — no in-progress items
+- All done: `✓ All todos complete (3/3)` — celebration line using COMPLETED_CHECK color
+- Legacy (TodoWrite): `TODO:1/3 done, 2 pending`
+
+Multi-line todo display is capped by `max_todo_lines` config value (default: 2).
 
 ### Example Output
 
-Tools — running + completed on a single line:
+Tools — completed counts on one line, recent/running on another:
 
 ```
-T:Read: .../src/main.rs | T:Bash: cargo test | ✓ Read ×12 | ✓ Bash ×5
+✓ Read ×12 | ✓ Bash ×5 | ✓ Edit ×3
+T:Read: .../src/main.rs | T:Bash: cargo test
 ```
 
 Agents — running + completed (one per line):
@@ -302,10 +321,17 @@ A:Explore [haiku]: Investigating auth logic (2m)
 A:Bash: Run test suite [done] (45s)
 ```
 
-Todo progress:
+Todo progress (task API — in-progress):
 
 ```
-TODO:2/5 done, 3 pending
+TODO:Fixing auth bug (1/3) (5s)
+TODO:Adding unit tests (1/3) (12s)
+```
+
+Todo progress (all done):
+
+```
+✓ All todos complete (3/3)
 ```
 
 ## Cache Strategy

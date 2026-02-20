@@ -230,11 +230,12 @@ fn transcript_offset_persists_across_fresh_runners() {
             )
             .expect("render should succeed");
         let joined = lines.join("\n");
-        // The second runner loaded the cache with active_tools from runner 1,
-        // then read only new lines (tool_result) which clears the tool
+        // The second runner loaded the cache with recent_tools from runner 1,
+        // then read only new lines (tool_result) which records the completion.
+        // Tool persists in recent_tools for display, and completed count appears.
         assert!(
-            !joined.contains("T:Bash"),
-            "second run should process tool_result and clear Bash: got {joined}"
+            joined.contains("T:Bash"),
+            "second run should still show Bash in recent tools: got {joined}"
         );
         assert!(
             joined.contains("✓ Bash"),

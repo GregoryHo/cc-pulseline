@@ -71,9 +71,14 @@ fn tracks_tool_lifecycle_incrementally_from_transcript() {
     let lines = runner
         .run_from_str(&payload_json(&workspace, &transcript, "tool-flow"), config)
         .expect("render should succeed");
+    let joined = lines.join("\n");
     assert!(
-        lines.iter().all(|line| !line.starts_with("T:")),
-        "tool_result should clear active tool lines (completed shows as ✓)"
+        joined.contains("T:ReadFile"),
+        "tool should persist in recent display after completion"
+    );
+    assert!(
+        joined.contains("✓"),
+        "completed tool count should appear: got {joined}"
     );
 }
 
@@ -209,9 +214,14 @@ fn throttles_transcript_polling_between_renders() {
     let lines = runner
         .run_from_str(&payload, config)
         .expect("render should succeed");
+    let joined = lines.join("\n");
     assert!(
-        lines.iter().all(|line| !line.starts_with("T:")),
-        "line should disappear once throttle period elapses"
+        joined.contains("T:Bash"),
+        "tool should persist in recent display even after tool_result: got {joined}"
+    );
+    assert!(
+        joined.contains("✓"),
+        "completed tool count should appear: got {joined}"
     );
 }
 
@@ -297,7 +307,7 @@ fn tracks_nested_tool_with_target() {
         "target should include file path: got {joined}"
     );
 
-    // Event 1: user message with tool_result → clears tool, records completion
+    // Event 1: user message with tool_result → tool persists in recent, records completion
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -307,8 +317,8 @@ fn tracks_nested_tool_with_target() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("T:Read"),
-        "tool_result should clear running tool line"
+        joined.contains("T:Read"),
+        "tool should persist in recent display after completion: got {joined}"
     );
     assert!(
         joined.contains("✓ Read"),
@@ -357,7 +367,7 @@ fn tracks_nested_multi_block_tools() {
         "Bash target should show command: got {joined}"
     );
 
-    // Event 1: tool_results for both → both cleared, both completed
+    // Event 1: tool_results for both → both persist in recent, both completed
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -367,8 +377,8 @@ fn tracks_nested_multi_block_tools() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("T:Read") && !joined.contains("T:Bash"),
-        "all running tools should clear: got {joined}"
+        joined.contains("T:Read") && joined.contains("T:Bash"),
+        "tools should persist in recent display after completion: got {joined}"
     );
     assert!(
         joined.contains("✓ Read") && joined.contains("✓ Bash"),
@@ -610,7 +620,7 @@ fn extracts_todo_from_tool_result() {
         "Read tool should be running: got {joined}"
     );
 
-    // Event 1: tool_result with todos[] → Read completed, TODO appears
+    // Event 1: tool_result with todos[] → Read persists in recent, completed + TODO appear
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -620,8 +630,8 @@ fn extracts_todo_from_tool_result() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("T:Read"),
-        "tool_result should clear running Read tool: got {joined}"
+        joined.contains("T:Read"),
+        "tool should persist in recent display after completion: got {joined}"
     );
     assert!(
         joined.contains("✓ Read"),
@@ -1121,7 +1131,7 @@ fn tracks_task_create_and_update_as_todo() {
         ..RenderConfig::default()
     };
 
-    // Events 0-2: Three TaskCreates → 0/3 done, 3 pending
+    // Events 0-2: Three TaskCreates → pending only, shows "3 tasks (0/3)"
     append_line(&transcript, events[0]);
     append_line(&transcript, events[1]);
     append_line(&transcript, events[2]);
@@ -1133,11 +1143,11 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:0/3 done, 3 pending"),
-        "3 TaskCreates should show 0/3 done, 3 pending: got {joined}"
+        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
+        "3 TaskCreates should show TODO:3 tasks (0/3): got {joined}"
     );
 
-    // Event 3: TaskUpdate task 1 → in_progress (still pending in our model)
+    // Event 3: TaskUpdate task 1 → in_progress → shows active_form text
     append_line(&transcript, events[3]);
     let lines = runner
         .run_from_str(
@@ -1147,8 +1157,8 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:0/3 done, 3 pending"),
-        "in_progress should still count as pending: got {joined}"
+        joined.contains("Fixing authentication bug") && joined.contains("(0/3)"),
+        "in_progress should show active_form text with progress: got {joined}"
     );
 
     // Event 4: TaskUpdate task 1 → completed
@@ -1161,8 +1171,8 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:1/3 done, 2 pending"),
-        "completing task 1 should show 1/3 done: got {joined}"
+        joined.contains("TODO:") && joined.contains("(1/3)"),
+        "completing task 1 should show (1/3): got {joined}"
     );
 
     // Event 5: TaskUpdate task 2 → completed
@@ -1175,19 +1185,19 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:2/3 done, 1 pending"),
-        "completing task 2 should show 2/3 done: got {joined}"
+        joined.contains("TODO:") && joined.contains("(2/3)"),
+        "completing task 2 should show (2/3): got {joined}"
     );
 
-    // Event 6: TaskUpdate task 3 → completed (all done → TODO line disappears)
+    // Event 6: TaskUpdate task 3 → completed (all done → celebration line)
     append_line(&transcript, events[6]);
     let lines = runner
         .run_from_str(&payload_json(&workspace, &transcript, "task-todo"), config)
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("TODO:"),
-        "all tasks completed should clear TODO line: got {joined}"
+        joined.contains("All todos complete") && joined.contains("(3/3)"),
+        "all tasks completed should show celebration line: got {joined}"
     );
 }
 
@@ -1205,7 +1215,7 @@ fn task_update_delete_removes_from_count() {
         ..RenderConfig::default()
     };
 
-    // Events 0-6: Create 3 tasks, complete all, then delete task 2
+    // Events 0-6: Create 3 tasks, complete all → all-done celebration
     for event in &events[..7] {
         append_line(&transcript, event);
     }
@@ -1217,11 +1227,11 @@ fn task_update_delete_removes_from_count() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("TODO:"),
-        "all completed should have no TODO: got {joined}"
+        joined.contains("All todos complete") && joined.contains("(3/3)"),
+        "all completed should show celebration line: got {joined}"
     );
 
-    // Event 7: TaskUpdate task 2 → deleted → now 2/2 done → still no TODO
+    // Event 7: TaskUpdate task 2 → deleted → now 2/2 done → still all-done
     append_line(&transcript, events[7]);
     let lines = runner
         .run_from_str(
@@ -1231,8 +1241,8 @@ fn task_update_delete_removes_from_count() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("TODO:"),
-        "deleting a completed task should keep TODO clear: got {joined}"
+        joined.contains("All todos complete") && joined.contains("(2/2)"),
+        "deleting a completed task should still show all-done: got {joined}"
     );
 }
 
@@ -1271,5 +1281,341 @@ fn old_todowrite_format_still_works() {
     assert!(
         lines.iter().all(|line| !line.starts_with("TODO:")),
         "old TaskUpdate format that completes all should clear TODO line"
+    );
+}
+
+// ── New tests: Recent tools display ─────────────────────────────────
+
+#[test]
+fn recent_tools_persist_after_completion() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("recent-persist.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_tool_lines: 2,
+        ..RenderConfig::default()
+    };
+
+    // tool_use Read
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+    );
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "recent-persist"),
+            config.clone(),
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("T:Read") && joined.contains("/src/main.rs"),
+        "running tool should appear with target: got {joined}"
+    );
+
+    // tool_result Read → tool persists in recent display
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"t1"}]}"#,
+    );
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "recent-persist"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("T:Read") && joined.contains("/src/main.rs"),
+        "tool should persist in recent display after completion: got {joined}"
+    );
+}
+
+#[test]
+fn recent_tools_displaced_by_newer() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("recent-displace.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_tool_lines: 2,
+        ..RenderConfig::default()
+    };
+
+    // Three tool_uses: Read, Write, Bash (with max_tool_lines=2, Read displaced)
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"/src/lib.rs"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"cargo test"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "recent-displace"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        !joined.contains("T:Read"),
+        "oldest tool (Read) should be displaced by newer: got {joined}"
+    );
+    assert!(
+        joined.contains("T:Write"),
+        "second tool should still be visible: got {joined}"
+    );
+    assert!(
+        joined.contains("T:Bash"),
+        "newest tool should be visible: got {joined}"
+    );
+}
+
+#[test]
+fn recent_tools_cleared_on_transcript_change() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript1 = workspace.path().join("transcript-1.jsonl");
+    let transcript2 = workspace.path().join("transcript-2.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Add tool to first transcript
+    append_line(
+        &transcript1,
+        r#"{"type":"tool_use","tool_use_id":"t1","name":"Read"}"#,
+    );
+    let payload1 = json!({
+        "session_id": "session-change",
+        "cwd": workspace.path(),
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus"},
+        "version": "2.2.0",
+        "transcript_path": transcript1,
+    })
+    .to_string();
+
+    let lines = runner
+        .run_from_str(&payload1, config.clone())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("T:Read"),
+        "tool should appear: got {joined}"
+    );
+
+    // Switch transcript path → tools should clear
+    fs::write(&transcript2, "").expect("create empty transcript");
+    let payload2 = json!({
+        "session_id": "session-change",
+        "cwd": workspace.path(),
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus"},
+        "version": "2.2.0",
+        "transcript_path": transcript2,
+    })
+    .to_string();
+
+    let lines = runner
+        .run_from_str(&payload2, config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("T:Read"),
+        "tools should clear on transcript path change: got {joined}"
+    );
+}
+
+// ── New tests: Rich TODO display ────────────────────────────────────
+
+#[test]
+fn todo_rich_display_in_progress() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("todo-rich.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // TaskCreate ×3
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Fix auth bug","activeForm":"Fixing auth bug"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Add tests","activeForm":"Adding tests"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc3","name":"TaskCreate","input":{"subject":"Update docs","activeForm":"Updating docs"}}]}}"#,
+    );
+
+    // TaskUpdate task 1 → in_progress
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "todo-rich"), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("Fixing auth bug") && joined.contains("(0/3)"),
+        "in_progress task should show active_form text with progress: got {joined}"
+    );
+}
+
+#[test]
+fn todo_all_done_shows_checkmark() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("todo-done.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Create 2 tasks, complete both
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Task A"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Task B"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"1","status":"completed"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"TaskUpdate","input":{"taskId":"2","status":"completed"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "todo-done"), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("All todos complete") && joined.contains("(2/2)"),
+        "all-done should show celebration line: got {joined}"
+    );
+}
+
+#[test]
+fn todo_pending_only_shows_task_count() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("todo-pending.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Create 3 tasks, no updates
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Task 1"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Task 2"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc3","name":"TaskCreate","input":{"subject":"Task 3"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "todo-pending"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
+        "pending-only should show task count format: got {joined}"
+    );
+}
+
+#[test]
+fn todo_max_lines_caps_display() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("todo-cap.jsonl");
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_todo_lines: 2,
+        ..RenderConfig::default()
+    };
+
+    // Create 3 tasks, set all to in_progress
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc1","name":"TaskCreate","input":{"subject":"Task A","activeForm":"Working on A"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc2","name":"TaskCreate","input":{"subject":"Task B","activeForm":"Working on B"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tc3","name":"TaskCreate","input":{"subject":"Task C","activeForm":"Working on C"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"taskId":"1","status":"in_progress"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"TaskUpdate","input":{"taskId":"2","status":"in_progress"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu3","name":"TaskUpdate","input":{"taskId":"3","status":"in_progress"}}]}}"#,
+    );
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "todo-cap"), config)
+        .expect("render should succeed");
+
+    let todo_lines: Vec<&String> = lines.iter().filter(|l| l.starts_with("TODO:")).collect();
+    assert_eq!(
+        todo_lines.len(),
+        2,
+        "should be capped at max_todo_lines=2: got {todo_lines:?}"
+    );
+
+    // First line should include progress indicator
+    let first = &todo_lines[0];
+    assert!(
+        first.contains("(0/3"),
+        "first line should include progress indicator: got {first}"
+    );
+    assert!(
+        first.contains("3 active"),
+        "first line should show overflow count when more active than shown: got {first}"
     );
 }

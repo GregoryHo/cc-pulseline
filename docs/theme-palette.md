@@ -179,13 +179,15 @@ For backward compatibility, old names map to the new tier system:
 [ACTIVE_CYAN(117)]T: tool_text
 [COMPLETED_CHECK(67)]checkmark-Name [secondary]xN
 [ACTIVE_PURPLE(183)]A: agent_text
-[ACTIVE_TEAL(80)]TODO: todo_text
+[ACTIVE_TEAL(80)]TODO: todo_text (in-progress with active_form)
+[COMPLETED_CHECK(67)]checkmark All todos complete (N/N) (all-done celebration)
 ```
 
 - `117` Running tools: icon+text both ACTIVE_CYAN (Tokyo Night bright cyan)
 - `67` Completed tools: checkmark+name both COMPLETED_CHECK (steel blue, links to active cyan)
 - `183` Agents: icon+text both ACTIVE_PURPLE (Tokyo Night magenta)
-- `80` Todos: icon+text both ACTIVE_TEAL
+- `80` Todos (in-progress): icon+text both ACTIVE_TEAL
+- `67` Todos (all done): checkmark+text COMPLETED_CHECK (same as completed tools/agents)
 
 ## Rendered Output Examples
 
@@ -200,7 +202,8 @@ ASCII mode — L1 through L5 with every color annotated:
 [primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
 [STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 [structural(60)]Q:[secondary(146)]Pro [secondary]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(60)]resets 2h 0m[separator])
-[ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test [separator]| [COMPLETED_CHECK(67)]✓ Read [secondary]×12 [separator]| [COMPLETED_CHECK]✓ Bash [secondary]×5
+[COMPLETED_CHECK(67)]✓ Read [secondary(146)]×12 [separator(238)]| [COMPLETED_CHECK]✓ Bash [secondary]×5 [separator]| [COMPLETED_CHECK]✓ Edit [secondary]×3
+[ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test
 [ACTIVE_PURPLE(183)]A:Explore [structural(60)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
 ```
 

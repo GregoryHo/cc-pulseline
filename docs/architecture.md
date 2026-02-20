@@ -35,7 +35,7 @@
     |         |  QuotaMetrics (usage quota)  |                |
     |         |  Vec<ToolSummary> (active)   |                |
     |         |  Vec<AgentSummary> (active)  |                |
-    |         |  Vec<TodoSummary>            |                |
+    |         |  Vec<TodoSummary> (enriched)  |                |
     |         +--------------+---------------+                |
     |                        v                                |
     |         +------------------------------+                |
@@ -68,7 +68,7 @@ All data structures live here:
 
 - **`StdinPayload`** -- Input deserialization from Claude Code's statusline JSON
 - **`RenderFrame`** and its line metrics (`Line1Metrics`, `Line2Metrics`, `Line3Metrics`) -- structured output data
-- **Activity summaries** (`ToolSummary`, `AgentSummary`, `TodoSummary`) -- live session state
+- **Activity summaries** (`ToolSummary`, `AgentSummary`, `TodoSummary`, `TodoInProgressItem`) -- live session state
 - **`RenderFrame::from_payload()`** -- Initial field extraction from the raw payload
 
 ### `providers/` -- Trait-Based Collectors
@@ -88,7 +88,7 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 `SessionState` holds per-session mutable state:
 
 - Transcript file offset (for incremental parsing)
-- Active tools, agents, and todo lists
+- Active tools, recent tools (persist after completion for display), agents, and todo lists
 - Completed tool/agent counts
 - Cached env/git snapshots (with TTL)
 - Cached L3 metrics (for flicker prevention)
@@ -126,7 +126,9 @@ Formats the `RenderFrame` into output lines:
 - **L2**: Config counts (CLAUDE.md, rules, memories, hooks, MCPs, skills, duration)
 - **L3**: Budget (context, tokens, cost, speed)
 - **Quota**: Usage quota (5-hour and 7-day periods, between L3 and activity)
-- **L4+**: Activity (tools, agents, todos -- only when active)
+- **L4a**: Completed tool counts (stable, accumulates over session)
+- **L4b**: Running/recent tools with targets (volatile)
+- **L5+**: Activity (agents, todos -- only when active)
 
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
 1. Drop activity lines
@@ -194,7 +196,8 @@ Backward compatibility with older transcript formats and test fixtures:
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10k O:20k C:30k/40k | ↗42/s | $3.50 ($3.50/h)`
 - **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)`
-- **L4**: `T:Read: .../main.rs | T:Bash: cargo test | checkmark-Read x5`
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts)
+- **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`
 
 All segments are individually togglable via config. Each line has an independent set of toggle flags.
