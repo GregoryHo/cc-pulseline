@@ -15,6 +15,7 @@ use serde::Deserialize;
 
 use super::quota::{quota_cache_path, QuotaCacheFile, QuotaSnapshot};
 
+#[cfg(target_os = "macos")]
 const KEYCHAIN_BACKOFF_SECS: u64 = 60;
 const CURL_TIMEOUT_SECS: u64 = 10;
 
