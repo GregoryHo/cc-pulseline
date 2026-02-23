@@ -120,5 +120,5 @@ The project uses a 256-color ANSI palette with semantic color constants. See `do
 - **Semantic colors** (STABLE_BLUE, GIT_GREEN, etc.) are fixed across themes
 - **Icon color = value color** — icons are never independently dimmed
 - **L1 hierarchy**: model/git use semantic colors; style/version/project use tier.secondary (promoted from structural)
-- Theme is controlled via `PULSELINE_THEME=light` env var (default: dark)
+- Theme is controlled via config file (`theme = "dark"` or `"light"` in config.toml)
 - Color constants live in `render/color.rs`; theme logic uses `emphasis_for_theme()`

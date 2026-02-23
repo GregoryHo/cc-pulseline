@@ -107,7 +107,7 @@ This creates `~/.claude/pulseline/config.toml` with sensible defaults.
 Pipe a test payload to verify the binary works end-to-end:
 
 ```bash
-echo '{"session_id":"test","version":"1.0.1","model":{"id":"claude-sonnet-4-5-20250929","display_name":"Claude Sonnet 4.5"}}' | ~/.claude/pulseline/cc-pulseline
+echo '{"session_id":"test","version":"1.0.2","model":{"id":"claude-sonnet-4-5-20250929","display_name":"Claude Sonnet 4.5"}}' | ~/.claude/pulseline/cc-pulseline
 ```
 
 This should output formatted statusline text. If it produces output, the installation is working.

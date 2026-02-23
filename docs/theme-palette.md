@@ -9,8 +9,8 @@
 | Stable | Blue, Green | 111, 71 |
 | Indicator | Steel, Sage, Lilac, Amber, Lavender, Teal, Rose | 109, 108, 182, 179, 139, 73, 174 |
 | Cost | Base, Low, Med, High | 222, 186, 221, 201 |
-| Emphasis (Dark) | Primary, Secondary, Structural, Separator | 251, 146, 60, 238 |
-| Emphasis (Light) | Primary, Secondary, Structural, Separator | 234, 240, 247, 252 |
+| Emphasis (Dark) | Primary, Secondary, Structural, Separator | 251, 146, 103, 238 |
+| Emphasis (Light) | Primary, Secondary, Structural, Separator | 234, 240, 245, 252 |
 
 ---
 
@@ -45,10 +45,10 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 |------|------|-------|-----|
 | **Primary** | 251 | 234 | Reserved (available for high-priority values) |
 | **Secondary** | 146 | 240 | Values, counts, data (blue-tinted gray) |
-| **Structural** | 60 | 247 | Icons, labels, supporting text (Tokyo Night comment) |
+| **Structural** | 103 | 245 | Icons, labels, supporting text (blue-purple, brighter than old 60) |
 | **Separator** | 238 | 252 | Punctuation only (\|, (), /) |
 
-**Light theme gap distribution**: 234->240(6), 240->247(7), 247->252(5) -- even distribution for readability. Previously: 236->243(7), 243->246(3), 246->250(4) -- the 3-point gap between secondary and structural was nearly indistinguishable.
+**Light theme gap distribution**: 234->240(6), 240->245(5), 245->252(7) -- even distribution for readability. Previously: 236->243(7), 243->246(3), 246->250(4) -- the 3-point gap between secondary and structural was nearly indistinguishable.
 
 ### Alert Tier -- Bright, Saturated, Urgent
 
@@ -151,7 +151,7 @@ For backward compatibility, old names map to the new tier system:
 ### Line 2: Config Counts (Indicator + Monochrome Hierarchy)
 
 ```
-[INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(60/247)]label [separator(238/252)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
+[INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(103/245)]label [separator(238/252)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
 ```
 
 - `109/108/182/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
@@ -163,7 +163,7 @@ For backward compatibility, old names map to the new tier system:
 ### Line 3: Resources & Cost (Mixed)
 
 ```
-[CTX_*(71/178/196)]CTX:pct% [separator(238/252)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(60/247)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[primary]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
+[CTX_*(71/178/196)]CTX:pct% [separator(238/252)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(103/245)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[primary]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
 ```
 
 - `71/178/196` Context: icon+pct both use CTX_GOOD/WARN/CRITICAL (semantic, state-driven)
@@ -199,12 +199,12 @@ ASCII mode — L1 through L5 with every color annotated:
 
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
-[primary(251)]1 [structural(60)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
-[structural(60)]Q:[secondary(146)]Pro [secondary]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(60)]resets 2h 0m[separator])
+[primary(251)]1 [structural(103)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[structural(103)]Q:[secondary(146)]Pro [secondary]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(103)]resets 2h 0m[separator])
 [COMPLETED_CHECK(67)]✓ Read [secondary(146)]×12 [separator(238)]| [COMPLETED_CHECK]✓ Bash [secondary]×5 [separator]| [COMPLETED_CHECK]✓ Edit [secondary]×3
 [ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test
-[ACTIVE_PURPLE(183)]A:Explore [structural(60)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
+[ACTIVE_PURPLE(183)]A:Explore [structural(103)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
 ```
 
 In icon mode, L2 gains per-metric indicator colors on icons (109/108/182/179/139/73/174) before each count.
@@ -214,7 +214,7 @@ In icon mode, L2 gains per-metric indicator colors on icons (109/108/182/179/139
 Context critical (≥70%) + high burn rate (>$50/h):
 
 ```
-[ALERT_RED(196)]CTX:75% [separator(238)]([secondary(146)]150.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(60)]TOK [structural]I: [primary(251)]45.0k [structural]O: [primary]12.0k [structural]C:[primary]50.0k[separator]/[primary]77.0k [separator]| [COST_BASE(222)]$12.50 [separator]([COST_HIGH_RATE(201)]$75.00/h[separator])
+[ALERT_RED(196)]CTX:75% [separator(238)]([secondary(146)]150.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]45.0k [structural]O: [primary]12.0k [structural]C:[primary]50.0k[separator]/[primary]77.0k [separator]| [COST_BASE(222)]$12.50 [separator]([COST_HIGH_RATE(201)]$75.00/h[separator])
 ```
 
 Note: `ALERT_RED` (196) replaces `STABLE_GREEN` (71) on the CTX prefix and percentage. `COST_HIGH_RATE` (201, magenta) replaces `COST_LOW_RATE` (186, peach) on the burn rate. All other colors remain identical.
@@ -225,11 +225,11 @@ Same output, different emphasis tier codes — semantic colors are unchanged:
 
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(252)]| [secondary(240)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main
-[primary(234)]1 [structural(247)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(247)]TOK [structural]I: [primary(234)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[primary(234)]1 [structural(245)]CLAUDE.md [separator(252)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
+[STABLE_GREEN(71)]CTX:43% [separator(252)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(245)]TOK [structural]I: [primary(234)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 ```
 
-Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 60→247, Separator 238→252. All semantic colors (STABLE_BLUE 111, STABLE_GREEN 71, COST_BASE 222, etc.) remain identical.
+Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 103→245, Separator 238→252. All semantic colors (STABLE_BLUE 111, STABLE_GREEN 71, COST_BASE 222, etc.) remain identical.
 
 ## Icon Color Rules
 
@@ -270,7 +270,7 @@ On light backgrounds, the emphasis tiers reverse contrast direction -- dark gray
 |------|-------------------|--------------------|--------------------|
 | **Primary** | 251 (bright white) | 234 (near-black) | Reversed |
 | **Secondary** | 146 (blue-gray) | 240 (medium-dark gray) | Reversed |
-| **Structural** | 60 (dim blue-gray) | 247 (medium gray) | Reversed |
+| **Structural** | 103 (blue-purple) | 245 (medium gray) | Reversed |
 | **Separator** | 238 (dark gray) | 252 (light gray) | Reversed |
 
 ### What Stays Fixed

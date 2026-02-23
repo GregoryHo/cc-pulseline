@@ -72,7 +72,7 @@ fn version_flag_shows_version() {
         stdout.contains("cc-pulseline"),
         "should contain binary name"
     );
-    assert!(stdout.contains("1.0.1"), "should contain version number");
+    assert!(stdout.contains("1.0.2"), "should contain version number");
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn short_version_flag_works() {
     assert!(output.status.success(), "should exit 0");
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
-        stdout.contains("cc-pulseline 1.0.1"),
+        stdout.contains("cc-pulseline 1.0.2"),
         "should show name and version"
     );
 }

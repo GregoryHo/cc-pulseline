@@ -47,7 +47,7 @@ Report OK if validation passes. Report FAIL with error details if it fails.
 Pipe a sample payload and verify output:
 
 ```bash
-OUTPUT=$(echo '{"session_id":"diag","version":"1.0.1","model":{"id":"claude-sonnet-4-5-20250929","display_name":"Sonnet 4.5"}}' | ~/.claude/pulseline/cc-pulseline 2>&1)
+OUTPUT=$(echo '{"session_id":"diag","version":"1.0.2","model":{"id":"claude-sonnet-4-5-20250929","display_name":"Sonnet 4.5"}}' | ~/.claude/pulseline/cc-pulseline 2>&1)
 if [ -n "$OUTPUT" ]; then
   echo "OK: Binary produces output"
   echo "$OUTPUT"
