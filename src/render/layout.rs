@@ -134,8 +134,31 @@ fn format_recent_tool_line(
     parts.join(&sep)
 }
 
-/// Max chars for todo task text truncation (same as agent descriptions).
-const TODO_TEXT_MAX_CHARS: usize = 40;
+/// Max visible chars for activity line text (agent descriptions, todo task text).
+const ACTIVITY_TEXT_MAX_CHARS: usize = 40;
+
+/// Truncate text to `max_chars`, appending ellipsis if needed.
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() > max_chars {
+        let truncated: String = text.chars().take(max_chars).collect();
+        format!("{truncated}…")
+    } else {
+        text.to_string()
+    }
+}
+
+/// Format a parenthesized progress count: ` (N/M)`.
+fn format_progress_count(
+    completed: usize,
+    total: usize,
+    tier: &EmphasisTier,
+    color: bool,
+) -> String {
+    let open = colorize(" (", tier.separator, color);
+    let counts = colorize(&format!("{completed}/{total}"), tier.secondary, color);
+    let close = colorize(")", tier.separator, color);
+    format!("{open}{counts}{close}")
+}
 
 /// Format todo display lines, capped by `config.max_todo_lines`.
 fn format_todo_lines(
@@ -150,20 +173,14 @@ fn format_todo_lines(
     if todo.all_done {
         let check = colorize("✓", COMPLETED_CHECK, color);
         let text = colorize(" All todos complete", COMPLETED_CHECK, color);
-        let open = colorize(" (", tier.separator, color);
-        let counts = colorize(
-            &format!("{}/{}", todo.completed, todo.total),
-            tier.secondary,
-            color,
-        );
-        let close = colorize(")", tier.separator, color);
-        return vec![format!("{check}{text}{open}{counts}{close}")];
+        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        return vec![format!("{check}{text}{progress}")];
     }
 
     // Task API path with in-progress items
     if todo.is_task_api && !todo.in_progress_items.is_empty() {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
@@ -178,14 +195,11 @@ fn format_todo_lines(
         {
             let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
 
-            // Truncate task text
-            let text_display = if item.text.chars().count() > TODO_TEXT_MAX_CHARS {
-                let truncated: String = item.text.chars().take(TODO_TEXT_MAX_CHARS).collect();
-                format!("{truncated}…")
-            } else {
-                item.text.clone()
-            };
-            let text_str = colorize(&text_display, TODO_TEAL, color);
+            let text_str = colorize(
+                &truncate_text(&item.text, ACTIVITY_TEXT_MAX_CHARS),
+                TODO_TEAL,
+                color,
+            );
 
             // Elapsed time
             let elapsed_part = item
@@ -209,9 +223,7 @@ fn format_todo_lines(
                 );
                 let shown = total_active.min(config.max_todo_lines);
                 let overflow_part = if total_active > shown {
-                    let overflow =
-                        colorize(&format!(", {} active", total_active), tier.secondary, color);
-                    overflow
+                    colorize(&format!(", {} active", total_active), tier.secondary, color)
                 } else {
                     String::new()
                 };
@@ -232,14 +244,8 @@ fn format_todo_lines(
     if todo.is_task_api {
         let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
         let label = colorize(&format!("{} tasks", todo.total), TODO_TEAL, color);
-        let open = colorize(" (", tier.separator, color);
-        let counts = colorize(
-            &format!("{}/{}", todo.completed, todo.total),
-            tier.secondary,
-            color,
-        );
-        let close = colorize(")", tier.separator, color);
-        return vec![format!("{prefix}{label}{open}{counts}{close}")];
+        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        return vec![format!("{prefix}{label}{progress}")];
     }
 
     // Legacy fallback (TodoWrite path)
@@ -254,9 +260,7 @@ fn format_todo_lines(
 ///
 /// The description field comes from the Task tool's `description` (3-5 word short summary)
 /// when available, falling back to `prompt` (full text). We truncate to first line,
-/// max 40 chars to keep activity lines compact.
-const AGENT_DESC_MAX_CHARS: usize = 40;
-
+/// max ACTIVITY_TEXT_MAX_CHARS to keep activity lines compact.
 fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
@@ -274,14 +278,9 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color)
     };
 
-    // Truncate description: first line only, max AGENT_DESC_MAX_CHARS visible chars
+    // Truncate description: first line only, max ACTIVITY_TEXT_MAX_CHARS visible chars
     let first_line = agent.description.lines().next().unwrap_or("");
-    let desc_truncated = if first_line.chars().count() > AGENT_DESC_MAX_CHARS {
-        let truncated: String = first_line.chars().take(AGENT_DESC_MAX_CHARS).collect();
-        format!("{truncated}…")
-    } else {
-        first_line.to_string()
-    };
+    let desc_truncated = truncate_text(first_line, ACTIVITY_TEXT_MAX_CHARS);
 
     // Elapsed time
     let elapsed_str = if completed {
