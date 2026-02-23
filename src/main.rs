@@ -23,6 +23,12 @@ fn main() {
         return;
     }
 
+    // Hidden internal flag — background quota fetch subprocess
+    if args.iter().any(|a| a == "--fetch-quota") {
+        cc_pulseline::providers::quota_fetch::run_fetch_quota();
+        return;
+    }
+
     let has_init = args.iter().any(|a| a == "--init");
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
@@ -160,6 +166,10 @@ fn print_config(project_root: Option<&str>) {
     println!("show_version = {}", config.segments.identity.show_version);
     println!("show_project = {}", config.segments.identity.show_project);
     println!("show_git = {}", config.segments.identity.show_git);
+    println!(
+        "show_git_stats = {}",
+        config.segments.identity.show_git_stats
+    );
     println!();
     println!("[segments.config]");
     println!("show_claude_md = {}", config.segments.config.show_claude_md);
@@ -174,6 +184,12 @@ fn print_config(project_root: Option<&str>) {
     println!("show_context = {}", config.segments.budget.show_context);
     println!("show_tokens = {}", config.segments.budget.show_tokens);
     println!("show_cost = {}", config.segments.budget.show_cost);
+    println!("show_speed = {}", config.segments.budget.show_speed);
+    println!();
+    println!("[segments.quota]");
+    println!("enabled = {}", config.segments.quota.enabled);
+    println!("show_five_hour = {}", config.segments.quota.show_five_hour);
+    println!("show_seven_day = {}", config.segments.quota.show_seven_day);
     println!();
     println!("[segments.tools]");
     println!("enabled = {}", config.segments.tools.enabled);

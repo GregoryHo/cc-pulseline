@@ -88,6 +88,10 @@ pub struct Line1Metrics {
     pub git_dirty: bool,
     pub git_ahead: u32,
     pub git_behind: u32,
+    pub git_modified: u32,
+    pub git_added: u32,
+    pub git_deleted: u32,
+    pub git_untracked: u32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -111,6 +115,9 @@ pub struct Line3Metrics {
     pub cache_read_tokens: Option<u64>,
     pub total_cost_usd: Option<f64>,
     pub total_duration_ms: Option<u64>,
+    /// Output speed in tokens/second (independently computed, NOT from payload).
+    #[serde(default)]
+    pub output_speed_toks_per_sec: Option<f64>,
 }
 
 impl Line3Metrics {
@@ -153,6 +160,10 @@ pub struct PendingTask {
 pub struct TaskItem {
     pub subject: String,
     pub status: String,
+    #[serde(default)]
+    pub active_form: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,12 +182,52 @@ impl AgentSummary {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QuotaMetrics {
+    pub five_hour_pct: Option<f64>,
+    pub five_hour_reset_minutes: Option<u64>,
+    pub seven_day_pct: Option<f64>,
+    pub seven_day_reset_minutes: Option<u64>,
+    pub plan_type: Option<String>,
+    pub available: bool,
+}
+
+impl QuotaMetrics {
+    /// Convert a QuotaSnapshot into render-ready metrics.
+    /// Converts absolute reset timestamps to relative minutes-from-now.
+    pub fn from_snapshot(snapshot: &crate::providers::quota::QuotaSnapshot, now_ms: u64) -> Self {
+        let reset_to_minutes = |reset_ms: u64| -> u64 { reset_ms.saturating_sub(now_ms) / 60_000 };
+
+        Self {
+            plan_type: snapshot.plan_type.clone(),
+            five_hour_pct: snapshot.five_hour_pct,
+            five_hour_reset_minutes: snapshot.five_hour_reset_at.map(reset_to_minutes),
+            seven_day_pct: snapshot.seven_day_pct,
+            seven_day_reset_minutes: snapshot.seven_day_reset_at.map(reset_to_minutes),
+            available: snapshot.available,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TodoInProgressItem {
+    pub text: String,
+    #[serde(default)]
+    pub started_at: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,
     pub pending: usize,
     pub completed: usize,
     pub total: usize,
+    #[serde(default)]
+    pub in_progress_items: Vec<TodoInProgressItem>,
+    #[serde(default)]
+    pub all_done: bool,
+    #[serde(default)]
+    pub is_task_api: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -188,6 +239,7 @@ pub struct RenderFrame {
     pub completed_tools: Vec<CompletedToolCount>,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
+    pub quota: QuotaMetrics,
 }
 
 impl RenderFrame {
@@ -231,6 +283,10 @@ impl RenderFrame {
                 git_dirty: false,
                 git_ahead: 0,
                 git_behind: 0,
+                git_modified: 0,
+                git_added: 0,
+                git_deleted: 0,
+                git_untracked: 0,
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
@@ -253,11 +309,13 @@ impl RenderFrame {
                     .cost
                     .as_ref()
                     .and_then(|cost| cost.total_duration_ms),
+                output_speed_toks_per_sec: None,
             },
             tools: Vec::new(),
             completed_tools: Vec::new(),
             agents: Vec::new(),
             todo: None,
+            quota: QuotaMetrics::default(),
         }
     }
 }

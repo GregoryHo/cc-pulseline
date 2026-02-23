@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use config::RenderConfig;
 use providers::{
+    quota::{CachedFileQuotaCollector, QuotaCollector},
     EnvCollector, EnvSnapshot, FileSystemEnvCollector, FileTranscriptCollector, GitCollector,
     GitSnapshot, LocalGitCollector, TranscriptCollector, TranscriptSnapshot,
 };
@@ -76,6 +77,26 @@ impl PulseLineRunner {
             frame.line3 = cached.clone();
         }
 
+        // Token speed: compute delta-based tok/s for output stream
+        if config.show_speed {
+            let usage = payload
+                .context_window
+                .as_ref()
+                .and_then(|c| c.current_usage.as_ref());
+            let output_tokens = usage.and_then(|u| u.output_tokens);
+            frame.line3.output_speed_toks_per_sec = state.update_output_speed(output_tokens);
+        }
+
+        // Quota: single cache file read (no network I/O in render path)
+        if config.show_quota {
+            let (snapshot, is_stale) = CachedFileQuotaCollector.collect_quota();
+            frame.quota = types::QuotaMetrics::from_snapshot(&snapshot, cache::now_epoch_ms());
+
+            if is_stale && state.should_spawn_quota_fetch(providers::quota::QUOTA_FAILURE_TTL_MS) {
+                providers::quota::spawn_background_fetch();
+            }
+        }
+
         let lines = render::layout::render_frame(&frame, &config);
 
         // Save cache to disk
@@ -139,6 +160,10 @@ fn build_render_frame(
     frame.line1.git_dirty = git_snapshot.dirty;
     frame.line1.git_ahead = git_snapshot.ahead;
     frame.line1.git_behind = git_snapshot.behind;
+    frame.line1.git_modified = git_snapshot.modified_count;
+    frame.line1.git_added = git_snapshot.added_count;
+    frame.line1.git_deleted = git_snapshot.deleted_count;
+    frame.line1.git_untracked = git_snapshot.untracked_count;
 
     frame.line2.claude_md_count = env_snapshot.claude_md_count;
     frame.line2.rules_count = env_snapshot.rules_count;

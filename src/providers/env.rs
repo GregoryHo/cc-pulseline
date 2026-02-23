@@ -225,7 +225,11 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
         project_set.insert(name);
     }
 
-    (user_set.len() + project_set.len()) as u32
+    // Union across scopes — a server configured in both counts once
+    for name in project_set {
+        user_set.insert(name);
+    }
+    user_set.len() as u32
 }
 
 /// Count individual hook handlers in a JSON file.
@@ -517,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_cross_scope_no_dedup() {
+    fn mcp_cross_scope_dedup() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path().join("project");
         let home = tmp.path().join("home");
@@ -525,7 +529,7 @@ mod tests {
         fs::create_dir_all(root.join(".claude")).unwrap();
         fs::create_dir_all(home.join(".claude")).unwrap();
 
-        // Same name "shared" in both scopes → counts as 2
+        // Same name "shared" in both scopes → deduped to 1
         fs::write(
             home.join(".claude/settings.json"),
             r#"{"mcpServers":{"shared":{}}}"#,
@@ -537,7 +541,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 2);
+        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 1);
     }
 
     #[test]

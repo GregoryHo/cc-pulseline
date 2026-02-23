@@ -47,6 +47,8 @@ pub const COST_HIGH_RATE: &str = "\x1b[38;5;201m";
 // Legacy aliases → tier-based constants
 pub const GIT_GREEN: &str = STABLE_GREEN;
 pub const GIT_MODIFIED: &str = ALERT_ORANGE;
+pub const GIT_ADDED: &str = GIT_GREEN;
+pub const GIT_DELETED: &str = ALERT_RED;
 pub const GIT_AHEAD: &str = ACTIVE_CORAL;
 pub const GIT_BEHIND: &str = ACTIVE_CORAL;
 pub const CTX_GOOD: &str = STABLE_GREEN;

@@ -28,6 +28,8 @@ pub struct SessionCache {
     pub transcript_offset: u64,
     pub transcript_path: Option<String>,
     pub active_tools: Vec<ToolSummary>,
+    #[serde(default)]
+    pub recent_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,
@@ -44,6 +46,16 @@ pub struct SessionCache {
     pub task_counter: u32,
     // L3 metrics (all-or-nothing fallback)
     pub line3: Option<Line3Metrics>,
+    // Token speed tracking (output only)
+    #[serde(default)]
+    pub last_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub last_output_token_time_ms: Option<u64>,
+    #[serde(default)]
+    pub output_speed_toks_per_sec: Option<f64>,
+    // Quota fetch spawn throttle
+    #[serde(default)]
+    pub last_quota_fetch_spawned_ms: Option<u64>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

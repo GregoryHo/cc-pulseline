@@ -50,6 +50,8 @@ pub struct SegmentsConfig {
     #[serde(default)]
     pub budget: BudgetSegmentConfig,
     #[serde(default)]
+    pub quota: QuotaSegmentConfig,
+    #[serde(default)]
     pub tools: ToolSegmentConfig,
     #[serde(default)]
     pub agents: SegmentToggle,
@@ -69,6 +71,8 @@ pub struct IdentitySegmentConfig {
     pub show_project: bool,
     #[serde(default = "default_true")]
     pub show_git: bool,
+    #[serde(default)]
+    pub show_git_stats: bool,
 }
 
 impl Default for IdentitySegmentConfig {
@@ -79,6 +83,7 @@ impl Default for IdentitySegmentConfig {
             show_version: true,
             show_project: true,
             show_git: true,
+            show_git_stats: false,
         }
     }
 }
@@ -123,6 +128,8 @@ pub struct BudgetSegmentConfig {
     pub show_tokens: bool,
     #[serde(default = "default_true")]
     pub show_cost: bool,
+    #[serde(default)]
+    pub show_speed: bool,
 }
 
 impl Default for BudgetSegmentConfig {
@@ -131,6 +138,27 @@ impl Default for BudgetSegmentConfig {
             show_context: true,
             show_tokens: true,
             show_cost: true,
+            show_speed: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuotaSegmentConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub show_five_hour: bool,
+    #[serde(default)]
+    pub show_seven_day: bool,
+}
+
+impl Default for QuotaSegmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            show_five_hour: true,
+            show_seven_day: false,
         }
     }
 }
@@ -207,6 +235,7 @@ show_style = true
 show_version = true
 show_project = true
 show_git = true
+show_git_stats = false  # !3 +1 ✘2 ?4 file stats after branch
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
@@ -221,6 +250,12 @@ show_duration = true
 show_context = true
 show_tokens = true
 show_cost = true
+show_speed = false          # output tok/s rate
+
+[segments.quota]            # Usage/quota tracking (subscription plans)
+enabled = false             # opt-in: requires OAuth credentials
+show_five_hour = true
+show_seven_day = false
 
 [segments.tools]
 enabled = true
@@ -256,6 +291,7 @@ pub struct ProjectSegmentsOverride {
     pub identity: Option<ProjectIdentityOverride>,
     pub config: Option<ProjectConfigOverride>,
     pub budget: Option<ProjectBudgetOverride>,
+    pub quota: Option<ProjectQuotaOverride>,
     pub tools: Option<ProjectToolOverride>,
     pub agents: Option<ProjectSegmentToggleOverride>,
     pub todo: Option<ProjectSegmentToggleOverride>,
@@ -268,6 +304,7 @@ pub struct ProjectIdentityOverride {
     pub show_version: Option<bool>,
     pub show_project: Option<bool>,
     pub show_git: Option<bool>,
+    pub show_git_stats: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -286,6 +323,14 @@ pub struct ProjectBudgetOverride {
     pub show_context: Option<bool>,
     pub show_tokens: Option<bool>,
     pub show_cost: Option<bool>,
+    pub show_speed: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectQuotaOverride {
+    pub enabled: Option<bool>,
+    pub show_five_hour: Option<bool>,
+    pub show_seven_day: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -356,6 +401,9 @@ pub fn merge_configs(
             if let Some(v) = identity.show_git {
                 user.segments.identity.show_git = v;
             }
+            if let Some(v) = identity.show_git_stats {
+                user.segments.identity.show_git_stats = v;
+            }
         }
         if let Some(config) = &segments.config {
             if let Some(v) = config.show_claude_md {
@@ -389,6 +437,20 @@ pub fn merge_configs(
             }
             if let Some(v) = budget.show_cost {
                 user.segments.budget.show_cost = v;
+            }
+            if let Some(v) = budget.show_speed {
+                user.segments.budget.show_speed = v;
+            }
+        }
+        if let Some(quota) = &segments.quota {
+            if let Some(v) = quota.enabled {
+                user.segments.quota.enabled = v;
+            }
+            if let Some(v) = quota.show_five_hour {
+                user.segments.quota.show_five_hour = v;
+            }
+            if let Some(v) = quota.show_seven_day {
+                user.segments.quota.show_seven_day = v;
             }
         }
         if let Some(tools) = &segments.tools {
@@ -473,6 +535,7 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [segments.identity]
 # show_version = false
+# show_git_stats = true
 
 # [segments.config]
 # show_memory = false
@@ -480,6 +543,25 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [segments.budget]
 # show_tokens = false
+# show_speed = true
+
+# [segments.quota]
+# enabled = true
+# show_five_hour = true
+# show_seven_day = false
+
+# [segments.tools]
+# enabled = true
+# max_lines = 2
+# max_completed = 4
+
+# [segments.agents]
+# enabled = true
+# max_lines = 2
+
+# [segments.todo]
+# enabled = true
+# max_lines = 2
 "#
 }
 
@@ -515,6 +597,7 @@ pub struct RenderConfig {
     pub show_version: bool,
     pub show_project: bool,
     pub show_git: bool,
+    pub show_git_stats: bool,
     // L2 segment toggles
     pub show_claude_md: bool,
     pub show_rules: bool,
@@ -527,10 +610,16 @@ pub struct RenderConfig {
     pub show_context: bool,
     pub show_tokens: bool,
     pub show_cost: bool,
+    pub show_speed: bool,
+    // Quota segment toggles
+    pub show_quota: bool,
+    pub show_quota_five_hour: bool,
+    pub show_quota_seven_day: bool,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
     pub max_agent_lines: usize,
+    pub max_todo_lines: usize,
     pub show_tools: bool,
     pub show_agents: bool,
     pub show_todo: bool,
@@ -551,6 +640,7 @@ impl Default for RenderConfig {
             show_version: true,
             show_project: true,
             show_git: true,
+            show_git_stats: false,
             show_claude_md: true,
             show_rules: true,
             show_memory: true,
@@ -561,9 +651,14 @@ impl Default for RenderConfig {
             show_context: true,
             show_tokens: true,
             show_cost: true,
+            show_speed: false,
+            show_quota: false,
+            show_quota_five_hour: true,
+            show_quota_seven_day: false,
             max_tool_lines: 2,
             max_completed_tools: 4,
             max_agent_lines: 2,
+            max_todo_lines: 2,
             show_tools: true,
             show_agents: true,
             show_todo: true,
@@ -589,7 +684,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         GlyphMode::Ascii
     };
 
-    let color_theme = match pulseline.display.theme.as_str() {
+    let color_theme = match pulseline.display.theme.to_lowercase().as_str() {
         "light" => ColorTheme::Light,
         _ => ColorTheme::Dark,
     };
@@ -607,6 +702,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_version: pulseline.segments.identity.show_version,
         show_project: pulseline.segments.identity.show_project,
         show_git: pulseline.segments.identity.show_git,
+        show_git_stats: pulseline.segments.identity.show_git_stats,
         // L2 config toggles
         show_claude_md: pulseline.segments.config.show_claude_md,
         show_rules: pulseline.segments.config.show_rules,
@@ -619,10 +715,16 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_context: pulseline.segments.budget.show_context,
         show_tokens: pulseline.segments.budget.show_tokens,
         show_cost: pulseline.segments.budget.show_cost,
+        show_speed: pulseline.segments.budget.show_speed,
+        // Quota
+        show_quota: pulseline.segments.quota.enabled,
+        show_quota_five_hour: pulseline.segments.quota.show_five_hour,
+        show_quota_seven_day: pulseline.segments.quota.show_seven_day,
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
         max_completed_tools: pulseline.segments.tools.max_completed,
         max_agent_lines: pulseline.segments.agents.max_lines,
+        max_todo_lines: pulseline.segments.todo.max_lines,
         show_tools: pulseline.segments.tools.enabled,
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,

@@ -23,7 +23,7 @@ ls -la ~/.claude/pulseline/cc-pulseline 2>/dev/null
 ~/.claude/pulseline/cc-pulseline --check 2>&1
 
 # Test with sample payload
-echo '{"session_id":"diag","version":"1.0.1"}' | ~/.claude/pulseline/cc-pulseline 2>&1
+echo '{"session_id":"diag","version":"1.0.2"}' | ~/.claude/pulseline/cc-pulseline 2>&1
 ```
 
 ### 2. Settings Registration

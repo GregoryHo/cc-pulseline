@@ -2,17 +2,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
-    types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame},
+    types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame, TodoSummary},
 };
 
 use super::color::{
     colorize, emphasis_for_theme, take_visible_chars, visible_width, EmphasisTier, AGENT_PURPLE,
     COMPLETED_CHECK, COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL,
-    CTX_GOOD, CTX_WARN, GIT_AHEAD, GIT_BEHIND, GIT_GREEN, GIT_MODIFIED, INDICATOR_CLAUDE_MD,
-    INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY, INDICATOR_RULES,
-    INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
+    CTX_GOOD, CTX_WARN, GIT_ADDED, GIT_AHEAD, GIT_BEHIND, GIT_DELETED, GIT_GREEN, GIT_MODIFIED,
+    INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY,
+    INDICATOR_RULES, INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
 };
-use super::fmt::{format_duration, format_number};
+use super::fmt::{
+    format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
+};
 use super::icons::*;
 
 /// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
@@ -23,8 +25,11 @@ const CTX_WARN_THRESHOLD: u64 = 55;
 /// Set below auto-compact (~80%) so users see red before compaction fires.
 const CTX_CRITICAL_THRESHOLD: u64 = 70;
 
+/// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
+/// Used in width degradation to determine what counts as "activity" lines.
+const CORE_LINE_COUNT: usize = 3;
+
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    let mode = config.glyph_mode;
     let color = config.color_enabled;
     let tier = emphasis_for_theme(config.color_theme);
 
@@ -34,9 +39,21 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         format_line3(frame, config, &tier),
     ];
 
-    // Tool line: running + completed on a single line (claude-hud style)
-    if config.show_tools && (!frame.tools.is_empty() || !frame.completed_tools.is_empty()) {
-        lines.push(format_tool_line(frame, config, &tier));
+    // Quota line: between L3 and activity lines
+    if config.show_quota {
+        if let Some(line) = format_quota_line(&frame.quota, config, &tier) {
+            lines.push(line);
+        }
+    }
+
+    // Tool lines: completed counts (stable) then recent tools (volatile)
+    if config.show_tools {
+        if !frame.completed_tools.is_empty() {
+            lines.push(format_completed_tool_line(frame, config, &tier));
+        }
+        if !frame.tools.is_empty() {
+            lines.push(format_recent_tool_line(frame, config, &tier));
+        }
     }
 
     // Agent lines: one per agent, conditional
@@ -47,12 +64,10 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         }
     }
 
-    // Todo line: conditional
+    // Todo lines: conditional
     if config.show_todo {
         if let Some(todo) = &frame.todo {
-            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
-            let text = colorize(&todo.text, TODO_TEAL, color);
-            lines.push(format!("{prefix}{text}"));
+            lines.extend(format_todo_lines(todo, config, &tier));
         }
     }
 
@@ -65,37 +80,178 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     lines
 }
 
-/// Format a single tool line combining running tools and completed counts.
-/// Running:   `T:Read: .../main.rs | T:Bash: cargo test`
-/// Completed: `✓Read ×5 | ✓Bash ×3`
-fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
+/// Format the completed tool counts line.
+/// Example: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5`
+fn format_completed_tool_line(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
+    let color = config.color_enabled;
+    let sep = colorize(" | ", tier.separator, color);
+
+    let parts: Vec<String> = frame
+        .completed_tools
+        .iter()
+        .map(|completed| {
+            let check = colorize("✓", COMPLETED_CHECK, color);
+            let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
+            let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
+            format!("{check} {name_str}{count_str}")
+        })
+        .collect();
+
+    parts.join(&sep)
+}
+
+/// Format the recent/running tools line with targets.
+/// Example: `T:Read: .../main.rs | T:Bash: cargo test`
+fn format_recent_tool_line(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
     let sep = colorize(" | ", tier.separator, color);
 
-    let mut parts: Vec<String> = Vec::new();
-
-    // Running tools (most recent N)
-    for tool in frame.tools.iter().take(config.max_tool_lines) {
-        let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
-        let name_str = colorize(&tool.name, TOOL_BLUE, color);
-        if let Some(target) = &tool.target {
-            let target_str = colorize(&format!(": {target}"), tier.secondary, color);
-            parts.push(format!("{prefix}{name_str}{target_str}"));
-        } else {
-            parts.push(format!("{prefix}{name_str}"));
-        }
-    }
-
-    // Completed tool counts (top N by frequency)
-    for completed in &frame.completed_tools {
-        let check = colorize("✓", COMPLETED_CHECK, color);
-        let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
-        let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
-        parts.push(format!("{check} {name_str}{count_str}"));
-    }
+    let parts: Vec<String> = frame
+        .tools
+        .iter()
+        .take(config.max_tool_lines)
+        .map(|tool| {
+            let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
+            let name_str = colorize(&tool.name, TOOL_BLUE, color);
+            if let Some(target) = &tool.target {
+                let target_str = colorize(&format!(": {target}"), tier.secondary, color);
+                format!("{prefix}{name_str}{target_str}")
+            } else {
+                format!("{prefix}{name_str}")
+            }
+        })
+        .collect();
 
     parts.join(&sep)
+}
+
+/// Max visible chars for activity line text (agent descriptions, todo task text).
+const ACTIVITY_TEXT_MAX_CHARS: usize = 40;
+
+/// Truncate text to `max_chars`, appending ellipsis if needed.
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() > max_chars {
+        let truncated: String = text.chars().take(max_chars).collect();
+        format!("{truncated}…")
+    } else {
+        text.to_string()
+    }
+}
+
+/// Format a parenthesized progress count: ` (N/M)`.
+fn format_progress_count(
+    completed: usize,
+    total: usize,
+    tier: &EmphasisTier,
+    color: bool,
+) -> String {
+    let open = colorize(" (", tier.separator, color);
+    let counts = colorize(&format!("{completed}/{total}"), tier.secondary, color);
+    let close = colorize(")", tier.separator, color);
+    format!("{open}{counts}{close}")
+}
+
+/// Format todo display lines, capped by `config.max_todo_lines`.
+fn format_todo_lines(
+    todo: &TodoSummary,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> Vec<String> {
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    // All done: celebration line
+    if todo.all_done {
+        let check = colorize("✓", COMPLETED_CHECK, color);
+        let text = colorize(" All todos complete", COMPLETED_CHECK, color);
+        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        return vec![format!("{check}{text}{progress}")];
+    }
+
+    // Task API path with in-progress items
+    if todo.is_task_api && !todo.in_progress_items.is_empty() {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let total_active = todo.in_progress_items.len();
+        let mut lines = Vec::new();
+
+        for (idx, item) in todo
+            .in_progress_items
+            .iter()
+            .take(config.max_todo_lines)
+            .enumerate()
+        {
+            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+
+            let text_str = colorize(
+                &truncate_text(&item.text, ACTIVITY_TEXT_MAX_CHARS),
+                TODO_TEAL,
+                color,
+            );
+
+            // Elapsed time
+            let elapsed_part = item
+                .started_at
+                .map(|start_ms| {
+                    let secs = now_ms.saturating_sub(start_ms) / 1000;
+                    let open = colorize(" (", tier.separator, color);
+                    let time = colorize(&format_agent_elapsed(secs), tier.structural, color);
+                    let close = colorize(")", tier.separator, color);
+                    format!("{open}{time}{close}")
+                })
+                .unwrap_or_default();
+
+            if idx == 0 {
+                // First line: includes progress indicator (completed/total)
+                let open = colorize(" (", tier.separator, color);
+                let progress = colorize(
+                    &format!("{}/{}", todo.completed, todo.total),
+                    tier.secondary,
+                    color,
+                );
+                let shown = total_active.min(config.max_todo_lines);
+                let overflow_part = if total_active > shown {
+                    colorize(&format!(", {} active", total_active), tier.secondary, color)
+                } else {
+                    String::new()
+                };
+                let close = colorize(")", tier.separator, color);
+                lines.push(format!(
+                    "{prefix}{text_str}{open}{progress}{overflow_part}{close}{elapsed_part}"
+                ));
+            } else {
+                // Subsequent lines: just task text + elapsed
+                lines.push(format!("{prefix}{text_str}{elapsed_part}"));
+            }
+        }
+
+        return lines;
+    }
+
+    // Task API path with pending only (no in-progress items)
+    if todo.is_task_api {
+        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+        let label = colorize(&format!("{} tasks", todo.total), TODO_TEAL, color);
+        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        return vec![format!("{prefix}{label}{progress}")];
+    }
+
+    // Legacy fallback (TodoWrite path)
+    let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+    let text = colorize(&todo.text, TODO_TEAL, color);
+    vec![format!("{prefix}{text}")]
 }
 
 /// Format a single agent line.
@@ -104,9 +260,7 @@ fn format_tool_line(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisT
 ///
 /// The description field comes from the Task tool's `description` (3-5 word short summary)
 /// when available, falling back to `prompt` (full text). We truncate to first line,
-/// max 40 chars to keep activity lines compact.
-const AGENT_DESC_MAX_CHARS: usize = 40;
-
+/// max ACTIVITY_TEXT_MAX_CHARS to keep activity lines compact.
 fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
@@ -124,14 +278,9 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
         colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color)
     };
 
-    // Truncate description: first line only, max AGENT_DESC_MAX_CHARS visible chars
+    // Truncate description: first line only, max ACTIVITY_TEXT_MAX_CHARS visible chars
     let first_line = agent.description.lines().next().unwrap_or("");
-    let desc_truncated = if first_line.chars().count() > AGENT_DESC_MAX_CHARS {
-        let truncated: String = first_line.chars().take(AGENT_DESC_MAX_CHARS).collect();
-        format!("{truncated}…")
-    } else {
-        first_line.to_string()
-    };
+    let desc_truncated = truncate_text(first_line, ACTIVITY_TEXT_MAX_CHARS);
 
     // Elapsed time
     let elapsed_str = if completed {
@@ -198,16 +347,6 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     }
 }
 
-fn format_agent_elapsed(secs: u64) -> String {
-    if secs == 0 {
-        "<1s".to_string()
-    } else if secs < 60 {
-        format!("{secs}s")
-    } else {
-        format!("{}m", secs / 60)
-    }
-}
-
 fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
@@ -241,7 +380,7 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
 
     if config.show_git {
         let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);
-        let git_val = format_git_status(&frame.line1, config);
+        let git_val = format_git_status(&frame.line1, config, tier);
         parts.push(format!("{git_label}{git_val}"));
     }
 
@@ -351,7 +490,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
         parts.push(format_context_segment(&frame.line3, config, tier));
     }
     if config.show_tokens {
-        parts.push(format_tokens_segment(&frame.line3, config, tier));
+        let speed = if config.show_speed {
+            frame.line3.output_speed_toks_per_sec
+        } else {
+            None
+        };
+        parts.push(format_tokens_segment(&frame.line3, speed, config, tier));
     }
     if config.show_cost {
         parts.push(format_cost_segment(&frame.line3, config, tier));
@@ -360,11 +504,11 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
     parts.join(&sep)
 }
 
-fn format_git_status(line1: &Line1Metrics, config: &RenderConfig) -> String {
+fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &EmphasisTier) -> String {
     let color = config.color_enabled;
 
     if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        return "unknown".to_string();
+        return colorize("unknown", tier.structural, color);
     }
 
     let mut status = colorize(&line1.git_branch, GIT_GREEN, color);
@@ -384,6 +528,25 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig) -> String {
             GIT_BEHIND,
             color,
         ));
+    }
+
+    // File stats: !3 +1 ✘2 ?4 (Starship-style, zero counts omitted)
+    if config.show_git_stats {
+        let stats: Vec<String> = [
+            ('!', line1.git_modified, GIT_MODIFIED),
+            ('+', line1.git_added, GIT_ADDED),
+            ('✘', line1.git_deleted, GIT_DELETED),
+            ('?', line1.git_untracked, tier.structural),
+        ]
+        .iter()
+        .filter(|(_, count, _)| *count > 0)
+        .map(|(prefix, count, stat_color)| colorize(&format!("{prefix}{count}"), stat_color, color))
+        .collect();
+
+        if !stats.is_empty() {
+            status.push(' ');
+            status.push_str(&stats.join(" "));
+        }
     }
 
     status
@@ -433,6 +596,7 @@ fn format_context_segment(
 
 fn format_tokens_segment(
     line3: &Line3Metrics,
+    speed: Option<f64>,
     config: &RenderConfig,
     tier: &EmphasisTier,
 ) -> String {
@@ -469,25 +633,27 @@ fn format_tokens_segment(
         "--/--".to_string()
     };
 
+    // Speed inline after output tokens: "O:20.0k ↗1.5K/s"
+    let speed_part = speed
+        .map(|s| colorize(&format!(" {}", format_speed(s)), val_color, color))
+        .unwrap_or_default();
+
     let label = colorize("TOK ", tier.structural, color);
     let parts = [
         format!(
             "{}{}",
-            colorize(
-                &glyph(mode, ICON_TOKEN_INPUT, "I: "),
-                tier.structural,
-                color
-            ),
+            colorize(&glyph(mode, ICON_TOKEN_INPUT, "I:"), tier.structural, color),
             colorize(&input_str, val_color, color),
         ),
         format!(
-            "{}{}",
+            "{}{}{}",
             colorize(
-                &glyph(mode, ICON_TOKEN_OUTPUT, "O: "),
+                &glyph(mode, ICON_TOKEN_OUTPUT, "O:"),
                 tier.structural,
                 color
             ),
             colorize(&output_str, val_color, color),
+            speed_part,
         ),
         format!(
             "{}{}",
@@ -527,6 +693,112 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &Empha
     format!("{total_str} {open_paren}{rate_str}{close_paren}")
 }
 
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
+    }
+}
+
+fn format_quota_line(
+    quota: &QuotaMetrics,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> Option<String> {
+    // Hidden entirely for API users (no plan_type)
+    if quota.plan_type.is_none() && !quota.available {
+        return None;
+    }
+
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    let plan_str = quota
+        .plan_type
+        .as_deref()
+        .map(capitalize_first)
+        .unwrap_or_else(|| "--".to_string());
+    let icon_str = colorize(&glyph(mode, ICON_QUOTA, "Q:"), tier.structural, color);
+    let plan_part = colorize(&format!("{plan_str} "), tier.secondary, color);
+    let prefix = format!("{icon_str}{plan_part}");
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if config.show_quota_five_hour {
+        parts.push(format_quota_period(
+            "5h",
+            quota.five_hour_pct,
+            quota.five_hour_reset_minutes,
+            config,
+            tier,
+        ));
+    }
+
+    if config.show_quota_seven_day {
+        parts.push(format_quota_period(
+            "7d",
+            quota.seven_day_pct,
+            quota.seven_day_reset_minutes,
+            config,
+            tier,
+        ));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some(format!("{prefix}{}", parts.join(" ")))
+}
+
+fn format_quota_period(
+    label: &str,
+    pct: Option<f64>,
+    reset_minutes: Option<u64>,
+    config: &RenderConfig,
+    tier: &EmphasisTier,
+) -> String {
+    let color = config.color_enabled;
+
+    match pct {
+        Some(p) => {
+            let pct_color = if p >= 85.0 {
+                CTX_CRITICAL
+            } else if p >= 50.0 {
+                CTX_WARN
+            } else {
+                CTX_GOOD
+            };
+
+            let pct_str = colorize(&format!("{p:.0}%"), pct_color, color);
+            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
+
+            let reset_part = reset_minutes
+                .map(|m| {
+                    let duration = format_reset_duration(m);
+                    let open = colorize(" (", tier.separator, color);
+                    let txt = colorize(&format!("resets {duration}"), tier.structural, color);
+                    let close = colorize(")", tier.separator, color);
+                    format!("{open}{txt}{close}")
+                })
+                .unwrap_or_default();
+
+            if p >= 100.0 {
+                let limit_text = colorize("Limit reached", CTX_CRITICAL, color);
+                format!("{label_str} {limit_text}{reset_part}")
+            } else {
+                format!("{label_str} {pct_str}{reset_part}")
+            }
+        }
+        None => {
+            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
+            let dash = colorize("--", tier.structural, color);
+            format!("{label_str} {dash}")
+        }
+    }
+}
+
 fn apply_width_degradation(
     mut lines: Vec<String>,
     width: usize,
@@ -549,8 +821,8 @@ fn apply_width_degradation(
 
         match strategy {
             WidthDegradeStrategy::DropActivityLinesFirst => {
-                if lines.len() > 3 {
-                    lines.truncate(3);
+                if lines.len() > CORE_LINE_COUNT {
+                    lines.truncate(CORE_LINE_COUNT);
                 }
             }
             WidthDegradeStrategy::CompressLine2 => {
@@ -559,7 +831,7 @@ fn apply_width_degradation(
                 }
             }
             WidthDegradeStrategy::CompressCoreLines => {
-                for index in 0..lines.len().min(3) {
+                for index in 0..lines.len().min(CORE_LINE_COUNT) {
                     lines[index] = truncate_to_width(&lines[index], width, color_enabled);
                 }
             }

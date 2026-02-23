@@ -94,7 +94,6 @@ Project scope (`{root}/.claude/settings.json`) uses the same structure.
 
 - `NO_COLOR` — disables all ANSI color output (standard convention)
 - `COLUMNS` — terminal width for layout degradation
-- `PULSELINE_THEME` — `dark` (default) or `light` theme selection
 - `HOME` / `USERPROFILE` — used for `~` path abbreviation and user config location
 
 ## MCP Relationship
