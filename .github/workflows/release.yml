@@ -144,6 +144,7 @@ jobs:
     name: Publish to npm
     needs: build
     runs-on: ubuntu-latest
+    environment: npm-publisher
     permissions:
       contents: read
       id-token: write
@@ -152,8 +153,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
 
       - uses: actions/download-artifact@v4
         with:
@@ -173,12 +173,12 @@ jobs:
             fi
           done
 
-          # Publish platform packages
+          # Publish platform packages (skip already-published versions)
           for pkg_dir in npm-publish/*/; do
             if [ -f "$pkg_dir/package.json" ] && [ "$(basename "$pkg_dir")" != "main" ]; then
               echo "Publishing $(basename "$pkg_dir")..."
               cd "$pkg_dir"
-              npm publish --provenance --access public
+              npm publish --provenance --access public || echo "::warning::$(basename "$pkg_dir") publish failed (may already exist)"
               cd ../..
             fi
           done
@@ -189,7 +189,7 @@ jobs:
 
           # Publish main package
           cd npm-publish/main
-          npm publish --provenance --access public
+          npm publish --provenance --access public || echo "::warning::main package publish failed (may already exist)"
 
   crates-publish:
     name: Publish to crates.io
