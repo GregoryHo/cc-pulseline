@@ -53,6 +53,9 @@ pub struct SessionCache {
     pub last_output_token_time_ms: Option<u64>,
     #[serde(default)]
     pub output_speed_toks_per_sec: Option<f64>,
+    // Quota fetch spawn throttle
+    #[serde(default)]
+    pub last_quota_fetch_spawned_ms: Option<u64>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

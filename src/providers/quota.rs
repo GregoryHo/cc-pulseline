@@ -16,6 +16,10 @@ pub struct QuotaSnapshot {
     pub seven_day_reset_at: Option<u64>,
     pub available: bool,
     pub error: Option<String>,
+    /// When true, this state is permanent (e.g., API user with no subscription quota).
+    /// Uses a much longer TTL to avoid periodic refetch attempts.
+    #[serde(default)]
+    pub terminal: bool,
 }
 
 // ── Quota Collector Trait ───────────────────────────────────────────
@@ -45,6 +49,11 @@ impl QuotaCollector for CachedFileQuotaCollector {
 
         let now = crate::state::cache::now_epoch_ms();
         let age_ms = now.saturating_sub(cache.fetched_at_ms);
+
+        // Terminal state (e.g., API user) — never re-fetch
+        if cache.snapshot.terminal {
+            return (cache.snapshot, false);
+        }
 
         // Check TTL based on success/failure
         let ttl = if cache.snapshot.error.is_some() {
@@ -142,5 +151,28 @@ mod tests {
         assert!(!snap.available);
         assert!(snap.plan_type.is_none());
         assert!(snap.five_hour_pct.is_none());
+    }
+
+    #[test]
+    fn terminal_snapshot_never_stale() {
+        // Write a terminal cache file, then verify the collector never reports stale
+        let snap = QuotaSnapshot {
+            terminal: true,
+            ..Default::default()
+        };
+        let cache = QuotaCacheFile {
+            fetched_at_ms: 1, // ancient timestamp
+            snapshot: snap,
+        };
+        let path = quota_cache_path();
+        let contents = serde_json::to_string(&cache).unwrap();
+        std::fs::write(&path, contents).unwrap();
+
+        let (result, is_stale) = CachedFileQuotaCollector.collect_quota();
+        assert!(result.terminal, "should preserve terminal flag");
+        assert!(!is_stale, "terminal snapshot should never be stale");
+
+        // Clean up
+        let _ = std::fs::remove_file(&path);
     }
 }

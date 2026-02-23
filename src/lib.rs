@@ -92,7 +92,7 @@ impl PulseLineRunner {
             let (snapshot, is_stale) = CachedFileQuotaCollector.collect_quota();
             frame.quota = types::QuotaMetrics::from_snapshot(&snapshot, cache::now_epoch_ms());
 
-            if is_stale {
+            if is_stale && state.should_spawn_quota_fetch(providers::quota::QUOTA_FAILURE_TTL_MS) {
                 providers::quota::spawn_background_fetch();
             }
         }

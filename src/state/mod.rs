@@ -40,6 +40,8 @@ pub struct SessionState {
     pub last_output_tokens: Option<u64>,
     pub last_output_token_time_ms: Option<u64>,
     pub output_speed_toks_per_sec: Option<f64>,
+    // Quota fetch spawn throttle (epoch ms of last spawn)
+    pub last_quota_fetch_spawned_ms: Option<u64>,
 }
 
 impl SessionState {
@@ -63,6 +65,19 @@ impl SessionState {
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
         }
+    }
+
+    /// Check if enough time has passed since last quota fetch spawn.
+    /// Marks the timestamp and returns true if spawning is allowed.
+    pub fn should_spawn_quota_fetch(&mut self, cooldown_ms: u64) -> bool {
+        let now = cache::now_epoch_ms();
+        if let Some(last) = self.last_quota_fetch_spawned_ms {
+            if now.saturating_sub(last) < cooldown_ms {
+                return false;
+            }
+        }
+        self.last_quota_fetch_spawned_ms = Some(now);
+        true
     }
 
     /// Compute output token speed from successive payload snapshots.
@@ -394,6 +409,7 @@ impl SessionState {
         self.last_output_tokens = cache.last_output_tokens;
         self.last_output_token_time_ms = cache.last_output_token_time_ms;
         self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
+        self.last_quota_fetch_spawned_ms = cache.last_quota_fetch_spawned_ms;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -428,6 +444,7 @@ impl SessionState {
             last_output_tokens: self.last_output_tokens,
             last_output_token_time_ms: self.last_output_token_time_ms,
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
+            last_quota_fetch_spawned_ms: self.last_quota_fetch_spawned_ms,
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),
@@ -520,5 +537,27 @@ mod tests {
             Some(1000),
             "should not overwrite time"
         );
+    }
+
+    #[test]
+    fn quota_fetch_throttle_allows_first_spawn() {
+        let mut state = SessionState::default();
+        assert!(state.should_spawn_quota_fetch(15_000));
+        assert!(state.last_quota_fetch_spawned_ms.is_some());
+    }
+
+    #[test]
+    fn quota_fetch_throttle_blocks_within_cooldown() {
+        let mut state = SessionState::default();
+        state.last_quota_fetch_spawned_ms = Some(cache::now_epoch_ms());
+        assert!(!state.should_spawn_quota_fetch(15_000));
+    }
+
+    #[test]
+    fn quota_fetch_throttle_allows_after_cooldown() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+        state.last_quota_fetch_spawned_ms = Some(now.saturating_sub(20_000));
+        assert!(state.should_spawn_quota_fetch(15_000));
     }
 }

@@ -43,10 +43,11 @@ fn fetch_quota_snapshot() -> Result<QuotaSnapshot, String> {
         .clone()
         .ok_or_else(|| "no access token found".to_string())?;
 
-    // Skip API users — they don't have subscription quotas
+    // Skip API users — they don't have subscription quotas.
+    // Mark as terminal so the cache never expires and we stop re-fetching.
     if oauth.subscription_type.as_deref() == Some("api") {
         return Ok(QuotaSnapshot {
-            error: Some("api user — no quota".to_string()),
+            terminal: true,
             ..Default::default()
         });
     }
@@ -84,6 +85,7 @@ fn fetch_quota_snapshot() -> Result<QuotaSnapshot, String> {
             .and_then(parse_iso_to_epoch_ms),
         available: true,
         error: None,
+        terminal: false,
     })
 }
 
@@ -400,7 +402,10 @@ mod tests {
         // +05:30 means local is 5.5h ahead of UTC, so UTC = local - 5.5h
         let pos_val = parse_iso_to_epoch_ms("2025-11-04T10:29:59+05:30");
         let expected2 = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z");
-        assert_eq!(pos_val, expected2, "+05:30 offset should shift -5.5h to UTC");
+        assert_eq!(
+            pos_val, expected2,
+            "+05:30 offset should shift -5.5h to UTC"
+        );
     }
 
     #[test]
