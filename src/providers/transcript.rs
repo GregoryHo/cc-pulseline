@@ -148,6 +148,9 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.active_agents.clear();
             state.completed_tool_counts.clear();
             state.todo = None;
+            state.last_output_tokens = None;
+            state.last_output_token_time_ms = None;
+            state.output_speed_toks_per_sec = None;
         }
 
         if let Ok(new_lines) = read_new_lines(path, state.last_transcript_offset) {

@@ -242,31 +242,37 @@ fn normalize_plan_type(sub_type: &str) -> &str {
 /// Parse ISO 8601 timestamp to epoch ms. Returns None on parse failure.
 /// Handles `YYYY-MM-DDTHH:MM:SSZ` and `YYYY-MM-DDTHH:MM:SS+HH:MM` formats.
 fn parse_iso_to_epoch_ms(iso: &str) -> Option<u64> {
-    // Strip timezone suffix: Z or +HH:MM / -HH:MM
-    let trimmed = iso.trim().trim_end_matches('Z');
-    // Strip +/-HH:MM timezone offset (e.g., "+05:30", "-08:00")
-    let trimmed = if trimmed.len() > 6 {
+    let trimmed = iso.trim();
+
+    // Extract timezone offset in seconds (positive = east of UTC)
+    let (datetime_str, offset_secs) = if let Some(stripped) = trimmed.strip_suffix('Z') {
+        (stripped, 0i64)
+    } else if trimmed.len() > 6 {
         let tail = &trimmed[trimmed.len() - 6..];
         if (tail.starts_with('+') || tail.starts_with('-')) && tail.as_bytes()[3] == b':' {
-            &trimmed[..trimmed.len() - 6]
+            let sign: i64 = if tail.starts_with('-') { -1 } else { 1 };
+            let oh: i64 = tail[1..3].parse().ok()?;
+            let om: i64 = tail[4..6].parse().ok()?;
+            (&trimmed[..trimmed.len() - 6], sign * (oh * 3600 + om * 60))
         } else {
-            trimmed
+            (trimmed, 0i64)
         }
     } else {
-        trimmed
-    };
-    // Strip fractional seconds (e.g., "...T04:59:59.123" → "...T04:59:59")
-    let trimmed = if let Some(dot_pos) = trimmed.rfind('.') {
-        if trimmed[..dot_pos].contains('T') {
-            &trimmed[..dot_pos]
-        } else {
-            trimmed
-        }
-    } else {
-        trimmed
+        (trimmed, 0i64)
     };
 
-    let parts: Vec<&str> = trimmed.split('T').collect();
+    // Strip fractional seconds (e.g., "...T04:59:59.123" → "...T04:59:59")
+    let datetime_str = if let Some(dot_pos) = datetime_str.rfind('.') {
+        if datetime_str[..dot_pos].contains('T') {
+            &datetime_str[..dot_pos]
+        } else {
+            datetime_str
+        }
+    } else {
+        datetime_str
+    };
+
+    let parts: Vec<&str> = datetime_str.split('T').collect();
     if parts.len() != 2 {
         return None;
     }
@@ -283,8 +289,12 @@ fn parse_iso_to_epoch_ms(iso: &str) -> Option<u64> {
 
     // Convert to days since epoch using a simplified algorithm
     let days = days_from_civil(year as i64, month as i64, day as i64);
-    let total_secs = days as u64 * 86400 + hour as u64 * 3600 + min as u64 * 60 + sec as u64;
-    Some(total_secs * 1000)
+    let local_secs = days * 86400 + hour as i64 * 3600 + min as i64 * 60 + sec as i64;
+    let utc_secs = local_secs - offset_secs;
+    if utc_secs < 0 {
+        return None;
+    }
+    Some(utc_secs as u64 * 1000)
 }
 
 /// Days from civil date (year, month, day) to Unix epoch.
@@ -382,9 +392,15 @@ mod tests {
         let offset_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59+00:00");
         assert_eq!(z_val, offset_val, "Z and +00:00 should match");
 
-        // Negative offset should also parse without error
+        // -08:00 means local is 8h behind UTC, so UTC = local + 8h
         let neg_val = parse_iso_to_epoch_ms("2025-11-04T04:59:59-08:00");
-        assert!(neg_val.is_some(), "negative offset should parse");
+        let expected = parse_iso_to_epoch_ms("2025-11-04T12:59:59Z");
+        assert_eq!(neg_val, expected, "-08:00 offset should shift +8h to UTC");
+
+        // +05:30 means local is 5.5h ahead of UTC, so UTC = local - 5.5h
+        let pos_val = parse_iso_to_epoch_ms("2025-11-04T10:29:59+05:30");
+        let expected2 = parse_iso_to_epoch_ms("2025-11-04T04:59:59Z");
+        assert_eq!(pos_val, expected2, "+05:30 offset should shift -5.5h to UTC");
     }
 
     #[test]
