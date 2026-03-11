@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-03-11
+
+### Fixed
+
+- **Agent tracking** — Claude Code 2.1.72 renamed the subagent tool from `Task` to `Agent`, causing phantom agents that never complete (stuck showing growing elapsed time). Updated all tool name checks and added `toolUseResult` fallback completion signal as defense-in-depth.
+
 ## [1.0.2] - 2026-02-23
 
 ### Added
@@ -64,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.0.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/GregoryHo/cc-pulseline/releases/tag/v1.0.0

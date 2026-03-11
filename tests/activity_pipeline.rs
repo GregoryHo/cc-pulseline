@@ -552,7 +552,7 @@ fn tracks_task_tool_as_agent() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Task tool_use → pushes to pending queue, no agent visible yet
+    // Event 0: Agent tool_use → pushes to pending queue, no agent visible yet
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -562,11 +562,11 @@ fn tracks_task_tool_as_agent() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("T:Task"),
-        "Task should not appear as a tool line: got {joined}"
+        !joined.contains("T:Agent"),
+        "Agent should not appear as a tool line: got {joined}"
     );
 
-    // Event 1: agent_progress → links to pending Task, creates agent with Task's description
+    // Event 1: agent_progress → links to pending Agent, creates agent with Agent's description
     append_line(&transcript, events[1]);
     let lines = runner
         .run_from_str(
@@ -835,8 +835,8 @@ fn task_tool_defaults_missing_fields() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("T:Task"),
-        "Task should never appear as tool line: got {joined}"
+        !joined.contains("T:Agent"),
+        "Agent should never appear as tool line: got {joined}"
     );
 
     // Event 1: tool_result → drains pending, creates+completes agent inline with [done]
@@ -846,8 +846,8 @@ fn task_tool_defaults_missing_fields() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("A:Task") && joined.contains("[done]"),
-        "tool_result should drain pending and show default Task agent as done: got {joined}"
+        joined.contains("A:Agent") && joined.contains("[done]"),
+        "tool_result should drain pending and show default Agent as done: got {joined}"
     );
 }
 
@@ -867,7 +867,7 @@ fn links_agent_progress_to_task_tool_use() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Task tool_use → pending queue, no agent visible
+    // Event 0: Agent tool_use → pending queue, no agent visible
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -878,7 +878,7 @@ fn links_agent_progress_to_task_tool_use() {
     let joined = lines.join("\n");
     assert!(
         !joined.contains("A:"),
-        "Task tool_use should not create visible agent yet: got {joined}"
+        "Agent tool_use should not create visible agent yet: got {joined}"
     );
 
     // Event 1: first agent_progress → links to pending, creates single agent
@@ -892,7 +892,7 @@ fn links_agent_progress_to_task_tool_use() {
     let joined = lines.join("\n");
     assert!(
         joined.contains("Explore agent tracking code"),
-        "linked agent should use Task's description, not prompt: got {joined}"
+        "linked agent should use Agent's description, not prompt: got {joined}"
     );
     assert!(
         joined.contains("A:Explore"),
@@ -947,7 +947,7 @@ fn links_concurrent_agents_fifo() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Two Task tool_uses in one message → two pending tasks
+    // Event 0: Two Agent tool_uses in one message → two pending tasks
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -973,11 +973,11 @@ fn links_concurrent_agents_fifo() {
     let joined = lines.join("\n");
     assert!(
         joined.contains("A:Explore: Search for config files"),
-        "first agent should get first Task's description: got {joined}"
+        "first agent should get first Agent's description: got {joined}"
     );
     assert!(
         joined.contains("A:Bash: Run test suite"),
-        "second agent should get second Task's description: got {joined}"
+        "second agent should get second Agent's description: got {joined}"
     );
     let agent_lines: Vec<&String> = lines.iter().filter(|l| l.starts_with("A:")).collect();
     assert_eq!(
@@ -1030,7 +1030,7 @@ fn standalone_agent_progress_without_task() {
         ..RenderConfig::default()
     };
 
-    // agent_progress with no preceding Task tool_use → standalone agent
+    // agent_progress with no preceding Agent tool_use → standalone agent
     append_line(
         &transcript,
         r#"{"type":"progress","data":{"type":"agent_progress","agentId":"standalone-1","prompt":"Investigate the bug","agentType":"Explore"}}"#,
@@ -1078,10 +1078,10 @@ fn task_completes_without_agent_progress() {
         ..RenderConfig::default()
     };
 
-    // Task tool_use → pending queue
+    // Agent tool_use → pending queue
     append_line(
         &transcript,
-        r#"{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fast","name":"Task","input":{"description":"Quick lookup","subagent_type":"Explore"}}]}}"#,
+        r#"{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fast","name":"Agent","input":{"description":"Quick lookup","subagent_type":"Explore"}}]}}"#,
     );
 
     let lines = runner

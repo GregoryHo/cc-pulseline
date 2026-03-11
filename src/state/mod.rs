@@ -27,7 +27,7 @@ pub struct SessionState {
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
-    // Agent linking: Task tool_use → agent_progress ID linking
+    // Agent linking: Agent tool_use → agent_progress ID linking
     pub pending_tasks: Vec<PendingTask>,
     pub task_agent_links: HashMap<String, String>, // tool_use_id → agentId
     // Todo tracking: TaskCreate/TaskUpdate stateful accumulation
@@ -281,7 +281,7 @@ impl SessionState {
         Some(self.pending_tasks.remove(pos))
     }
 
-    /// Check if an agent was linked from a Task tool_use.
+    /// Check if an agent was linked from an Agent tool_use.
     pub fn is_task_linked_agent(&self, agent_id: &str) -> bool {
         self.task_agent_links.values().any(|id| id == agent_id)
     }
