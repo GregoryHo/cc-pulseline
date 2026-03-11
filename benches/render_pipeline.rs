@@ -123,7 +123,7 @@ fn large_transcript_payload() -> String {
     let transcript_path = transcript_dir.join("transcript.jsonl");
 
     let mut lines = Vec::new();
-    let tool_names = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"];
+    let tool_names = ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Agent"];
     for i in 0..2500 {
         let name = tool_names[i % tool_names.len()];
         let id = format!("tool-{i}");

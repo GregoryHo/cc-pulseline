@@ -258,7 +258,7 @@ fn format_todo_lines(
 /// With agent_type: `A:Explore: Investigate logic (2m)`
 /// Without:         `A:Investigate logic (2m)`
 ///
-/// The description field comes from the Task tool's `description` (3-5 word short summary)
+/// The description field comes from the Agent tool's `description` (3-5 word short summary)
 /// when available, falling back to `prompt` (full text). We truncate to first line,
 /// max ACTIVITY_TEXT_MAX_CHARS to keep activity lines compact.
 fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {

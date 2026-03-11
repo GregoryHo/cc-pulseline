@@ -147,7 +147,7 @@ max_lines = 2
 ## CLI Usage
 
 ```
-cc-pulseline 1.0.2 - High-performance Claude Code statusline
+cc-pulseline 1.0.3 - High-performance Claude Code statusline
 
 USAGE:
     cc-pulseline [OPTIONS]

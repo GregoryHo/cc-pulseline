@@ -239,6 +239,8 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         for block in content_blocks {
             apply_content_block(state, block, event_ts);
         }
+        // Defense-in-depth: also check toolUseResult for agent completion signal
+        check_tool_use_result_completion(state, raw_event);
         return;
     }
 
@@ -305,8 +307,8 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 .unwrap_or("unknown-id")
                 .to_string();
 
-            // Task tool → push to pending queue for agent linking
-            if name == "Task" {
+            // Agent tool → push to pending queue for agent linking
+            if name == "Agent" {
                 let input = block.get("input");
                 let description = input
                     .and_then(|i| {
@@ -314,7 +316,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                             .or_else(|| i.get("prompt"))
                             .and_then(Value::as_str)
                     })
-                    .unwrap_or("Task")
+                    .unwrap_or("Agent")
                     .to_string();
                 let agent_type = input
                     .and_then(|i| i.get("subagent_type").and_then(Value::as_str))
@@ -382,11 +384,11 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
         return;
     }
 
-    // Check if this is a new agent that should link to a pending Task
+    // Check if this is a new agent that should link to a pending Agent tool_use
     let is_new = !state.active_agents.iter().any(|a| a.id == agent_id);
     if is_new {
         if let Some(pending) = state.link_agent_to_pending_task(&agent_id) {
-            // Use the Task's description and type instead of agent_progress prompt
+            // Use the Agent tool's description and type instead of agent_progress prompt
             state.upsert_agent(
                 agent_id,
                 pending.description,
@@ -403,7 +405,7 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
         return;
     }
 
-    // Standalone agent_progress (no Task): use prompt as description
+    // Standalone agent_progress (no Agent tool_use): use prompt as description
     let description = data
         .get("description")
         .or_else(|| data.get("prompt"))
@@ -512,7 +514,7 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
             let query = input.get("query").and_then(Value::as_str)?;
             Some(truncate_str(query, 30))
         }
-        "Task" => None, // Task → agent, not tool
+        "Agent" => None, // Agent → subagent, not tool
         _ => {
             // Generic fallback: try file_path → command → pattern
             input
@@ -582,7 +584,7 @@ fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Optio
     match event_type.as_deref() {
         Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
         Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
-        Some("Task") => handle_task_event(state, event, event_ts),
+        Some("Agent") => handle_task_event(state, event, event_ts),
         Some("TaskCreate") => {
             dispatch_task_create(state, event, Some(raw_event));
         }
@@ -607,7 +609,7 @@ fn handle_flat_tool_use(
         .unwrap_or_else(|| "unknown".to_string());
 
     match name.as_str() {
-        "Task" => {
+        "Agent" => {
             handle_task_from_tool_use(state, event, raw_event, event_ts);
         }
         "TaskCreate" => {
@@ -674,7 +676,7 @@ fn handle_task_from_tool_use(
                 ],
             )
         })
-        .unwrap_or_else(|| "Task".to_string());
+        .unwrap_or_else(|| "Agent".to_string());
 
     state.upsert_agent(id, summary, None, event_ts, None);
 }
@@ -690,7 +692,7 @@ fn handle_event_by_name(
     };
 
     match name.as_str() {
-        "Task" => handle_task_from_tool_use(state, event, raw_event, event_ts),
+        "Agent" => handle_task_from_tool_use(state, event, raw_event, event_ts),
         "TaskCreate" => {
             dispatch_task_create(state, event, Some(raw_event));
         }
@@ -701,6 +703,23 @@ fn handle_event_by_name(
             dispatch_todo_write(state, event, Some(raw_event));
         }
         _ => {}
+    }
+}
+
+/// Check `toolUseResult` for agent completion (defense-in-depth for tool_result path).
+///
+/// Claude Code appends a top-level `toolUseResult` object on agent completion events,
+/// containing `{ status, agentId, content, ... }`. This is redundant with the `tool_result`
+/// content block processed by Path 1, but provides a fallback if the link-based resolution
+/// in `complete_tool_result()` fails (e.g., ID mismatch). `remove_agent()` is idempotent.
+fn check_tool_use_result_completion(state: &mut SessionState, raw_event: &Value) {
+    if let Some(tur) = raw_event.get("toolUseResult") {
+        if let Some(agent_id) = tur.get("agentId").and_then(Value::as_str) {
+            let status = tur.get("status").and_then(Value::as_str).unwrap_or("");
+            if is_terminal_status(status) {
+                state.remove_agent(agent_id);
+            }
+        }
     }
 }
 

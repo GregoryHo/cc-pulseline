@@ -61,7 +61,7 @@ fn degrades_layout_for_narrow_terminal_widths() {
     );
     append_line(
         &transcript,
-        r#"{"type":"Task","task_id":"agent-1","name":"Planner","status":"running"}"#,
+        r#"{"type":"Agent","task_id":"agent-1","name":"Planner","status":"running"}"#,
     );
     append_line(
         &transcript,
