@@ -287,6 +287,20 @@ fn extract_content_blocks(raw_event: &Value) -> Option<Vec<&Value>> {
 }
 
 /// Process a single content block from a message's content[] array.
+/// Internal Claude Code tools excluded from tool tracking.
+/// Referenced by both Path 1 (nested content) and Path 3 (flat fallback).
+const NOISE_TOOLS: &[&str] = &[
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "EnterWorktree",
+    "ExitWorktree",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "ToolSearch",
+];
+
 fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option<u64>) {
     let block_type = match block.get("type").and_then(Value::as_str) {
         Some(t) => t,
@@ -346,18 +360,6 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 return;
             }
 
-            // Internal CC tools — skip from tool tracking
-            const NOISE_TOOLS: &[&str] = &[
-                "EnterPlanMode",
-                "ExitPlanMode",
-                "EnterWorktree",
-                "ExitWorktree",
-                "TaskGet",
-                "TaskList",
-                "TaskOutput",
-                "TaskStop",
-                "ToolSearch",
-            ];
             if NOISE_TOOLS.contains(&name.as_str()) {
                 return;
             }
@@ -656,6 +658,9 @@ fn handle_flat_tool_use(
             dispatch_todo_write(state, event, Some(raw_event));
         }
         _ => {
+            if NOISE_TOOLS.contains(&name.as_str()) {
+                return;
+            }
             let id = find_string(event, &["id", "tool_use_id", "tool_call_id"])
                 .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
                 .unwrap_or_else(|| format!("{name}-active"));
