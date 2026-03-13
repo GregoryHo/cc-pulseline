@@ -32,7 +32,7 @@ pub struct SessionCache {
     pub recent_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
-    pub completed_tool_counts: HashMap<String, u32>,
+    pub completed_tool_counts: HashMap<String, (u32, u64)>,
     pub todo: Option<TodoSummary>,
     // Agent linking
     #[serde(default)]

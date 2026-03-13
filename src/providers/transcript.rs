@@ -346,6 +346,22 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 return;
             }
 
+            // Internal CC tools — skip from tool tracking
+            const NOISE_TOOLS: &[&str] = &[
+                "EnterPlanMode",
+                "ExitPlanMode",
+                "EnterWorktree",
+                "ExitWorktree",
+                "TaskGet",
+                "TaskList",
+                "TaskOutput",
+                "TaskStop",
+                "ToolSearch",
+            ];
+            if NOISE_TOOLS.contains(&name.as_str()) {
+                return;
+            }
+
             // Extract target from input
             let target = extract_target(&name, block);
             state.upsert_tool(id, name, target);
@@ -514,6 +530,24 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
             let query = input.get("query").and_then(Value::as_str)?;
             Some(truncate_str(query, 30))
         }
+        "Skill" => {
+            let skill = input.get("skill").and_then(Value::as_str)?;
+            Some(truncate_str(skill, 20))
+        }
+        "AskUserQuestion" => input
+            .get("questions")
+            .and_then(Value::as_array)
+            .and_then(|qs| qs.first())
+            .and_then(|q| q.get("question").and_then(Value::as_str))
+            .map(|q| truncate_str(q, 30)),
+        "SendMessage" => input
+            .get("to")
+            .and_then(Value::as_str)
+            .map(|to| truncate_str(to, 20)),
+        "LSP" => input
+            .get("command")
+            .and_then(Value::as_str)
+            .map(|c| truncate_str(c, 20)),
         "Agent" => None, // Agent → subagent, not tool
         _ => {
             // Generic fallback: try file_path → command → pattern
@@ -733,7 +767,7 @@ fn is_terminal_status(status: &str) -> bool {
 fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> TranscriptSnapshot {
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
-        completed_counts: state.top_completed_tools(config.max_completed_tools),
+        completed_counts: state.scored_completed_tools(config.max_completed_tools),
         agents: state.agents_for_display(config.max_agent_lines),
         todo: state.todo.clone(),
     }

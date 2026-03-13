@@ -25,7 +25,7 @@ pub struct SessionState {
     pub recent_tools: Vec<ToolSummary>,
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
-    pub completed_tool_counts: HashMap<String, u32>,
+    pub completed_tool_counts: HashMap<String, (u32, u64)>,
     pub todo: Option<TodoSummary>,
     // Agent linking: Agent tool_use → agent_progress ID linking
     pub pending_tasks: Vec<PendingTask>,
@@ -162,24 +162,50 @@ impl SessionState {
     }
 
     pub fn record_tool_completion(&mut self, name: &str) {
-        *self
+        let now = cache::now_epoch_ms();
+        let entry = self
             .completed_tool_counts
             .entry(name.to_string())
-            .or_insert(0) += 1;
+            .or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 = now;
     }
 
-    pub fn top_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
-        let mut counts: Vec<CompletedToolCount> = self
+    /// Hybrid scoring: count + recency bonus (decays over 2 minutes).
+    /// Recently used tools float up even with low counts.
+    pub fn scored_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
+        const RECENCY_WEIGHT: f64 = 3.0;
+        const DECAY_WINDOW_MS: u64 = 120_000; // 2 minutes
+
+        let now = cache::now_epoch_ms();
+        let mut scored: Vec<(CompletedToolCount, f64)> = self
             .completed_tool_counts
             .iter()
-            .map(|(name, count)| CompletedToolCount {
-                name: name.clone(),
-                count: *count,
+            .map(|(name, (count, last_at))| {
+                let age_ms = now.saturating_sub(*last_at);
+                let recency = if age_ms < DECAY_WINDOW_MS {
+                    RECENCY_WEIGHT * (1.0 - age_ms as f64 / DECAY_WINDOW_MS as f64)
+                } else {
+                    0.0
+                };
+                let score = *count as f64 + recency;
+                (
+                    CompletedToolCount {
+                        name: name.clone(),
+                        count: *count,
+                        last_completed_at: Some(*last_at),
+                    },
+                    score,
+                )
             })
             .collect();
-        counts.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
-        counts.truncate(max);
-        counts
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.name.cmp(&b.0.name))
+        });
+        scored.truncate(max);
+        scored.into_iter().map(|(tool, _)| tool).collect()
     }
 
     pub fn upsert_agent(
@@ -559,5 +585,68 @@ mod tests {
         let now = cache::now_epoch_ms();
         state.last_quota_fetch_spawned_ms = Some(now.saturating_sub(20_000));
         assert!(state.should_spawn_quota_fetch(15_000));
+    }
+
+    #[test]
+    fn scored_completed_tools_recent_low_count_beats_stale_moderate_count() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+
+        // Moderate count tool, last used 3 minutes ago (beyond 2-min decay window)
+        // Score: 3 + 0 = 3.0
+        state
+            .completed_tool_counts
+            .insert("Grep".to_string(), (3, now.saturating_sub(180_000)));
+
+        // Low count tool, used just now
+        // Score: 1 + 3.0 = 4.0
+        state
+            .completed_tool_counts
+            .insert("Skill".to_string(), (1, now));
+
+        let top = state.scored_completed_tools(2);
+        assert_eq!(top[0].name, "Skill", "recent tool should rank first");
+        assert_eq!(top[1].name, "Grep", "stale tool should rank second");
+    }
+
+    #[test]
+    fn scored_completed_tools_count_dominates_after_decay() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+
+        // Both tools last used 3 minutes ago (beyond 2-min decay window)
+        state
+            .completed_tool_counts
+            .insert("Read".to_string(), (15, now.saturating_sub(180_000)));
+        state
+            .completed_tool_counts
+            .insert("Skill".to_string(), (1, now.saturating_sub(180_000)));
+
+        let top = state.scored_completed_tools(2);
+        assert_eq!(
+            top[0].name, "Read",
+            "higher count should win when both are stale"
+        );
+    }
+
+    #[test]
+    fn scored_completed_tools_tiebreak_alphabetical() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+
+        // Same count, same recency
+        state
+            .completed_tool_counts
+            .insert("Edit".to_string(), (5, now));
+        state
+            .completed_tool_counts
+            .insert("Bash".to_string(), (5, now));
+
+        let top = state.scored_completed_tools(2);
+        assert_eq!(
+            top[0].name, "Bash",
+            "alphabetical tiebreak: Bash before Edit"
+        );
+        assert_eq!(top[1].name, "Edit");
     }
 }
