@@ -23,7 +23,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ![Cost alert](docs/assets/cost-alert.png)
 
-**Tool Tracking** — Running tools + completed counts on L4
+**Tool Tracking** — Running tools with targets + completed counts (noise-filtered, multi-line wrapping)
 
 ![Tool tracking](docs/assets/tool-tracking.png)
 
@@ -134,6 +134,7 @@ show_cost = true
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
+tools_per_line = 6      # completed tools per line before wrapping
 
 [segments.agents]
 enabled = true
@@ -147,7 +148,7 @@ max_lines = 2
 ## CLI Usage
 
 ```
-cc-pulseline 1.0.3 - High-performance Claude Code statusline
+cc-pulseline 1.0.4 - High-performance Claude Code statusline
 
 USAGE:
     cc-pulseline [OPTIONS]

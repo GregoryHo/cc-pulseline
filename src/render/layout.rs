@@ -46,10 +46,10 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         }
     }
 
-    // Tool lines: completed counts (stable) then recent tools (volatile)
+    // Tool lines: completed counts (stable, multi-line) then recent tools (volatile)
     if config.show_tools {
         if !frame.completed_tools.is_empty() {
-            lines.push(format_completed_tool_line(frame, config, &tier));
+            lines.extend(format_completed_tool_lines(frame, config, &tier));
         }
         if !frame.tools.is_empty() {
             lines.push(format_recent_tool_line(frame, config, &tier));
@@ -80,28 +80,34 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     lines
 }
 
-/// Format the completed tool counts line.
-/// Example: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5`
-fn format_completed_tool_line(
+/// Format completed tool counts across multiple lines.
+/// Example: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (6 per line, wraps if needed)
+fn format_completed_tool_lines(
     frame: &RenderFrame,
     config: &RenderConfig,
     tier: &EmphasisTier,
-) -> String {
+) -> Vec<String> {
     let color = config.color_enabled;
     let sep = colorize(" | ", tier.separator, color);
+    let per_line = config.tools_per_line.max(1);
 
-    let parts: Vec<String> = frame
+    frame
         .completed_tools
-        .iter()
-        .map(|completed| {
-            let check = colorize("✓", COMPLETED_CHECK, color);
-            let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
-            let count_str = colorize(&format!(" ×{}", completed.count), tier.secondary, color);
-            format!("{check} {name_str}{count_str}")
+        .chunks(per_line)
+        .map(|chunk| {
+            let parts: Vec<String> = chunk
+                .iter()
+                .map(|completed| {
+                    let check = colorize("✓", COMPLETED_CHECK, color);
+                    let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
+                    let count_str =
+                        colorize(&format!(" ×{}", completed.count), tier.secondary, color);
+                    format!("{check} {name_str}{count_str}")
+                })
+                .collect();
+            parts.join(&sep)
         })
-        .collect();
-
-    parts.join(&sep)
+        .collect()
 }
 
 /// Format the recent/running tools line with targets.

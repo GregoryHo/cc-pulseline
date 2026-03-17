@@ -287,6 +287,20 @@ fn extract_content_blocks(raw_event: &Value) -> Option<Vec<&Value>> {
 }
 
 /// Process a single content block from a message's content[] array.
+/// Internal Claude Code tools excluded from tool tracking.
+/// Referenced by both Path 1 (nested content) and Path 3 (flat fallback).
+const NOISE_TOOLS: &[&str] = &[
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "EnterWorktree",
+    "ExitWorktree",
+    "TaskGet",
+    "TaskList",
+    "TaskOutput",
+    "TaskStop",
+    "ToolSearch",
+];
+
 fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option<u64>) {
     let block_type = match block.get("type").and_then(Value::as_str) {
         Some(t) => t,
@@ -346,13 +360,17 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 return;
             }
 
+            if NOISE_TOOLS.contains(&name.as_str()) {
+                return;
+            }
+
             // Extract target from input
             let target = extract_target(&name, block);
             state.upsert_tool(id, name, target);
         }
         "tool_result" => {
             if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
-                complete_tool_result(state, id);
+                complete_tool_result(state, id, event_ts);
             }
 
             // Check for todo data in result
@@ -469,8 +487,8 @@ fn dispatch_todo_write(state: &mut SessionState, event: &Value, fallback: Option
 }
 
 /// Complete a tool_result by resolving agent links: linked agent, pending task, or plain removal.
-fn complete_tool_result(state: &mut SessionState, tool_use_id: &str) {
-    state.remove_tool(tool_use_id);
+fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: Option<u64>) {
+    state.remove_tool(tool_use_id, event_ts);
     if let Some(linked_agent) = state.resolve_task_agent(tool_use_id) {
         state.remove_agent(&linked_agent);
     } else if let Some(pending) = state.drain_pending_task(tool_use_id) {
@@ -514,6 +532,24 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
             let query = input.get("query").and_then(Value::as_str)?;
             Some(truncate_str(query, 30))
         }
+        "Skill" => {
+            let skill = input.get("skill").and_then(Value::as_str)?;
+            Some(truncate_str(skill, 20))
+        }
+        "AskUserQuestion" => input
+            .get("questions")
+            .and_then(Value::as_array)
+            .and_then(|qs| qs.first())
+            .and_then(|q| q.get("question").and_then(Value::as_str))
+            .map(|q| truncate_str(q, 30)),
+        "SendMessage" => input
+            .get("to")
+            .and_then(Value::as_str)
+            .map(|to| truncate_str(to, 20)),
+        "LSP" => input
+            .get("command")
+            .and_then(Value::as_str)
+            .map(|c| truncate_str(c, 20)),
         "Agent" => None, // Agent → subagent, not tool
         _ => {
             // Generic fallback: try file_path → command → pattern
@@ -583,7 +619,7 @@ fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Optio
 
     match event_type.as_deref() {
         Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
-        Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
+        Some("tool_result") => handle_flat_tool_result(state, event, raw_event, event_ts),
         Some("Agent") => handle_task_event(state, event, event_ts),
         Some("TaskCreate") => {
             dispatch_task_create(state, event, Some(raw_event));
@@ -622,6 +658,9 @@ fn handle_flat_tool_use(
             dispatch_todo_write(state, event, Some(raw_event));
         }
         _ => {
+            if NOISE_TOOLS.contains(&name.as_str()) {
+                return;
+            }
             let id = find_string(event, &["id", "tool_use_id", "tool_call_id"])
                 .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
                 .unwrap_or_else(|| format!("{name}-active"));
@@ -630,11 +669,16 @@ fn handle_flat_tool_use(
     }
 }
 
-fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_flat_tool_result(
+    state: &mut SessionState,
+    event: &Value,
+    raw_event: &Value,
+    event_ts: Option<u64>,
+) {
     if let Some(id) = find_string(event, &["tool_use_id", "id", "tool_call_id"])
         .or_else(|| find_string(raw_event, &["tool_use_id", "id", "tool_call_id"]))
     {
-        complete_tool_result(state, &id);
+        complete_tool_result(state, &id, event_ts);
     }
 
     if let Some(todo) = extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)) {
@@ -733,7 +777,7 @@ fn is_terminal_status(status: &str) -> bool {
 fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> TranscriptSnapshot {
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
-        completed_counts: state.top_completed_tools(config.max_completed_tools),
+        completed_counts: state.scored_completed_tools(config.max_completed_tools),
         agents: state.agents_for_display(config.max_agent_lines),
         todo: state.todo.clone(),
     }

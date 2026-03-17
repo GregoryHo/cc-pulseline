@@ -195,6 +195,7 @@ fn print_config(project_root: Option<&str>) {
     println!("enabled = {}", config.segments.tools.enabled);
     println!("max_lines = {}", config.segments.tools.max_lines);
     println!("max_completed = {}", config.segments.tools.max_completed);
+    println!("tools_per_line = {}", config.segments.tools.tools_per_line);
     println!();
     println!("[segments.agents]");
     println!("enabled = {}", config.segments.agents.enabled);

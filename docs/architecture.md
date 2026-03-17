@@ -89,7 +89,8 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 
 - Transcript file offset (for incremental parsing)
 - Active tools, recent tools (persist after completion for display), agents, and todo lists
-- Completed tool/agent counts
+- Completed tool counts with last-used timestamps (hybrid scoring: count + recency bonus)
+- Completed agents (FIFO buffer, max 10)
 - Cached env/git snapshots (with TTL)
 - Cached L3 metrics (for flicker prevention)
 - Output speed tracking (delta-based tok/s, holds last known)
@@ -111,7 +112,7 @@ Persists `SessionState` across process invocations:
 
 - Glyph mode (Nerd Font icons vs ASCII)
 - Color enable/disable
-- Line caps (`max_tool_lines`, `max_agent_lines`)
+- Line caps (`max_tool_lines`, `max_agent_lines`, `tools_per_line`)
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
@@ -196,7 +197,7 @@ Backward compatibility with older transcript formats and test fixtures:
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10k O:20k C:30k/40k | ↗42/s | $3.50 ($3.50/h)`
 - **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)`
-- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts)
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, wraps at `tools_per_line`)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`
 

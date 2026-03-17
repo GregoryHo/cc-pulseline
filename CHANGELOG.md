@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-03-13
+
+### Added
+
+- **Noise tool filtering** — 9 internal Claude Code tools (EnterPlanMode, ExitPlanMode, EnterWorktree, ExitWorktree, TaskGet, TaskList, TaskOutput, TaskStop, ToolSearch) excluded from tool tracking, keeping completed counts and recent tools focused on user-visible tools
+- **Hybrid tool scoring** — Completed tools ranked by `count + recency_bonus` where the recency bonus decays linearly over 2 minutes — recently used tools float up even with low total counts
+- **Expanded target extraction** — Skill (skill name), AskUserQuestion (question text), SendMessage (recipient), LSP (command), WebFetch (URL), WebSearch (query), NotebookEdit (file path), plus generic fallback chain (`file_path` → `command` → `pattern`) for unknown tools
+- **Multi-line completed tools** — `tools_per_line` config (default 6) wraps completed tool counts across multiple lines
+
+### Changed
+
+- **Completed tool sorting** — Replaced count-only sorting (`top_completed_tools()`) with hybrid scoring (`scored_completed_tools()`)
+- **Cache schema** — `completed_tool_counts` internal format changed to track last completion timestamp; old cache files silently discarded and regenerated
+
 ## [1.0.3] - 2026-03-11
 
 ### Fixed
@@ -70,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.0.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.0...v1.0.1

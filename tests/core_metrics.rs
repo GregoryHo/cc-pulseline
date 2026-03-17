@@ -454,6 +454,7 @@ fn completed_tools_use_check_color() {
     frame.completed_tools.push(CompletedToolCount {
         name: "Read".to_string(),
         count: 5,
+        last_completed_at: None,
     });
 
     let lines = render_frame(&frame, &colored_config());

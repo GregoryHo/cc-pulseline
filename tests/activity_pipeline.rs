@@ -1619,3 +1619,208 @@ fn todo_max_lines_caps_display() {
         "first line should show overflow count when more active than shown: got {first}"
     );
 }
+
+// ── Noise tool filtering + explicit target extraction ─────────────────
+
+#[test]
+fn noise_tools_not_tracked() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("noise.jsonl");
+
+    let noise_events = [
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"n1","name":"EnterPlanMode","input":{}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"n2","name":"TaskGet","input":{"taskId":"1"}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"n3","name":"ExitWorktree","input":{}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"n4","name":"ToolSearch","input":{"query":"select:Read"}}]}}"#,
+    ];
+
+    for event in &noise_events {
+        append_line(&transcript, event);
+    }
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "noise-test"), config)
+        .expect("render should succeed");
+
+    let joined = lines.join("\n");
+    assert!(
+        !joined.contains("EnterPlanMode"),
+        "noise tool EnterPlanMode should not appear: {joined}"
+    );
+    assert!(
+        !joined.contains("TaskGet"),
+        "noise tool TaskGet should not appear: {joined}"
+    );
+    assert!(
+        !joined.contains("ExitWorktree"),
+        "noise tool ExitWorktree should not appear: {joined}"
+    );
+    assert!(
+        !joined.contains("ToolSearch"),
+        "noise tool ToolSearch should not appear: {joined}"
+    );
+    assert!(
+        !joined.contains("T:"),
+        "no tool lines should appear at all: {joined}"
+    );
+}
+
+#[test]
+fn skill_and_ask_targets_extracted() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("targets.jsonl");
+
+    let events = [
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"s1","name":"Skill","input":{"skill":"commit"}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"a1","name":"AskUserQuestion","input":{"questions":[{"question":"Which database should we use?"}]}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"m1","name":"SendMessage","input":{"to":"code-reviewer","message":"Please review"}}]}}"#,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"l1","name":"LSP","input":{"command":"getDefinition","path":"/src/main.rs"}}]}}"#,
+    ];
+
+    for event in &events {
+        append_line(&transcript, event);
+    }
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_tool_lines: 4,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "target-test"),
+            config,
+        )
+        .expect("render should succeed");
+
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("commit"),
+        "Skill target 'commit' should appear: {joined}"
+    );
+    assert!(
+        joined.contains("Which database"),
+        "AskUserQuestion target should appear: {joined}"
+    );
+    assert!(
+        joined.contains("code-reviewer"),
+        "SendMessage target should appear: {joined}"
+    );
+    assert!(
+        joined.contains("getDefinition"),
+        "LSP target should appear: {joined}"
+    );
+}
+
+// ── Completed tools line wrapping ─────────────────────────────────────
+
+#[test]
+fn completed_tools_wraps_to_multiple_lines() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("wrap.jsonl");
+
+    // Create 8 different tools, each with a use + result pair
+    let tools = [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Grep",
+        "Glob",
+        "WebFetch",
+        "WebSearch",
+    ];
+    for (i, tool_name) in tools.iter().enumerate() {
+        let id = format!("w{i}");
+        let input = match *tool_name {
+            "Read" | "Write" | "Edit" => r#""file_path":"/src/main.rs""#,
+            "Bash" => r#""command":"echo hi""#,
+            "Grep" | "Glob" => r#""pattern":"*.rs""#,
+            "WebFetch" => r#""url":"https://example.com""#,
+            "WebSearch" => r#""query":"rust async""#,
+            _ => "",
+        };
+        let tool_use = format!(
+            r#"{{"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"{id}","name":"{tool_name}","input":{{{input}}}}}]}}}}"#
+        );
+        let tool_result = format!(
+            r#"{{"message":{{"role":"assistant","content":[{{"type":"tool_result","tool_use_id":"{id}"}}]}}}}"#
+        );
+        append_line(&transcript, &tool_use);
+        append_line(&transcript, &tool_result);
+    }
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_completed_tools: 8,
+        tools_per_line: 6,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "wrap-test"), config)
+        .expect("render should succeed");
+
+    // Count lines containing ✓ (completed tool markers)
+    let completed_lines: Vec<&String> = lines.iter().filter(|l| l.contains("✓")).collect();
+    assert_eq!(
+        completed_lines.len(),
+        2,
+        "8 tools at 6 per line should produce 2 completed lines: got {completed_lines:?}"
+    );
+}
+
+#[test]
+fn completed_tools_single_line_when_under_per_line() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("single.jsonl");
+
+    // Create 3 tools
+    for (i, tool_name) in ["Read", "Edit", "Bash"].iter().enumerate() {
+        let id = format!("s{i}");
+        let input = match *tool_name {
+            "Read" | "Edit" => r#""file_path":"/src/main.rs""#,
+            "Bash" => r#""command":"echo hi""#,
+            _ => "",
+        };
+        let tool_use = format!(
+            r#"{{"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"{id}","name":"{tool_name}","input":{{{input}}}}}]}}}}"#
+        );
+        let tool_result = format!(
+            r#"{{"message":{{"role":"assistant","content":[{{"type":"tool_result","tool_use_id":"{id}"}}]}}}}"#
+        );
+        append_line(&transcript, &tool_use);
+        append_line(&transcript, &tool_result);
+    }
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        max_completed_tools: 8,
+        tools_per_line: 6,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "single-test"),
+            config,
+        )
+        .expect("render should succeed");
+
+    let completed_lines: Vec<&String> = lines.iter().filter(|l| l.contains("✓")).collect();
+    assert_eq!(
+        completed_lines.len(),
+        1,
+        "3 tools at 6 per line should produce 1 completed line: got {completed_lines:?}"
+    );
+}

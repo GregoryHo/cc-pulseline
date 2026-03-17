@@ -254,6 +254,12 @@ Dedicated line for accumulated completion counts — stable, grows over the sess
 
 Capped by `max_completed_tools` config value.
 
+**Noise filtering**: 9 internal Claude Code tools are excluded from tracking: EnterPlanMode, ExitPlanMode, EnterWorktree, ExitWorktree, TaskGet, TaskList, TaskOutput, TaskStop, ToolSearch.
+
+**Hybrid scoring**: Tools ranked by `score = count + recency_bonus` where `recency_bonus = 3.0 × max(0, 1 − age_ms / 120,000)`. Recently used tools (within 2 minutes) get up to 3 bonus points, floating up even with low counts. After decay, pure count dominates. Ties broken alphabetically.
+
+**Multi-line wrapping**: Completed tools wrap at `tools_per_line` (default: 6) using chunked rendering.
+
 ### Running/Recent Tools (L4b)
 
 Dedicated line for running and recently used tools with targets — volatile, changes with each tool use.
@@ -268,10 +274,16 @@ Dedicated line for running and recently used tools with targets — volatile, ch
 
 | Tool Name | Target Field | Example |
 |-----------|-------------|---------|
-| Read, Write, Edit | `input.file_path` | `T:Read: .../main.rs` |
+| Read, Write, Edit, NotebookEdit | `input.file_path` | `T:Read: .../main.rs` |
 | Bash | `input.command` | `T:Bash: cargo test` |
 | Glob, Grep | `input.pattern` | `T:Grep: TODO` |
-| Other | (none) | `T:WebSearch` |
+| WebFetch | `input.url` | `T:WebFetch: https://example...` |
+| WebSearch | `input.query` | `T:WebSearch: rust async` |
+| Skill | `input.skill` | `T:Skill: commit` |
+| AskUserQuestion | `input.questions[0].question` | `T:AskUserQuestion: Which dat...` |
+| SendMessage | `input.to` | `T:SendMessage: code-reviewer` |
+| LSP | `input.command` | `T:LSP: getDefinition` |
+| Other (generic) | `file_path` → `command` → `pattern` | Fallback chain |
 
 Both lines are controlled by a single `show_tools` toggle. Display capped by `max_tool_lines`.
 
@@ -368,6 +380,7 @@ Line 3 metrics (context, tokens, cost) use a special merge strategy:
 - **Write**: Atomic (write `.tmp` file, then rename)
 - **Read**: On first encounter of a session key only
 - **Errors**: All load/save errors silently ignored (never crashes the statusline)
+- **Schema evolution**: Cache uses `#[serde(default)]`; schema changes (e.g., v1.0.4 `completed_tool_counts` format change) cause old files to silently fail deserialization and regenerate fresh
 
 ### Layer 6: Quota Cache
 

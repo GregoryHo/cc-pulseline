@@ -145,6 +145,8 @@ pub struct ToolSummary {
 pub struct CompletedToolCount {
     pub name: String,
     pub count: u32,
+    #[serde(default)]
+    pub last_completed_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
