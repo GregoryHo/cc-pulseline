@@ -370,7 +370,7 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
         }
         "tool_result" => {
             if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
-                complete_tool_result(state, id);
+                complete_tool_result(state, id, event_ts);
             }
 
             // Check for todo data in result
@@ -487,8 +487,8 @@ fn dispatch_todo_write(state: &mut SessionState, event: &Value, fallback: Option
 }
 
 /// Complete a tool_result by resolving agent links: linked agent, pending task, or plain removal.
-fn complete_tool_result(state: &mut SessionState, tool_use_id: &str) {
-    state.remove_tool(tool_use_id);
+fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: Option<u64>) {
+    state.remove_tool(tool_use_id, event_ts);
     if let Some(linked_agent) = state.resolve_task_agent(tool_use_id) {
         state.remove_agent(&linked_agent);
     } else if let Some(pending) = state.drain_pending_task(tool_use_id) {
@@ -619,7 +619,7 @@ fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Optio
 
     match event_type.as_deref() {
         Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
-        Some("tool_result") => handle_flat_tool_result(state, event, raw_event),
+        Some("tool_result") => handle_flat_tool_result(state, event, raw_event, event_ts),
         Some("Agent") => handle_task_event(state, event, event_ts),
         Some("TaskCreate") => {
             dispatch_task_create(state, event, Some(raw_event));
@@ -669,11 +669,16 @@ fn handle_flat_tool_use(
     }
 }
 
-fn handle_flat_tool_result(state: &mut SessionState, event: &Value, raw_event: &Value) {
+fn handle_flat_tool_result(
+    state: &mut SessionState,
+    event: &Value,
+    raw_event: &Value,
+    event_ts: Option<u64>,
+) {
     if let Some(id) = find_string(event, &["tool_use_id", "id", "tool_call_id"])
         .or_else(|| find_string(raw_event, &["tool_use_id", "id", "tool_call_id"]))
     {
-        complete_tool_result(state, &id);
+        complete_tool_result(state, &id, event_ts);
     }
 
     if let Some(todo) = extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)) {

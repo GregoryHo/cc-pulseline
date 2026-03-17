@@ -153,22 +153,22 @@ impl SessionState {
         }
     }
 
-    pub fn remove_tool(&mut self, id: &str) {
+    pub fn remove_tool(&mut self, id: &str, event_ts: Option<u64>) {
         if let Some(tool) = self.active_tools.iter().find(|t| t.id == id) {
-            self.record_tool_completion(&tool.name.clone());
+            self.record_tool_completion(&tool.name.clone(), event_ts);
         }
         self.active_tools.retain(|tool| tool.id != id);
         // recent_tools: intentionally NOT touched — tool stays visible until displaced
     }
 
-    pub fn record_tool_completion(&mut self, name: &str) {
-        let now = cache::now_epoch_ms();
+    pub fn record_tool_completion(&mut self, name: &str, event_ts: Option<u64>) {
+        let ts = event_ts.unwrap_or_else(cache::now_epoch_ms);
         let entry = self
             .completed_tool_counts
             .entry(name.to_string())
             .or_insert((0, 0));
         entry.0 += 1;
-        entry.1 = now;
+        entry.1 = ts;
     }
 
     /// Hybrid scoring: count + recency bonus (decays over 2 minutes).
