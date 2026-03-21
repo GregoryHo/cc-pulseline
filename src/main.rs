@@ -23,12 +23,6 @@ fn main() {
         return;
     }
 
-    // Hidden internal flag — background quota fetch subprocess
-    if args.iter().any(|a| a == "--fetch-quota") {
-        cc_pulseline::providers::quota_fetch::run_fetch_quota();
-        return;
-    }
-
     let has_init = args.iter().any(|a| a == "--init");
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
