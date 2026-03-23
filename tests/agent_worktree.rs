@@ -150,6 +150,45 @@ fn worktree_hidden_when_toggle_off() {
     );
 }
 
+// ── Worktree project path resolution ─────────────────────────────────
+
+#[test]
+fn worktree_original_cwd_used_for_project_path() {
+    let input = json!({
+        "session_id": "test",
+        "workspace": {"current_dir": "/tmp/worktree-abc"},
+        "worktree": {
+            "name": "fix",
+            "original_cwd": "/home/user/myproject",
+            "original_branch": "main"
+        }
+    })
+    .to_string();
+    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
+
+    assert_eq!(
+        payload.resolve_project_path().as_deref(),
+        Some("/home/user/myproject"),
+        "worktree.original_cwd should take priority over workspace.current_dir"
+    );
+}
+
+#[test]
+fn non_worktree_uses_workspace_current_dir() {
+    let input = json!({
+        "session_id": "test",
+        "workspace": {"current_dir": "/home/user/myproject"}
+    })
+    .to_string();
+    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
+
+    assert_eq!(
+        payload.resolve_project_path().as_deref(),
+        Some("/home/user/myproject"),
+        "without worktree, workspace.current_dir should be used"
+    );
+}
+
 // ── Combined + stdin parsing tests ───────────────────────────────────
 
 #[test]

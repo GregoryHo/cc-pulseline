@@ -22,9 +22,16 @@ pub struct StdinPayload {
 
 impl StdinPayload {
     pub fn resolve_project_path(&self) -> Option<String> {
-        self.workspace
+        // In worktree sessions, prefer the original project directory so that
+        // env/memory lookups and session keying use the real repo, not the temp worktree.
+        self.worktree
             .as_ref()
-            .and_then(|workspace| workspace.current_dir.clone())
+            .and_then(|wt| wt.original_cwd.clone())
+            .or_else(|| {
+                self.workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.current_dir.clone())
+            })
             .or_else(|| self.cwd.clone())
     }
 
