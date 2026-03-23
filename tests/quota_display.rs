@@ -1,7 +1,7 @@
 use cc_pulseline::{
     config::RenderConfig,
     render::color::{CTX_CRITICAL, CTX_GOOD, CTX_WARN},
-    types::{QuotaMetrics, RenderFrame, StdinPayload},
+    types::{QuotaMetrics, RateLimitWindow, RateLimits, RenderFrame, StdinPayload},
 };
 use serde_json::json;
 
@@ -36,9 +36,7 @@ fn render_with_quota(quota: QuotaMetrics, config: RenderConfig) -> Vec<String> {
 #[test]
 fn quota_hidden_by_default() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(50.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -60,10 +58,8 @@ fn quota_hidden_by_default() {
 #[test]
 fn quota_shows_pct_at_75pct() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(75.0),
         five_hour_reset_minutes: Some(120), // 2 hours
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -75,8 +71,6 @@ fn quota_shows_pct_at_75pct() {
     let lines = render_with_quota(quota, config);
     assert!(lines.len() > 3, "should have quota line after L3");
     let quota_line = &lines[3];
-    assert!(!quota_line.contains("█"), "should NOT contain bar chars");
-    assert!(!quota_line.contains("░"), "should NOT contain bar chars");
     assert!(quota_line.contains("75%"), "should show percentage");
     assert!(quota_line.contains(CTX_WARN), "75% should use warn color");
     assert!(
@@ -88,10 +82,8 @@ fn quota_shows_pct_at_75pct() {
 #[test]
 fn quota_shows_limit_reached_at_100pct() {
     let quota = QuotaMetrics {
-        plan_type: Some("max".to_string()),
         five_hour_pct: Some(100.0),
         five_hour_reset_minutes: Some(15),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -113,50 +105,21 @@ fn quota_shows_limit_reached_at_100pct() {
 }
 
 #[test]
-fn quota_hidden_for_api_users() {
-    let quota = QuotaMetrics {
-        plan_type: None,
-        available: false,
-        ..Default::default()
-    };
+fn quota_hidden_when_no_data() {
+    let quota = QuotaMetrics::default(); // all None
     let config = RenderConfig {
         show_quota: true,
         show_quota_five_hour: true,
         ..Default::default()
     };
     let lines = render_with_quota(quota, config);
-    // Should only have L1-L3, no quota line
-    assert_eq!(lines.len(), 3, "API users should have no quota line");
-}
-
-#[test]
-fn quota_shows_placeholder_when_unavailable() {
-    let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
-        five_hour_pct: None,
-        available: false,
-        ..Default::default()
-    };
-    let config = RenderConfig {
-        show_quota: true,
-        show_quota_five_hour: true,
-        ..Default::default()
-    };
-    let lines = render_with_quota(quota, config);
-    assert!(lines.len() > 3, "should have quota line");
-    let quota_line = &lines[3];
-    assert!(
-        quota_line.contains("--"),
-        "unavailable should show dash placeholder, got: {quota_line}"
-    );
+    assert_eq!(lines.len(), 3, "no quota data should produce no quota line");
 }
 
 #[test]
 fn quota_dropped_in_width_degradation() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(50.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -177,9 +140,7 @@ fn quota_dropped_in_width_degradation() {
 #[test]
 fn quota_green_at_low_usage() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(25.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -199,10 +160,8 @@ fn quota_green_at_low_usage() {
 #[test]
 fn quota_reset_shows_days() {
     let quota = QuotaMetrics {
-        plan_type: Some("max".to_string()),
         five_hour_pct: Some(40.0),
         five_hour_reset_minutes: Some(2880), // 2 days
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -222,12 +181,10 @@ fn quota_reset_shows_days() {
 #[test]
 fn quota_shows_seven_day_when_enabled() {
     let quota = QuotaMetrics {
-        plan_type: Some("max".to_string()),
         five_hour_pct: Some(30.0),
         five_hour_reset_minutes: Some(60),
         seven_day_pct: Some(55.0),
         seven_day_reset_minutes: Some(2880), // 2 days
-        available: true,
     };
     let config = RenderConfig {
         show_quota: true,
@@ -254,10 +211,8 @@ fn quota_shows_seven_day_when_enabled() {
 #[test]
 fn quota_hides_seven_day_when_disabled() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(40.0),
         seven_day_pct: Some(60.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -281,9 +236,7 @@ fn quota_hides_seven_day_when_disabled() {
 #[test]
 fn quota_red_at_critical_usage() {
     let quota = QuotaMetrics {
-        plan_type: Some("max".to_string()),
         five_hour_pct: Some(95.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -301,12 +254,10 @@ fn quota_red_at_critical_usage() {
 }
 
 #[test]
-fn quota_shows_plan_type_in_prefix() {
+fn quota_shows_q_prefix() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(30.0),
         five_hour_reset_minutes: Some(60),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -318,18 +269,16 @@ fn quota_shows_plan_type_in_prefix() {
     let lines = render_with_quota(quota, config);
     let quota_line = &lines[3];
     assert!(
-        quota_line.contains("Q:Pro"),
-        "should show capitalized plan type in prefix, got: {quota_line}"
+        quota_line.contains("Q:"),
+        "should show Q: prefix, got: {quota_line}"
     );
 }
 
 #[test]
 fn quota_shows_reset_placeholder_when_none() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(25.0),
         five_hour_reset_minutes: None, // reset unknown
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -349,10 +298,8 @@ fn quota_shows_reset_placeholder_when_none() {
 #[test]
 fn quota_shows_reset_imminent() {
     let quota = QuotaMetrics {
-        plan_type: Some("max".to_string()),
         five_hour_pct: Some(90.0),
         five_hour_reset_minutes: Some(0), // imminent
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -372,9 +319,7 @@ fn quota_shows_reset_imminent() {
 #[test]
 fn quota_warn_at_50pct() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(50.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -394,9 +339,7 @@ fn quota_warn_at_50pct() {
 #[test]
 fn quota_critical_at_85pct() {
     let quota = QuotaMetrics {
-        plan_type: Some("pro".to_string()),
         five_hour_pct: Some(85.0),
-        available: true,
         ..Default::default()
     };
     let config = RenderConfig {
@@ -410,5 +353,103 @@ fn quota_critical_at_85pct() {
     assert!(
         quota_line.contains(CTX_CRITICAL),
         "85% should use critical color (threshold at 85%), got: {quota_line}"
+    );
+}
+
+// ── Stdin parsing tests ─────────────────────────────────────────────
+
+#[test]
+fn quota_from_rate_limits_deterministic() {
+    let rate_limits = RateLimits {
+        five_hour: Some(RateLimitWindow {
+            used_percentage: Some(75.0),
+            resets_at: Some(1_000_000 + 7200), // now + 2 hours
+        }),
+        seven_day: Some(RateLimitWindow {
+            used_percentage: Some(30.0),
+            resets_at: Some(1_000_000 + 172800), // now + 2 days
+        }),
+    };
+    let quota = QuotaMetrics::from_rate_limits(&rate_limits, 1_000_000);
+
+    assert_eq!(quota.five_hour_pct, Some(75.0));
+    assert_eq!(quota.five_hour_reset_minutes, Some(120)); // 7200s / 60
+    assert_eq!(quota.seven_day_pct, Some(30.0));
+    assert_eq!(quota.seven_day_reset_minutes, Some(2880)); // 172800s / 60
+    assert!(quota.has_data());
+}
+
+#[test]
+fn quota_from_stdin_deserializes() {
+    let input = json!({
+        "session_id": "test",
+        "version": "2.1.80",
+        "rate_limits": {
+            "five_hour": {
+                "used_percentage": 75.0,
+                "resets_at": 9999999999_u64
+            },
+            "seven_day": {
+                "used_percentage": 30.0,
+                "resets_at": 9999999999_u64
+            }
+        }
+    })
+    .to_string();
+    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
+    let frame = RenderFrame::from_payload(&payload);
+
+    assert_eq!(frame.quota.five_hour_pct, Some(75.0));
+    assert_eq!(frame.quota.seven_day_pct, Some(30.0));
+    assert!(frame.quota.has_data());
+}
+
+#[test]
+fn quota_from_stdin_absent() {
+    let input = json!({
+        "session_id": "test",
+        "version": "2.1.80"
+    })
+    .to_string();
+    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
+    let frame = RenderFrame::from_payload(&payload);
+
+    assert!(!frame.quota.has_data());
+    assert_eq!(frame.quota.five_hour_pct, None);
+    assert_eq!(frame.quota.seven_day_pct, None);
+}
+
+#[test]
+fn quota_from_rate_limits_partial_windows() {
+    let rate_limits = RateLimits {
+        five_hour: Some(RateLimitWindow {
+            used_percentage: Some(50.0),
+            resets_at: None,
+        }),
+        seven_day: None,
+    };
+    let quota = QuotaMetrics::from_rate_limits(&rate_limits, 1_000_000);
+
+    assert_eq!(quota.five_hour_pct, Some(50.0));
+    assert_eq!(quota.five_hour_reset_minutes, None, "no resets_at → None");
+    assert_eq!(quota.seven_day_pct, None, "seven_day absent → None");
+    assert!(quota.has_data(), "five_hour data alone is sufficient");
+}
+
+#[test]
+fn quota_from_rate_limits_past_reset_saturates() {
+    let rate_limits = RateLimits {
+        five_hour: Some(RateLimitWindow {
+            used_percentage: Some(100.0),
+            resets_at: Some(500), // in the past relative to now_secs=1000
+        }),
+        seven_day: None,
+    };
+    let quota = QuotaMetrics::from_rate_limits(&rate_limits, 1000);
+
+    assert_eq!(
+        quota.five_hour_reset_minutes,
+        Some(0),
+        "past reset → 0 minutes (saturating)"
     );
 }

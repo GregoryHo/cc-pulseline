@@ -23,12 +23,6 @@ fn main() {
         return;
     }
 
-    // Hidden internal flag — background quota fetch subprocess
-    if args.iter().any(|a| a == "--fetch-quota") {
-        cc_pulseline::providers::quota_fetch::run_fetch_quota();
-        return;
-    }
-
     let has_init = args.iter().any(|a| a == "--init");
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
@@ -170,6 +164,8 @@ fn print_config(project_root: Option<&str>) {
         "show_git_stats = {}",
         config.segments.identity.show_git_stats
     );
+    println!("show_agent = {}", config.segments.identity.show_agent);
+    println!("show_worktree = {}", config.segments.identity.show_worktree);
     println!();
     println!("[segments.config]");
     println!("show_claude_md = {}", config.segments.config.show_claude_md);

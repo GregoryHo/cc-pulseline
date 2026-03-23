@@ -366,6 +366,14 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
         parts.push(format!("{model_label}{model_val}"));
     }
 
+    if config.show_agent {
+        if let Some(agent_name) = &frame.line1.agent_name {
+            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), STABLE_BLUE, color);
+            let val = colorize(agent_name, STABLE_BLUE, color);
+            parts.push(format!("{label}{val}"));
+        }
+    }
+
     if config.show_style {
         let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
         let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
@@ -514,7 +522,11 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
     let color = config.color_enabled;
 
     if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        return colorize("unknown", tier.structural, color);
+        let mut s = colorize("unknown", tier.structural, color);
+        if config.show_worktree && line1.in_worktree {
+            s.push_str(&colorize(" (WT)", tier.structural, color));
+        }
+        return s;
     }
 
     let mut status = colorize(&line1.git_branch, GIT_GREEN, color);
@@ -553,6 +565,10 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
             status.push(' ');
             status.push_str(&stats.join(" "));
         }
+    }
+
+    if config.show_worktree && line1.in_worktree {
+        status.push_str(&colorize(" (WT)", tier.structural, color));
     }
 
     status
@@ -699,35 +715,20 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &Empha
     format!("{total_str} {open_paren}{rate_str}{close_paren}")
 }
 
-fn capitalize_first(s: &str) -> String {
-    let mut chars = s.chars();
-    match chars.next() {
-        None => String::new(),
-        Some(c) => c.to_uppercase().to_string() + chars.as_str(),
-    }
-}
-
 fn format_quota_line(
     quota: &QuotaMetrics,
     config: &RenderConfig,
     tier: &EmphasisTier,
 ) -> Option<String> {
-    // Hidden entirely for API users (no plan_type)
-    if quota.plan_type.is_none() && !quota.available {
+    // Hidden when no quota data (API users, old CC versions, pre-first-call)
+    if !quota.has_data() {
         return None;
     }
 
     let mode = config.glyph_mode;
     let color = config.color_enabled;
 
-    let plan_str = quota
-        .plan_type
-        .as_deref()
-        .map(capitalize_first)
-        .unwrap_or_else(|| "--".to_string());
-    let icon_str = colorize(&glyph(mode, ICON_QUOTA, "Q:"), tier.structural, color);
-    let plan_part = colorize(&format!("{plan_str} "), tier.secondary, color);
-    let prefix = format!("{icon_str}{plan_part}");
+    let prefix = colorize(&glyph(mode, ICON_QUOTA, "Q:"), tier.structural, color);
 
     let mut parts: Vec<String> = Vec::new();
 

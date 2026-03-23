@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct StdinPayload {
@@ -11,13 +12,26 @@ pub struct StdinPayload {
     pub context_window: Option<ContextWindow>,
     pub cost: Option<CostInfo>,
     pub transcript_path: Option<String>,
+    #[serde(default)]
+    pub rate_limits: Option<RateLimits>,
+    #[serde(default)]
+    pub agent: Option<AgentInfo>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeInfo>,
 }
 
 impl StdinPayload {
     pub fn resolve_project_path(&self) -> Option<String> {
-        self.workspace
+        // In worktree sessions, prefer the original project directory so that
+        // env/memory lookups and session keying use the real repo, not the temp worktree.
+        self.worktree
             .as_ref()
-            .and_then(|workspace| workspace.current_dir.clone())
+            .and_then(|wt| wt.original_cwd.clone())
+            .or_else(|| {
+                self.workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.current_dir.clone())
+            })
             .or_else(|| self.cwd.clone())
     }
 
@@ -78,6 +92,35 @@ pub struct CostInfo {
     pub total_duration_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RateLimits {
+    pub five_hour: Option<RateLimitWindow>,
+    pub seven_day: Option<RateLimitWindow>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct RateLimitWindow {
+    pub used_percentage: Option<f64>,
+    /// Unix epoch seconds when this window resets.
+    pub resets_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentInfo {
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub agent_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WorktreeInfo {
+    pub name: Option<String>,
+    pub path: Option<String>,
+    pub branch: Option<String>,
+    pub original_cwd: Option<String>,
+    pub original_branch: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Line1Metrics {
     pub model: String,
@@ -92,6 +135,8 @@ pub struct Line1Metrics {
     pub git_added: u32,
     pub git_deleted: u32,
     pub git_untracked: u32,
+    pub agent_name: Option<String>,
+    pub in_worktree: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -190,24 +235,41 @@ pub struct QuotaMetrics {
     pub five_hour_reset_minutes: Option<u64>,
     pub seven_day_pct: Option<f64>,
     pub seven_day_reset_minutes: Option<u64>,
-    pub plan_type: Option<String>,
-    pub available: bool,
 }
 
 impl QuotaMetrics {
-    /// Convert a QuotaSnapshot into render-ready metrics.
-    /// Converts absolute reset timestamps to relative minutes-from-now.
-    pub fn from_snapshot(snapshot: &crate::providers::quota::QuotaSnapshot, now_ms: u64) -> Self {
-        let reset_to_minutes = |reset_ms: u64| -> u64 { reset_ms.saturating_sub(now_ms) / 60_000 };
+    /// Convert stdin `rate_limits` into render-ready metrics.
+    /// Converts absolute `resets_at` (epoch seconds) to relative minutes-from-now.
+    /// Accepts `now_secs` for testability (pure function).
+    pub fn from_rate_limits(rate_limits: &RateLimits, now_secs: u64) -> Self {
+        let reset_to_minutes =
+            |reset_secs: u64| -> u64 { reset_secs.saturating_sub(now_secs) / 60 };
 
         Self {
-            plan_type: snapshot.plan_type.clone(),
-            five_hour_pct: snapshot.five_hour_pct,
-            five_hour_reset_minutes: snapshot.five_hour_reset_at.map(reset_to_minutes),
-            seven_day_pct: snapshot.seven_day_pct,
-            seven_day_reset_minutes: snapshot.seven_day_reset_at.map(reset_to_minutes),
-            available: snapshot.available,
+            five_hour_pct: rate_limits
+                .five_hour
+                .as_ref()
+                .and_then(|w| w.used_percentage),
+            five_hour_reset_minutes: rate_limits
+                .five_hour
+                .as_ref()
+                .and_then(|w| w.resets_at)
+                .map(reset_to_minutes),
+            seven_day_pct: rate_limits
+                .seven_day
+                .as_ref()
+                .and_then(|w| w.used_percentage),
+            seven_day_reset_minutes: rate_limits
+                .seven_day
+                .as_ref()
+                .and_then(|w| w.resets_at)
+                .map(reset_to_minutes),
         }
+    }
+
+    /// Returns true if any quota percentage data is present.
+    pub fn has_data(&self) -> bool {
+        self.five_hour_pct.is_some() || self.seven_day_pct.is_some()
     }
 }
 
@@ -289,6 +351,8 @@ impl RenderFrame {
                 git_added: 0,
                 git_deleted: 0,
                 git_untracked: 0,
+                agent_name: payload.agent.as_ref().and_then(|a| a.name.clone()),
+                in_worktree: payload.worktree.is_some(),
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
@@ -317,7 +381,17 @@ impl RenderFrame {
             completed_tools: Vec::new(),
             agents: Vec::new(),
             todo: None,
-            quota: QuotaMetrics::default(),
+            quota: payload
+                .rate_limits
+                .as_ref()
+                .map(|rl| {
+                    let now_secs = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    QuotaMetrics::from_rate_limits(rl, now_secs)
+                })
+                .unwrap_or_default(),
         }
     }
 }

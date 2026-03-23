@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-03-23
+
+### Added
+
+- **Native rate limit display** — Adopts CC 2.1.80's `rate_limits` stdin field for quota display. 5-hour and 7-day usage percentages with reset countdowns are now read directly from the statusline payload instead of fetched via background subprocess
+- **Agent identity on L1** — New `AG:{name}` segment shows the active session agent when launched with `--agent`. Uses `STABLE_BLUE` color, toggled via `show_agent` (default: true). Only appears when agent data is present
+- **Worktree indicator on L1** — `(WT)` suffix appended to git status when running in a CC-managed worktree (`claude --worktree`). Toggled via `show_worktree` (default: true)
+
+### Removed
+
+- **Background quota fetch** — Deleted `providers/quota.rs` and `providers/quota_fetch.rs` (~610 lines): OAuth credential reading (macOS Keychain + file fallback), Anthropic usage API calls, ISO 8601 timestamp parsing, cache file management, and `--fetch-quota` CLI subprocess
+- **Plan type prefix** — Quota line no longer shows subscription type (`Q:Pro 5h: 75%` → `Q: 5h: 75%`) since CC's `rate_limits` field doesn't include plan type
+
+### Changed
+
+- **QuotaMetrics simplified** — Removed `plan_type` and `available` fields; replaced `from_snapshot(now_ms)` with pure `from_rate_limits(rate_limits, now_secs)`. Visibility now uses `has_data()` instead of dual-field gate
+- **L1 output format** — Now supports optional `AG:{agent}` segment and `(WT)` worktree indicator: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] (WT)`
+
 ## [1.0.4] - 2026-03-13
 
 ### Added
@@ -84,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.0.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.1...v1.0.2

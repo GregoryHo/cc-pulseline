@@ -76,6 +76,10 @@ pub struct IdentitySegmentConfig {
     pub show_git: bool,
     #[serde(default)]
     pub show_git_stats: bool,
+    #[serde(default = "default_true")]
+    pub show_agent: bool,
+    #[serde(default = "default_true")]
+    pub show_worktree: bool,
 }
 
 impl Default for IdentitySegmentConfig {
@@ -87,6 +91,8 @@ impl Default for IdentitySegmentConfig {
             show_project: true,
             show_git: true,
             show_git_stats: false,
+            show_agent: true,
+            show_worktree: true,
         }
     }
 }
@@ -242,6 +248,8 @@ show_version = true
 show_project = true
 show_git = true
 show_git_stats = false  # !3 +1 ✘2 ?4 file stats after branch
+show_agent = true       # AG:agent-name when --agent is active
+show_worktree = true    # (WT) indicator when in a worktree session
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
@@ -312,6 +320,8 @@ pub struct ProjectIdentityOverride {
     pub show_project: Option<bool>,
     pub show_git: Option<bool>,
     pub show_git_stats: Option<bool>,
+    pub show_agent: Option<bool>,
+    pub show_worktree: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -411,6 +421,12 @@ pub fn merge_configs(
             }
             if let Some(v) = identity.show_git_stats {
                 user.segments.identity.show_git_stats = v;
+            }
+            if let Some(v) = identity.show_agent {
+                user.segments.identity.show_agent = v;
+            }
+            if let Some(v) = identity.show_worktree {
+                user.segments.identity.show_worktree = v;
             }
         }
         if let Some(config) = &segments.config {
@@ -547,6 +563,8 @@ pub fn default_project_config_toml() -> &'static str {
 # [segments.identity]
 # show_version = false
 # show_git_stats = true
+# show_agent = true
+# show_worktree = true
 
 # [segments.config]
 # show_memory = false
@@ -610,6 +628,8 @@ pub struct RenderConfig {
     pub show_project: bool,
     pub show_git: bool,
     pub show_git_stats: bool,
+    pub show_agent: bool,
+    pub show_worktree: bool,
     // L2 segment toggles
     pub show_claude_md: bool,
     pub show_rules: bool,
@@ -654,6 +674,8 @@ impl Default for RenderConfig {
             show_project: true,
             show_git: true,
             show_git_stats: false,
+            show_agent: true,
+            show_worktree: true,
             show_claude_md: true,
             show_rules: true,
             show_memory: true,
@@ -717,6 +739,8 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_project: pulseline.segments.identity.show_project,
         show_git: pulseline.segments.identity.show_git,
         show_git_stats: pulseline.segments.identity.show_git_stats,
+        show_agent: pulseline.segments.identity.show_agent,
+        show_worktree: pulseline.segments.identity.show_worktree,
         // L2 config toggles
         show_claude_md: pulseline.segments.config.show_claude_md,
         show_rules: pulseline.segments.config.show_rules,
