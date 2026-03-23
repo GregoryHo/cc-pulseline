@@ -14,6 +14,10 @@ pub struct StdinPayload {
     pub transcript_path: Option<String>,
     #[serde(default)]
     pub rate_limits: Option<RateLimits>,
+    #[serde(default)]
+    pub agent: Option<AgentInfo>,
+    #[serde(default)]
+    pub worktree: Option<WorktreeInfo>,
 }
 
 impl StdinPayload {
@@ -94,6 +98,22 @@ pub struct RateLimitWindow {
     pub resets_at: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentInfo {
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub agent_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct WorktreeInfo {
+    pub name: Option<String>,
+    pub path: Option<String>,
+    pub branch: Option<String>,
+    pub original_cwd: Option<String>,
+    pub original_branch: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Line1Metrics {
     pub model: String,
@@ -108,6 +128,8 @@ pub struct Line1Metrics {
     pub git_added: u32,
     pub git_deleted: u32,
     pub git_untracked: u32,
+    pub agent_name: Option<String>,
+    pub in_worktree: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -322,6 +344,8 @@ impl RenderFrame {
                 git_added: 0,
                 git_deleted: 0,
                 git_untracked: 0,
+                agent_name: payload.agent.as_ref().and_then(|a| a.name.clone()),
+                in_worktree: payload.worktree.is_some(),
             },
             line2: Line2Metrics {
                 claude_md_count: 0,

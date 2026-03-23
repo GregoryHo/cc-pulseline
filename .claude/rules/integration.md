@@ -23,6 +23,9 @@ StdinPayload {
     context_window: Option<ContextWindow>, // Context budget + token usage
     cost: Option<CostInfo>,             // Session cost + duration
     transcript_path: Option<String>,    // Path to JSONL transcript file
+    rate_limits: Option<RateLimits>,    // CC 2.1.80+: subscription usage limits (5h/7d windows)
+    agent: Option<AgentInfo>,           // CC 2.1.69+: active session agent (--agent)
+    worktree: Option<WorktreeInfo>,     // CC 2.1.69+: worktree session info (--worktree)
 }
 ```
 
@@ -35,6 +38,10 @@ WorkspaceInfo      { current_dir }
 ContextWindow      { context_window_size, used_percentage, current_usage }
 CurrentUsage       { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens }
 CostInfo           { total_cost_usd, total_duration_ms }
+RateLimits         { five_hour, seven_day }                    // each is Option<RateLimitWindow>
+RateLimitWindow    { used_percentage (f64), resets_at (u64) }  // resets_at = epoch seconds
+AgentInfo          { name, type }                              // session agent identity
+WorktreeInfo       { name, path, branch, original_cwd, original_branch }
 ```
 
 ### Important Behaviors

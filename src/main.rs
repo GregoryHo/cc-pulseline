@@ -164,6 +164,8 @@ fn print_config(project_root: Option<&str>) {
         "show_git_stats = {}",
         config.segments.identity.show_git_stats
     );
+    println!("show_agent = {}", config.segments.identity.show_agent);
+    println!("show_worktree = {}", config.segments.identity.show_worktree);
     println!();
     println!("[segments.config]");
     println!("show_claude_md = {}", config.segments.config.show_claude_md);

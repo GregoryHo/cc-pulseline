@@ -366,6 +366,14 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
         parts.push(format!("{model_label}{model_val}"));
     }
 
+    if config.show_agent {
+        if let Some(agent_name) = &frame.line1.agent_name {
+            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), STABLE_BLUE, color);
+            let val = colorize(agent_name, STABLE_BLUE, color);
+            parts.push(format!("{label}{val}"));
+        }
+    }
+
     if config.show_style {
         let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
         let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
@@ -514,7 +522,11 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
     let color = config.color_enabled;
 
     if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        return colorize("unknown", tier.structural, color);
+        let mut s = colorize("unknown", tier.structural, color);
+        if config.show_worktree && line1.in_worktree {
+            s.push_str(&colorize(" (WT)", tier.structural, color));
+        }
+        return s;
     }
 
     let mut status = colorize(&line1.git_branch, GIT_GREEN, color);
@@ -553,6 +565,10 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
             status.push(' ');
             status.push_str(&stats.join(" "));
         }
+    }
+
+    if config.show_worktree && line1.in_worktree {
+        status.push_str(&colorize(" (WT)", tier.structural, color));
     }
 
     status
