@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GregoryHo/cc-pulseline/theme-schema.json",
+  "title": "cc-pulseline Theme Definition",
+  "description": "Schema for designing new cc-pulseline color themes. Use this to define a palette, then translate palette_mapping values into a Rust PresetColors struct in src/render/color.rs.",
+
+  "type": "object",
+  "required": ["theme", "description", "colors", "palette_mapping"],
+  "additionalProperties": true,
+
+  "properties": {
+    "theme": {
+      "type": "string",
+      "description": "Theme identifier used in config.toml: theme = \"<this-value>\"",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "examples": ["tokyo-night", "echo-sub-zero"]
+    },
+    "author": {
+      "type": "string",
+      "description": "Who designed this theme"
+    },
+    "description": {
+      "type": "string",
+      "description": "One-line design philosophy"
+    },
+
+    "colors": {
+      "type": "object",
+      "description": "Semantic color groups — human-readable design intent. NOT directly consumed by code; exists for design documentation.",
+      "properties": {
+        "emphasis": {
+          "type": "object",
+          "description": "4-tier grayscale hierarchy. Varies by dark/light variant.",
+          "properties": {
+            "primary":    { "$ref": "#/$defs/ansi256", "description": "Core data values — brightest text" },
+            "secondary":  { "$ref": "#/$defs/ansi256", "description": "Supporting data — counts, targets" },
+            "structural": { "$ref": "#/$defs/ansi256", "description": "Labels, icons, metadata" },
+            "separator":  { "$ref": "#/$defs/ansi256", "description": "Punctuation only: | ( ) /" }
+          },
+          "required": ["primary", "secondary", "structural", "separator"]
+        },
+        "alerts": {
+          "type": "object",
+          "description": "Signals that demand attention",
+          "properties": {
+            "critical":  { "$ref": "#/$defs/ansi256", "description": "Context >=70%, quota >=85%" },
+            "warning":   { "$ref": "#/$defs/ansi256", "description": "Context 55-69%, quota 50-84%" },
+            "git_dirty": { "$ref": "#/$defs/ansi256", "description": "Git dirty asterisk (*)" },
+            "high_burn": { "$ref": "#/$defs/ansi256", "description": "Cost burn rate >$50/h" }
+          },
+          "required": ["critical", "warning", "git_dirty", "high_burn"]
+        },
+        "active": {
+          "type": "object",
+          "description": "Currently happening / interactive elements",
+          "properties": {
+            "accent":    { "$ref": "#/$defs/ansi256", "description": "Primary action color (tools, agents, todos)" },
+            "success":   { "$ref": "#/$defs/ansi256", "description": "Completed / done state (checkmark)" },
+            "git_clean": { "$ref": "#/$defs/ansi256", "description": "Clean git branch color" }
+          },
+          "required": ["accent", "success", "git_clean"]
+        }
+      },
+      "required": ["emphasis", "alerts", "active"]
+    },
+
+    "palette_mapping": {
+      "type": "object",
+      "description": "Direct 1:1 mapping to Rust PresetColors struct fields. These 26 values are what get compiled into the binary. Multiple fields CAN share the same color code (e.g., mono-accent themes).",
+      "properties": {
+        "emphasis_primary":    { "$ref": "#/$defs/ansi256" },
+        "emphasis_secondary":  { "$ref": "#/$defs/ansi256" },
+        "emphasis_structural": { "$ref": "#/$defs/ansi256" },
+        "emphasis_separator":  { "$ref": "#/$defs/ansi256" },
+
+        "alert_red":           { "$ref": "#/$defs/ansi256", "description": "CTX critical, quota critical" },
+        "alert_orange":        { "$ref": "#/$defs/ansi256", "description": "Git dirty (*)" },
+        "alert_magenta":       { "$ref": "#/$defs/ansi256", "description": "Cost burn >$50/h" },
+
+        "active_cyan":         { "$ref": "#/$defs/ansi256", "description": "Tool activity color" },
+        "active_purple":       { "$ref": "#/$defs/ansi256", "description": "Agent activity color" },
+        "active_teal":         { "$ref": "#/$defs/ansi256", "description": "Todo activity color" },
+        "active_amber":        { "$ref": "#/$defs/ansi256", "description": "CTX warning (55-69%)" },
+        "active_coral":        { "$ref": "#/$defs/ansi256", "description": "Git ahead/behind" },
+
+        "stable_blue":         { "$ref": "#/$defs/ansi256", "description": "Model identity on L1" },
+        "stable_green":        { "$ref": "#/$defs/ansi256", "description": "Git branch (clean)" },
+
+        "indicator_claude_md": { "$ref": "#/$defs/ansi256", "description": "L2 icon: CLAUDE.md" },
+        "indicator_rules":     { "$ref": "#/$defs/ansi256", "description": "L2 icon: rules" },
+        "indicator_memory":    { "$ref": "#/$defs/ansi256", "description": "L2 icon: memories" },
+        "indicator_hooks":     { "$ref": "#/$defs/ansi256", "description": "L2 icon: hooks" },
+        "indicator_mcp":       { "$ref": "#/$defs/ansi256", "description": "L2 icon: MCPs" },
+        "indicator_skills":    { "$ref": "#/$defs/ansi256", "description": "L2 icon: skills" },
+        "indicator_duration":  { "$ref": "#/$defs/ansi256", "description": "L2 icon: duration" },
+
+        "completed_check":     { "$ref": "#/$defs/ansi256", "description": "Checkmark + completed name" },
+
+        "cost_base":           { "$ref": "#/$defs/ansi256", "description": "Total cost display" },
+        "cost_low_rate":       { "$ref": "#/$defs/ansi256", "description": "Burn rate <$10/h" },
+        "cost_med_rate":       { "$ref": "#/$defs/ansi256", "description": "Burn rate $10-50/h" },
+        "cost_high_rate":      { "$ref": "#/$defs/ansi256", "description": "Burn rate >$50/h" }
+      },
+      "required": [
+        "emphasis_primary", "emphasis_secondary", "emphasis_structural", "emphasis_separator",
+        "alert_red", "alert_orange", "alert_magenta",
+        "active_cyan", "active_purple", "active_teal", "active_amber", "active_coral",
+        "stable_blue", "stable_green",
+        "indicator_claude_md", "indicator_rules", "indicator_memory", "indicator_hooks",
+        "indicator_mcp", "indicator_skills", "indicator_duration",
+        "completed_check",
+        "cost_base", "cost_low_rate", "cost_med_rate", "cost_high_rate"
+      ]
+    },
+
+    "element_mapping": {
+      "type": "object",
+      "description": "Optional: documents which UI element uses which color. For design reference only — not consumed by code.",
+      "properties": {
+        "L1_identity":      { "type": "object", "additionalProperties": true },
+        "L2_config_counts": { "type": "object", "additionalProperties": true },
+        "L3_budget":        { "type": "object", "additionalProperties": true },
+        "quota":            { "type": "object", "additionalProperties": true },
+        "activity":         { "type": "object", "additionalProperties": true }
+      }
+    },
+
+    "usage_logic": {
+      "type": "object",
+      "description": "Optional: documents context usage stage thresholds and colors"
+    },
+    "cost_logic": {
+      "type": "object",
+      "description": "Optional: documents cost burn rate stage thresholds and colors"
+    },
+    "design_notes": {
+      "type": "object",
+      "description": "Optional: freeform design rationale"
+    }
+  },
+
+  "$defs": {
+    "ansi256": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255,
+      "description": "ANSI 256-color code"
+    }
+  }
+}

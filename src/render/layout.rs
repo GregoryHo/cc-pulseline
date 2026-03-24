@@ -5,25 +5,11 @@ use crate::{
     types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame, TodoSummary},
 };
 
-use super::color::{
-    colorize, emphasis_for_theme, take_visible_chars, visible_width, EmphasisTier, AGENT_PURPLE,
-    COMPLETED_CHECK, COST_BASE, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE, CTX_CRITICAL,
-    CTX_GOOD, CTX_WARN, GIT_ADDED, GIT_AHEAD, GIT_BEHIND, GIT_DELETED, GIT_GREEN, GIT_MODIFIED,
-    INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_MEMORY,
-    INDICATOR_RULES, INDICATOR_SKILLS, RESET, STABLE_BLUE, TODO_TEAL, TOOL_BLUE,
-};
+use super::color::{colorize, take_visible_chars, visible_width, ThemePalette, RESET};
 use super::fmt::{
     format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
 };
 use super::icons::*;
-
-/// Context usage percentage at which the warning color (ACTIVE_AMBER) activates.
-/// Claude Code triggers auto-compact at ~80%, so 55% gives early heads-up.
-const CTX_WARN_THRESHOLD: u64 = 55;
-
-/// Context usage percentage at which the critical color (ALERT_RED) activates.
-/// Set below auto-compact (~80%) so users see red before compaction fires.
-const CTX_CRITICAL_THRESHOLD: u64 = 70;
 
 /// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
 /// Used in width degradation to determine what counts as "activity" lines.
@@ -31,17 +17,17 @@ const CORE_LINE_COUNT: usize = 3;
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let color = config.color_enabled;
-    let tier = emphasis_for_theme(config.color_theme);
+    let p = &config.palette;
 
     let mut lines = vec![
-        format_line1(frame, config, &tier),
-        format_line2(frame, config, " | ", &tier),
-        format_line3(frame, config, &tier),
+        format_line1(frame, config, p),
+        format_line2(frame, config, " | ", p),
+        format_line3(frame, config, p),
     ];
 
     // Quota line: between L3 and activity lines
     if config.show_quota {
-        if let Some(line) = format_quota_line(&frame.quota, config, &tier) {
+        if let Some(line) = format_quota_line(&frame.quota, config, p) {
             lines.push(line);
         }
     }
@@ -49,30 +35,29 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     // Tool lines: completed counts (stable, multi-line) then recent tools (volatile)
     if config.show_tools {
         if !frame.completed_tools.is_empty() {
-            lines.extend(format_completed_tool_lines(frame, config, &tier));
+            lines.extend(format_completed_tool_lines(frame, config, p));
         }
         if !frame.tools.is_empty() {
-            lines.push(format_recent_tool_line(frame, config, &tier));
+            lines.push(format_recent_tool_line(frame, config, p));
         }
     }
 
     // Agent lines: one per agent, conditional
-    // Format: {icon} {agent_type}: {truncated_desc} ({elapsed})
     if config.show_agents {
         for agent in frame.agents.iter().take(config.max_agent_lines) {
-            lines.push(format_agent_line(agent, config, &tier));
+            lines.push(format_agent_line(agent, config, p));
         }
     }
 
     // Todo lines: conditional
     if config.show_todo {
         if let Some(todo) = &frame.todo {
-            lines.extend(format_todo_lines(todo, config, &tier));
+            lines.extend(format_todo_lines(todo, config, p));
         }
     }
 
     if let Some(width) = config.terminal_width {
-        let compressed_line2 = format_line2(frame, config, " ", &tier);
+        let compressed_line2 = format_line2(frame, config, " ", p);
         lines =
             apply_width_degradation(lines, width, &config.degrade_order, compressed_line2, color);
     }
@@ -81,14 +66,13 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
 }
 
 /// Format completed tool counts across multiple lines.
-/// Example: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (6 per line, wraps if needed)
 fn format_completed_tool_lines(
     frame: &RenderFrame,
     config: &RenderConfig,
-    tier: &EmphasisTier,
+    p: &ThemePalette,
 ) -> Vec<String> {
     let color = config.color_enabled;
-    let sep = colorize(" | ", tier.separator, color);
+    let sep = colorize(" | ", &p.separator, color);
     let per_line = config.tools_per_line.max(1);
 
     frame
@@ -98,10 +82,10 @@ fn format_completed_tool_lines(
             let parts: Vec<String> = chunk
                 .iter()
                 .map(|completed| {
-                    let check = colorize("✓", COMPLETED_CHECK, color);
-                    let name_str = colorize(&completed.name, COMPLETED_CHECK, color);
+                    let check = colorize("✓", &p.completed_check, color);
+                    let name_str = colorize(&completed.name, &p.completed_check, color);
                     let count_str =
-                        colorize(&format!(" ×{}", completed.count), tier.secondary, color);
+                        colorize(&format!(" ×{}", completed.count), &p.secondary, color);
                     format!("{check} {name_str}{count_str}")
                 })
                 .collect();
@@ -111,25 +95,20 @@ fn format_completed_tool_lines(
 }
 
 /// Format the recent/running tools line with targets.
-/// Example: `T:Read: .../main.rs | T:Bash: cargo test`
-fn format_recent_tool_line(
-    frame: &RenderFrame,
-    config: &RenderConfig,
-    tier: &EmphasisTier,
-) -> String {
+fn format_recent_tool_line(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
-    let sep = colorize(" | ", tier.separator, color);
+    let sep = colorize(" | ", &p.separator, color);
 
     let parts: Vec<String> = frame
         .tools
         .iter()
         .take(config.max_tool_lines)
         .map(|tool| {
-            let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), TOOL_BLUE, color);
-            let name_str = colorize(&tool.name, TOOL_BLUE, color);
+            let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), p.tool_blue(), color);
+            let name_str = colorize(&tool.name, p.tool_blue(), color);
             if let Some(target) = &tool.target {
-                let target_str = colorize(&format!(": {target}"), tier.secondary, color);
+                let target_str = colorize(&format!(": {target}"), &p.secondary, color);
                 format!("{prefix}{name_str}{target_str}")
             } else {
                 format!("{prefix}{name_str}")
@@ -154,32 +133,23 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
 }
 
 /// Format a parenthesized progress count: ` (N/M)`.
-fn format_progress_count(
-    completed: usize,
-    total: usize,
-    tier: &EmphasisTier,
-    color: bool,
-) -> String {
-    let open = colorize(" (", tier.separator, color);
-    let counts = colorize(&format!("{completed}/{total}"), tier.secondary, color);
-    let close = colorize(")", tier.separator, color);
+fn format_progress_count(completed: usize, total: usize, p: &ThemePalette, color: bool) -> String {
+    let open = colorize(" (", &p.separator, color);
+    let counts = colorize(&format!("{completed}/{total}"), &p.secondary, color);
+    let close = colorize(")", &p.separator, color);
     format!("{open}{counts}{close}")
 }
 
 /// Format todo display lines, capped by `config.max_todo_lines`.
-fn format_todo_lines(
-    todo: &TodoSummary,
-    config: &RenderConfig,
-    tier: &EmphasisTier,
-) -> Vec<String> {
+fn format_todo_lines(todo: &TodoSummary, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
 
     // All done: celebration line
     if todo.all_done {
-        let check = colorize("✓", COMPLETED_CHECK, color);
-        let text = colorize(" All todos complete", COMPLETED_CHECK, color);
-        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        let check = colorize("✓", &p.completed_check, color);
+        let text = colorize(" All todos complete", &p.completed_check, color);
+        let progress = format_progress_count(todo.completed, todo.total, p, color);
         return vec![format!("{check}{text}{progress}")];
     }
 
@@ -199,11 +169,11 @@ fn format_todo_lines(
             .take(config.max_todo_lines)
             .enumerate()
         {
-            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
+            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
 
             let text_str = colorize(
                 &truncate_text(&item.text, ACTIVITY_TEXT_MAX_CHARS),
-                TODO_TEAL,
+                p.todo_teal(),
                 color,
             );
 
@@ -212,28 +182,28 @@ fn format_todo_lines(
                 .started_at
                 .map(|start_ms| {
                     let secs = now_ms.saturating_sub(start_ms) / 1000;
-                    let open = colorize(" (", tier.separator, color);
-                    let time = colorize(&format_agent_elapsed(secs), tier.structural, color);
-                    let close = colorize(")", tier.separator, color);
+                    let open = colorize(" (", &p.separator, color);
+                    let time = colorize(&format_agent_elapsed(secs), &p.structural, color);
+                    let close = colorize(")", &p.separator, color);
                     format!("{open}{time}{close}")
                 })
                 .unwrap_or_default();
 
             if idx == 0 {
                 // First line: includes progress indicator (completed/total)
-                let open = colorize(" (", tier.separator, color);
+                let open = colorize(" (", &p.separator, color);
                 let progress = colorize(
                     &format!("{}/{}", todo.completed, todo.total),
-                    tier.secondary,
+                    &p.secondary,
                     color,
                 );
                 let shown = total_active.min(config.max_todo_lines);
                 let overflow_part = if total_active > shown {
-                    colorize(&format!(", {} active", total_active), tier.secondary, color)
+                    colorize(&format!(", {} active", total_active), &p.secondary, color)
                 } else {
                     String::new()
                 };
-                let close = colorize(")", tier.separator, color);
+                let close = colorize(")", &p.separator, color);
                 lines.push(format!(
                     "{prefix}{text_str}{open}{progress}{overflow_part}{close}{elapsed_part}"
                 ));
@@ -248,26 +218,20 @@ fn format_todo_lines(
 
     // Task API path with pending only (no in-progress items)
     if todo.is_task_api {
-        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
-        let label = colorize(&format!("{} tasks", todo.total), TODO_TEAL, color);
-        let progress = format_progress_count(todo.completed, todo.total, tier, color);
+        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
+        let label = colorize(&format!("{} tasks", todo.total), p.todo_teal(), color);
+        let progress = format_progress_count(todo.completed, todo.total, p, color);
         return vec![format!("{prefix}{label}{progress}")];
     }
 
     // Legacy fallback (TodoWrite path)
-    let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), TODO_TEAL, color);
-    let text = colorize(&todo.text, TODO_TEAL, color);
+    let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
+    let text = colorize(&todo.text, p.todo_teal(), color);
     vec![format!("{prefix}{text}")]
 }
 
 /// Format a single agent line.
-/// With agent_type: `A:Explore: Investigate logic (2m)`
-/// Without:         `A:Investigate logic (2m)`
-///
-/// The description field comes from the Agent tool's `description` (3-5 word short summary)
-/// when available, falling back to `prompt` (full text). We truncate to first line,
-/// max ACTIVITY_TEXT_MAX_CHARS to keep activity lines compact.
-fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &EmphasisTier) -> String {
+fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, p: &ThemePalette) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
     let completed = agent.is_completed();
@@ -276,12 +240,12 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     let prefix = if completed {
         match mode {
             crate::config::GlyphMode::Icon => {
-                colorize(&format!("{} ", ICON_AGENT_DONE), COMPLETED_CHECK, color)
+                colorize(&format!("{} ", ICON_AGENT_DONE), &p.completed_check, color)
             }
-            crate::config::GlyphMode::Ascii => colorize("A:", COMPLETED_CHECK, color),
+            crate::config::GlyphMode::Ascii => colorize("A:", &p.completed_check, color),
         }
     } else {
-        colorize(&glyph(mode, ICON_AGENT, "A:"), AGENT_PURPLE, color)
+        colorize(&glyph(mode, ICON_AGENT, "A:"), p.agent_purple(), color)
     };
 
     // Truncate description: first line only, max ACTIVITY_TEXT_MAX_CHARS visible chars
@@ -290,7 +254,6 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
 
     // Elapsed time
     let elapsed_str = if completed {
-        // Fixed duration for completed agents
         match (agent.started_at, agent.completed_at) {
             (Some(start), Some(end)) => {
                 let secs = end.saturating_sub(start) / 1000;
@@ -299,7 +262,6 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
             _ => String::new(),
         }
     } else {
-        // Live duration for running agents
         agent
             .started_at
             .map(|start_ms| {
@@ -317,12 +279,12 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     let model_part = agent
         .model
         .as_ref()
-        .map(|m| colorize(&format!(" [{m}]"), tier.structural, color))
+        .map(|m| colorize(&format!(" [{m}]"), &p.structural, color))
         .unwrap_or_default();
 
     // Done tag for ASCII completed agents
     let done_tag = if completed && mode == crate::config::GlyphMode::Ascii {
-        colorize(" [done]", tier.structural, color)
+        colorize(" [done]", &p.structural, color)
     } else {
         String::new()
     };
@@ -330,22 +292,22 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     let elapsed_part = if elapsed_str.is_empty() {
         String::new()
     } else {
-        let open = colorize(" (", tier.separator, color);
-        let time = colorize(&elapsed_str, tier.structural, color);
-        let close = colorize(")", tier.separator, color);
+        let open = colorize(" (", &p.separator, color);
+        let time = colorize(&elapsed_str, &p.structural, color);
+        let close = colorize(")", &p.separator, color);
         format!("{open}{time}{close}")
     };
 
     let accent_color = if completed {
-        COMPLETED_CHECK
+        &p.completed_check
     } else {
-        AGENT_PURPLE
+        p.agent_purple()
     };
 
     if let Some(agent_type) = &agent.agent_type {
         let type_str = colorize(&agent_type.to_string(), accent_color, color);
         let colon = colorize(": ", accent_color, color);
-        let desc_str = colorize(&desc_truncated, tier.secondary, color);
+        let desc_str = colorize(&desc_truncated, &p.secondary, color);
         format!("{prefix}{type_str}{model_part}{colon}{desc_str}{done_tag}{elapsed_part}")
     } else {
         let desc_str = colorize(&desc_truncated, accent_color, color);
@@ -353,48 +315,48 @@ fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, tier: &Emphasi
     }
 }
 
-fn format_line1(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
+fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
-    let sep = colorize(" | ", tier.separator, color);
+    let sep = colorize(" | ", &p.separator, color);
 
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_model {
-        let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), STABLE_BLUE, color);
-        let model_val = colorize(&frame.line1.model, STABLE_BLUE, color);
+        let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), &p.stable_blue, color);
+        let model_val = colorize(&frame.line1.model, &p.stable_blue, color);
         parts.push(format!("{model_label}{model_val}"));
     }
 
     if config.show_agent {
         if let Some(agent_name) = &frame.line1.agent_name {
-            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), STABLE_BLUE, color);
-            let val = colorize(agent_name, STABLE_BLUE, color);
+            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), &p.stable_blue, color);
+            let val = colorize(agent_name, &p.stable_blue, color);
             parts.push(format!("{label}{val}"));
         }
     }
 
     if config.show_style {
-        let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), tier.secondary, color);
-        let style_val = colorize(&frame.line1.output_style, tier.secondary, color);
+        let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), &p.secondary, color);
+        let style_val = colorize(&frame.line1.output_style, &p.secondary, color);
         parts.push(format!("{style_label}{style_val}"));
     }
 
     if config.show_version {
-        let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), tier.secondary, color);
-        let version_val = colorize(&frame.line1.claude_code_version, tier.secondary, color);
+        let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), &p.secondary, color);
+        let version_val = colorize(&frame.line1.claude_code_version, &p.secondary, color);
         parts.push(format!("{version_label}{version_val}"));
     }
 
     if config.show_project {
-        let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), tier.secondary, color);
-        let project_val = colorize(&frame.line1.project_path, tier.secondary, color);
+        let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), &p.secondary, color);
+        let project_val = colorize(&frame.line1.project_path, &p.secondary, color);
         parts.push(format!("{project_label}{project_val}"));
     }
 
     if config.show_git {
-        let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), GIT_GREEN, color);
-        let git_val = format_git_status(&frame.line1, config, tier);
+        let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), p.git_green(), color);
+        let git_val = format_git_status(&frame.line1, config, p);
         parts.push(format!("{git_label}{git_val}"));
     }
 
@@ -405,17 +367,15 @@ fn format_line2(
     frame: &RenderFrame,
     config: &RenderConfig,
     separator: &str,
-    tier: &EmphasisTier,
+    p: &ThemePalette,
 ) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
-    let sep = colorize(separator, tier.separator, color);
+    let sep = colorize(separator, &p.separator, color);
 
-    // Helper to format: {icon} {count} {label} or {count} {label}
-    // Icon uses per-metric indicator_color; count uses tier.secondary; label uses tier.structural
     let format_item = |icon: &str, indicator_color: &str, label: &str, count: u32| -> String {
-        let count_str = colorize(&count.to_string(), tier.primary, color);
-        let label_str = colorize(label, tier.structural, color);
+        let count_str = colorize(&count.to_string(), &p.primary, color);
+        let label_str = colorize(label, &p.structural, color);
 
         match mode {
             crate::config::GlyphMode::Icon => {
@@ -433,7 +393,7 @@ fn format_line2(
     if config.show_claude_md {
         parts.push(format_item(
             ICON_CLAUDE_MD,
-            INDICATOR_CLAUDE_MD,
+            &p.indicator_claude_md,
             "CLAUDE.md",
             frame.line2.claude_md_count,
         ));
@@ -441,7 +401,7 @@ fn format_line2(
     if config.show_rules {
         parts.push(format_item(
             ICON_RULES,
-            INDICATOR_RULES,
+            &p.indicator_rules,
             "rules",
             frame.line2.rules_count,
         ));
@@ -449,7 +409,7 @@ fn format_line2(
     if config.show_memory {
         parts.push(format_item(
             ICON_MEMORY,
-            INDICATOR_MEMORY,
+            &p.indicator_memory,
             "memories",
             frame.line2.memory_count,
         ));
@@ -457,7 +417,7 @@ fn format_line2(
     if config.show_hooks {
         parts.push(format_item(
             ICON_HOOKS,
-            INDICATOR_HOOKS,
+            &p.indicator_hooks,
             "hooks",
             frame.line2.hooks_count,
         ));
@@ -465,7 +425,7 @@ fn format_line2(
     if config.show_mcp {
         parts.push(format_item(
             ICON_MCP,
-            INDICATOR_MCP,
+            &p.indicator_mcp,
             "MCPs",
             frame.line2.mcp_count,
         ));
@@ -473,7 +433,7 @@ fn format_line2(
     if config.show_skills {
         parts.push(format_item(
             ICON_SKILLS,
-            INDICATOR_SKILLS,
+            &p.indicator_skills,
             "skills",
             frame.line2.skills_count,
         ));
@@ -482,11 +442,12 @@ fn format_line2(
         let duration_text = format_duration(frame.line2.elapsed_minutes);
         let item = match mode {
             crate::config::GlyphMode::Icon => {
-                let icon_str = colorize(&format!("{} ", ICON_ELAPSED), INDICATOR_DURATION, color);
-                let time_str = colorize(&duration_text, tier.primary, color);
+                let icon_str =
+                    colorize(&format!("{} ", ICON_ELAPSED), &p.indicator_duration, color);
+                let time_str = colorize(&duration_text, &p.primary, color);
                 format!("{icon_str}{time_str}")
             }
-            crate::config::GlyphMode::Ascii => colorize(&duration_text, tier.primary, color),
+            crate::config::GlyphMode::Ascii => colorize(&duration_text, &p.primary, color),
         };
         parts.push(item);
     }
@@ -494,14 +455,14 @@ fn format_line2(
     parts.join(&sep)
 }
 
-fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier) -> String {
+fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
-    let sep = colorize(" | ", tier.separator, color);
+    let sep = colorize(" | ", &p.separator, color);
 
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        parts.push(format_context_segment(&frame.line3, config, tier));
+        parts.push(format_context_segment(&frame.line3, config, p));
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -509,41 +470,41 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, tier: &EmphasisTier)
         } else {
             None
         };
-        parts.push(format_tokens_segment(&frame.line3, speed, config, tier));
+        parts.push(format_tokens_segment(&frame.line3, speed, config, p));
     }
     if config.show_cost {
-        parts.push(format_cost_segment(&frame.line3, config, tier));
+        parts.push(format_cost_segment(&frame.line3, config, p));
     }
 
     parts.join(&sep)
 }
 
-fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &EmphasisTier) -> String {
+fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
 
     if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        let mut s = colorize("unknown", tier.structural, color);
+        let mut s = colorize("unknown", &p.structural, color);
         if config.show_worktree && line1.in_worktree {
-            s.push_str(&colorize(" (WT)", tier.structural, color));
+            s.push_str(&colorize(" (WT)", &p.structural, color));
         }
         return s;
     }
 
-    let mut status = colorize(&line1.git_branch, GIT_GREEN, color);
+    let mut status = colorize(&line1.git_branch, p.git_green(), color);
     if line1.git_dirty {
-        status.push_str(&colorize("*", GIT_MODIFIED, color));
+        status.push_str(&colorize("*", p.git_modified(), color));
     }
     if line1.git_ahead > 0 {
         status.push_str(&colorize(
             &format!(" ↑{}", line1.git_ahead),
-            GIT_AHEAD,
+            p.git_ahead(),
             color,
         ));
     }
     if line1.git_behind > 0 {
         status.push_str(&colorize(
             &format!(" ↓{}", line1.git_behind),
-            GIT_BEHIND,
+            p.git_behind(),
             color,
         ));
     }
@@ -551,10 +512,10 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
     // File stats: !3 +1 ✘2 ?4 (Starship-style, zero counts omitted)
     if config.show_git_stats {
         let stats: Vec<String> = [
-            ('!', line1.git_modified, GIT_MODIFIED),
-            ('+', line1.git_added, GIT_ADDED),
-            ('✘', line1.git_deleted, GIT_DELETED),
-            ('?', line1.git_untracked, tier.structural),
+            ('!', line1.git_modified, p.git_modified()),
+            ('+', line1.git_added, p.git_added()),
+            ('✘', line1.git_deleted, p.git_deleted()),
+            ('?', line1.git_untracked, &p.structural),
         ]
         .iter()
         .filter(|(_, count, _)| *count > 0)
@@ -568,49 +529,39 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, tier: &Emphasi
     }
 
     if config.show_worktree && line1.in_worktree {
-        status.push_str(&colorize(" (WT)", tier.structural, color));
+        status.push_str(&colorize(" (WT)", &p.structural, color));
     }
 
     status
 }
 
-fn format_context_segment(
-    line3: &Line3Metrics,
-    config: &RenderConfig,
-    tier: &EmphasisTier,
-) -> String {
+fn format_context_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
     let mode = config.glyph_mode;
 
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(used_pct), Some(size)) => {
-            let pct_color = if used_pct >= CTX_CRITICAL_THRESHOLD {
-                CTX_CRITICAL
-            } else if used_pct >= CTX_WARN_THRESHOLD {
-                CTX_WARN
-            } else {
-                CTX_GOOD
-            };
+            let pct_color = p.color_for_ctx_pct(used_pct);
 
             let used_tokens = (size as f64 * used_pct as f64 / 100.0) as u64;
 
             let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color);
             let pct = colorize(&format!("{}%", used_pct), pct_color, color);
-            let open_paren = colorize(" (", tier.separator, color);
-            let usage = colorize(&format_number(used_tokens), tier.primary, color);
-            let sep = colorize("/", tier.separator, color);
-            let total = colorize(&format_number(size), tier.primary, color);
-            let close_paren = colorize(")", tier.separator, color);
+            let open_paren = colorize(" (", &p.separator, color);
+            let usage = colorize(&format_number(used_tokens), &p.primary, color);
+            let sep = colorize("/", &p.separator, color);
+            let total = colorize(&format_number(size), &p.primary, color);
+            let close_paren = colorize(")", &p.separator, color);
 
             format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}")
         }
         _ => {
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), tier.structural, color);
-            let dash = colorize("--", tier.structural, color);
-            let pct_sign = colorize("%", tier.structural, color);
-            let open_paren = colorize(" (", tier.separator, color);
-            let sep = colorize("/", tier.separator, color);
-            let close_paren = colorize(")", tier.separator, color);
+            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), &p.structural, color);
+            let dash = colorize("--", &p.structural, color);
+            let pct_sign = colorize("%", &p.structural, color);
+            let open_paren = colorize(" (", &p.separator, color);
+            let sep = colorize("/", &p.separator, color);
+            let close_paren = colorize(")", &p.separator, color);
             format!("{label}{dash}{pct_sign}{open_paren}{dash}{sep}{dash}{close_paren}")
         }
     }
@@ -620,7 +571,7 @@ fn format_tokens_segment(
     line3: &Line3Metrics,
     speed: Option<f64>,
     config: &RenderConfig,
-    tier: &EmphasisTier,
+    p: &ThemePalette,
 ) -> String {
     let mode = config.glyph_mode;
     let color = config.color_enabled;
@@ -631,11 +582,7 @@ fn format_tokens_segment(
         || line3.cache_read_tokens.is_some();
 
     // Values use primary color when data exists, structural (dimmed) when absent
-    let val_color = if has_data {
-        tier.primary
-    } else {
-        tier.structural
-    };
+    let val_color = if has_data { &p.primary } else { &p.structural };
 
     let input_str = line3
         .input_tokens
@@ -660,20 +607,16 @@ fn format_tokens_segment(
         .map(|s| colorize(&format!(" {}", format_speed(s)), val_color, color))
         .unwrap_or_default();
 
-    let label = colorize("TOK ", tier.structural, color);
+    let label = colorize("TOK ", &p.structural, color);
     let parts = [
         format!(
             "{}{}",
-            colorize(&glyph(mode, ICON_TOKEN_INPUT, "I:"), tier.structural, color),
+            colorize(&glyph(mode, ICON_TOKEN_INPUT, "I:"), &p.structural, color),
             colorize(&input_str, val_color, color),
         ),
         format!(
             "{}{}{}",
-            colorize(
-                &glyph(mode, ICON_TOKEN_OUTPUT, "O:"),
-                tier.structural,
-                color
-            ),
+            colorize(&glyph(mode, ICON_TOKEN_OUTPUT, "O:"), &p.structural, color),
             colorize(&output_str, val_color, color),
             speed_part,
         ),
@@ -681,7 +624,7 @@ fn format_tokens_segment(
             "{}{}",
             colorize(
                 &glyph(mode, ICON_TOKEN_CACHE_CREATE, "C:"),
-                tier.structural,
+                &p.structural,
                 color
             ),
             colorize(&cache_str, val_color, color),
@@ -690,7 +633,7 @@ fn format_tokens_segment(
     format!("{label}{}", parts.join(" "))
 }
 
-fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &EmphasisTier) -> String {
+fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
 
     let total_cost = line3.total_cost_usd.unwrap_or(0.0);
@@ -700,27 +643,20 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, tier: &Empha
         .map(|duration| total_cost / ((duration as f64) / 3_600_000.0))
         .unwrap_or(0.0);
 
-    let rate_color = if per_hour > 50.0 {
-        COST_HIGH_RATE
-    } else if per_hour > 10.0 {
-        COST_MED_RATE
-    } else {
-        COST_LOW_RATE
-    };
+    let rate_color = p.color_for_burn_rate(per_hour);
 
-    let total_str = colorize(&format!("${total_cost:.2}"), COST_BASE, color);
-    let open_paren = colorize("(", tier.separator, color);
+    let total_str = colorize(&format!("${total_cost:.2}"), &p.cost_base, color);
+    let open_paren = colorize("(", &p.separator, color);
     let rate_str = colorize(&format!("${per_hour:.2}/h"), rate_color, color);
-    let close_paren = colorize(")", tier.separator, color);
+    let close_paren = colorize(")", &p.separator, color);
     format!("{total_str} {open_paren}{rate_str}{close_paren}")
 }
 
 fn format_quota_line(
     quota: &QuotaMetrics,
     config: &RenderConfig,
-    tier: &EmphasisTier,
+    p: &ThemePalette,
 ) -> Option<String> {
-    // Hidden when no quota data (API users, old CC versions, pre-first-call)
     if !quota.has_data() {
         return None;
     }
@@ -728,7 +664,7 @@ fn format_quota_line(
     let mode = config.glyph_mode;
     let color = config.color_enabled;
 
-    let prefix = colorize(&glyph(mode, ICON_QUOTA, "Q:"), tier.structural, color);
+    let prefix = colorize(&glyph(mode, ICON_QUOTA, "Q:"), &p.structural, color);
 
     let mut parts: Vec<String> = Vec::new();
 
@@ -738,7 +674,7 @@ fn format_quota_line(
             quota.five_hour_pct,
             quota.five_hour_reset_minutes,
             config,
-            tier,
+            p,
         ));
     }
 
@@ -748,7 +684,7 @@ fn format_quota_line(
             quota.seven_day_pct,
             quota.seven_day_reset_minutes,
             config,
-            tier,
+            p,
         ));
     }
 
@@ -764,43 +700,43 @@ fn format_quota_period(
     pct: Option<f64>,
     reset_minutes: Option<u64>,
     config: &RenderConfig,
-    tier: &EmphasisTier,
+    p: &ThemePalette,
 ) -> String {
     let color = config.color_enabled;
 
     match pct {
-        Some(p) => {
-            let pct_color = if p >= 85.0 {
-                CTX_CRITICAL
-            } else if p >= 50.0 {
-                CTX_WARN
+        Some(pct_val) => {
+            let pct_color = if pct_val >= 85.0 {
+                p.ctx_critical()
+            } else if pct_val >= 50.0 {
+                p.ctx_warn()
             } else {
-                CTX_GOOD
+                p.ctx_good()
             };
 
-            let pct_str = colorize(&format!("{p:.0}%"), pct_color, color);
-            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
+            let pct_str = colorize(&format!("{pct_val:.0}%"), pct_color, color);
+            let label_str = colorize(&format!("{label}:"), &p.secondary, color);
 
             let reset_part = reset_minutes
                 .map(|m| {
                     let duration = format_reset_duration(m);
-                    let open = colorize(" (", tier.separator, color);
-                    let txt = colorize(&format!("resets {duration}"), tier.structural, color);
-                    let close = colorize(")", tier.separator, color);
+                    let open = colorize(" (", &p.separator, color);
+                    let txt = colorize(&format!("resets {duration}"), &p.structural, color);
+                    let close = colorize(")", &p.separator, color);
                     format!("{open}{txt}{close}")
                 })
                 .unwrap_or_default();
 
-            if p >= 100.0 {
-                let limit_text = colorize("Limit reached", CTX_CRITICAL, color);
+            if pct_val >= 100.0 {
+                let limit_text = colorize("Limit reached", p.ctx_critical(), color);
                 format!("{label_str} {limit_text}{reset_part}")
             } else {
                 format!("{label_str} {pct_str}{reset_part}")
             }
         }
         None => {
-            let label_str = colorize(&format!("{label}:"), tier.secondary, color);
-            let dash = colorize("--", tier.structural, color);
+            let label_str = colorize(&format!("{label}:"), &p.secondary, color);
+            let dash = colorize("--", &p.structural, color);
             format!("{label_str} {dash}")
         }
     }

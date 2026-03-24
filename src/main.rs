@@ -3,8 +3,9 @@ use std::io::{self, Read};
 use cc_pulseline::{
     config::{
         build_render_config, check_configs, config_path, default_config_toml,
-        default_project_config_toml, load_merged_config, project_config_path,
+        default_project_config_toml, load_merged_config, project_config_path, ColorsConfig,
     },
+    render::color::{available_presets, colorize, resolve_palette, RESET},
     types::StdinPayload,
     PulseLineRunner,
 };
@@ -27,6 +28,7 @@ fn main() {
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
     let has_print = args.iter().any(|a| a == "--print");
+    let has_preview = args.iter().any(|a| a == "--preview");
 
     if has_init {
         if has_project {
@@ -49,6 +51,18 @@ fn main() {
 
     if has_print {
         print_config(cwd.as_deref());
+        return;
+    }
+
+    if has_preview {
+        let theme_args: Vec<&str> = args
+            .iter()
+            .skip_while(|a| a.as_str() != "--preview")
+            .skip(1)
+            .filter(|a| !a.starts_with('-'))
+            .map(|s| s.as_str())
+            .collect();
+        preview_themes(&theme_args);
         return;
     }
 
@@ -152,6 +166,9 @@ fn print_config(project_root: Option<&str>) {
     let config = load_merged_config(project_root);
     println!("[display]");
     println!("theme = {:?}", config.display.theme);
+    if let Some(ref variant) = config.display.variant {
+        println!("variant = {:?}", variant);
+    }
     println!("icons = {}", config.display.icons);
     println!();
     println!("[segments.identity]");
@@ -202,6 +219,122 @@ fn print_config(project_root: Option<&str>) {
     println!("max_lines = {}", config.segments.todo.max_lines);
 }
 
+fn preview_themes(theme_args: &[&str]) {
+    let themes: Vec<&str> = if theme_args.is_empty() {
+        available_presets().to_vec()
+    } else {
+        theme_args.to_vec()
+    };
+
+    let color_on = std::env::var("NO_COLOR").is_err();
+    let c = |text: &str, color: &str| colorize(text, color, color_on);
+    let bold = |text: &str| {
+        if color_on {
+            format!("\x1b[1m{text}\x1b[0m")
+        } else {
+            text.to_string()
+        }
+    };
+
+    for (idx, theme_name) in themes.iter().enumerate() {
+        if idx > 0 {
+            println!();
+        }
+        let p = resolve_palette(theme_name, None, &ColorsConfig::default());
+        let sep = c("|", &p.separator);
+
+        println!("{}\n", bold(&format!("═══ {theme_name} ═══")));
+
+        // L1: Identity
+        let l1 = format!(
+            "  {} {sep} {} {sep} {} {sep} {}{} {}",
+            c("M:Opus 4.6", &p.stable_blue),
+            c("S:explanatory", &p.secondary),
+            c("CC:2.1.80", &p.secondary),
+            c("G:main", p.git_green()),
+            c("*", p.git_modified()),
+            c("↑2", p.git_ahead()),
+        );
+        println!("{l1}");
+
+        // L2: Config counts
+        let l2 = format!(
+            "  {} {} {sep} {} {} {sep} {} {} {sep} {} {}",
+            c("2", &p.primary),
+            c("CLAUDE.md", &p.structural),
+            c("9", &p.primary),
+            c("rules", &p.structural),
+            c("1", &p.primary),
+            c("memories", &p.structural),
+            c("32", &p.primary),
+            c("hooks", &p.structural),
+        );
+        println!("{l2}");
+
+        // L3: Context stages (uses same thresholds as layout.rs via palette helpers)
+        for (pct, label, cost) in [(43u64, "good", 3.5), (60, "warn", 25.0), (82, "crit", 85.0)] {
+            let pct_color = p.color_for_ctx_pct(pct);
+            let rate_color = p.color_for_burn_rate(cost);
+            let ctx = c(&format!("CTX:{pct}%"), pct_color);
+            let tok_part = format!("{} {}", c("TOK I:", &p.structural), c("86.0k", &p.primary));
+            let cost_s = format!("${cost:.2}");
+            let rate_s = format!("${cost:.2}/h");
+            let cost_part = format!(
+                "{} {}{}{}",
+                c(&cost_s, &p.cost_base),
+                c("(", &p.separator),
+                c(&rate_s, rate_color),
+                c(")", &p.separator),
+            );
+            println!("  {label:<5} {ctx} {sep} {tok_part} {sep} {cost_part}");
+        }
+
+        // Activity
+        let completed_line = format!(
+            "  {} {} {sep} {} {}",
+            c("✓ Read", &p.completed_check),
+            c("×12", &p.secondary),
+            c("T:Read:", p.tool_blue()),
+            c("main.rs", &p.secondary),
+        );
+        println!("{completed_line}");
+
+        let agent_line = format!(
+            "  {}{}{} {} {}{}{}",
+            c("A:Explore", p.agent_purple()),
+            c(" [haiku]", &p.structural),
+            c(":", p.agent_purple()),
+            c("Investigating auth", &p.secondary),
+            c("(", &p.separator),
+            c("2m", &p.structural),
+            c(")", &p.separator),
+        );
+        println!("{agent_line}");
+        println!(
+            "  {} {}",
+            c("TODO:", p.todo_teal()),
+            c("Fixing auth bug", p.todo_teal())
+        );
+        println!("  {}", c("✓ All todos complete (3/3)", &p.completed_check));
+
+        // Color swatch
+        let dim_label = if color_on {
+            format!("\x1b[2mPalette:{RESET}")
+        } else {
+            "Palette:".to_string()
+        };
+        println!("\n  {dim_label}");
+        println!(
+            "  {}pri{RESET}  {}sec{RESET}  {}str{RESET}  {}sep{RESET}",
+            p.primary, p.secondary, p.structural, p.separator,
+        );
+        println!(
+            "  {}accent{RESET}  {}warn{RESET}  {}alert{RESET}  {}dirty{RESET}  {}done{RESET}  {}model{RESET}",
+            p.active_cyan, p.active_amber, p.alert_red, p.alert_orange, p.completed_check, p.stable_blue,
+        );
+    }
+}
+
 fn print_help() {
     println!(
         "cc-pulseline {VERSION} - High-performance Claude Code statusline
@@ -217,6 +350,8 @@ OPTIONS:
     --init --project Create project config (.claude/pulseline.toml)
     --check          Validate config files
     --print          Show effective merged config
+    --preview [THEME ...] Preview theme(s). No args = all presets.
+                     Examples: --preview tokyo-night echo-sub-zero
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.
@@ -228,6 +363,10 @@ CONFIG FILES:
 
 ENVIRONMENT:
     NO_COLOR    Disable color output
-    COLUMNS     Terminal width for layout degradation"
+    COLUMNS     Terminal width for layout degradation
+
+THEMES:
+    tokyo-night      Blue-tinted grays, 25+ semantic colors (default)
+    echo-sub-zero    Mono-accent minimalist, 3-stage signaling"
     );
 }

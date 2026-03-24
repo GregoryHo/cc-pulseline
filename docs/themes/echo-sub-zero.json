@@ -1,0 +1,124 @@
+{
+  "$schema": "../theme-schema.json",
+  "theme": "echo-sub-zero",
+  "author": "Gemini Collaborative Design",
+  "description": "High-contrast minimalist. 3-stage signaling for CTX and Cost. 110-based mono-accent.",
+
+  "colors": {
+    "emphasis": {
+      "primary":    255,
+      "secondary":  250,
+      "structural": 244,
+      "separator":  239
+    },
+    "alerts": {
+      "critical":  160,
+      "warning":   191,
+      "git_dirty": 214,
+      "high_burn": 160
+    },
+    "active": {
+      "accent":    110,
+      "success":   108,
+      "git_clean": 244
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    255,
+    "emphasis_secondary":  250,
+    "emphasis_structural": 244,
+    "emphasis_separator":  239,
+
+    "alert_red":           160,
+    "alert_orange":        214,
+    "alert_magenta":       160,
+
+    "active_cyan":         110,
+    "active_purple":       110,
+    "active_teal":         110,
+    "active_amber":        191,
+    "active_coral":        250,
+
+    "stable_blue":         250,
+    "stable_green":        244,
+
+    "indicator_claude_md": 244,
+    "indicator_rules":     244,
+    "indicator_memory":    244,
+    "indicator_hooks":     244,
+    "indicator_mcp":       244,
+    "indicator_skills":    244,
+    "indicator_duration":  244,
+
+    "completed_check":     108,
+
+    "cost_base":           110,
+    "cost_low_rate":       248,
+    "cost_med_rate":       110,
+    "cost_high_rate":      160
+  },
+
+  "usage_logic": {
+    "stage_1_low":  { "value": "<55%",   "color": 110, "note": "Accent Blue (正常運作)" },
+    "stage_2_med":  { "value": "55-69%", "color": 191, "note": "Neon Lime (注意用量)" },
+    "stage_3_high": { "value": ">=70%",  "color": 160, "note": "Vivid Red (必須清理)" }
+  },
+
+  "cost_logic": {
+    "stage_1_low":  { "value": "<$10/h",   "color": 248, "note": "Ghost Gray (低負擔，視覺忽略)" },
+    "stage_2_med":  { "value": "$10-50/h", "color": 110, "note": "Accent Blue (正常開銷)" },
+    "stage_3_high": { "value": ">$50/h",   "color": 160, "note": "Vivid Red (高額噴錢)" }
+  },
+
+  "element_mapping": {
+    "L1_identity": {
+      "model":            { "color": 250, "note": "secondary — demoted, not special" },
+      "agent_name":       { "color": 250, "note": "secondary" },
+      "style":            { "color": 244, "note": "structural — fades away" },
+      "version":          { "color": 244, "note": "structural" },
+      "project":          { "color": 244, "note": "structural" },
+      "git_branch_clean": { "color": 244, "note": "structural — invisible when clean" },
+      "git_branch_dirty": { "color": 214, "note": "唯一暖色 — pale gold asterisk" },
+      "git_ahead_behind": { "color": 250, "note": "secondary — subtle" },
+      "separators":       { "color": 239, "note": "separator" }
+    },
+    "L2_config_counts": {
+      "icons":  { "color": 244, "note": "ALL ghosted to structural" },
+      "counts": { "color": 110, "note": "accent — 唯一亮點 on L2" },
+      "labels": { "color": 244, "note": "structural" }
+    },
+    "L3_budget": {
+      "ctx_good":       { "color": 110, "note": "<55% (Accent Blue)" },
+      "ctx_warn":       { "color": 191, "note": "55-69% (Neon Lime)" },
+      "ctx_critical":   { "color": 160, "note": ">=70% (Vivid Red)" },
+      "token_labels":   { "color": 244, "note": "structural" },
+      "token_values":   { "color": 255, "note": "primary — brightest" },
+      "cost_total":     { "color": 110, "note": "accent — no gold" },
+      "cost_burn_low":  { "color": 248, "note": "<$10/h (Ghost Gray — disappears)" },
+      "cost_burn_med":  { "color": 110, "note": "$10-50/h (Accent Blue)" },
+      "cost_burn_high": { "color": 160, "note": ">$50/h (Vivid Red)" }
+    },
+    "activity": {
+      "tool_name":       { "color": 110, "note": "accent — same as agent & todo" },
+      "agent_name":      { "color": 110, "note": "accent — same as tool & todo" },
+      "todo_text":       { "color": 110, "note": "accent — same as tool & agent" },
+      "completed_check": { "color": 108, "note": "sage green — 勾選專屬" },
+      "todo_all_done":   { "color": 108, "note": "sage green celebration" }
+    }
+  },
+
+  "design_notes": {
+    "philosophy": "Color signals STATE not TYPE. Prefix (T: A: TODO:) identifies type.",
+    "total_unique_colors": 6,
+    "color_vocabulary": {
+      "110_steel_blue":  "active / happening / data worth reading",
+      "108_sage_green":  "done / success / completed",
+      "160_vivid_red":   "danger / critical / stop",
+      "214_orange_gold": "dirty / changed (唯一暖色)",
+      "191_neon_lime":   "mild warning (新信號色)",
+      "248_ghost_gray":  "low importance (low cost disappears)"
+    },
+    "gray_scale": "255 > 250 > 244 > 239 (primary > secondary > structural > separator)"
+  }
+}

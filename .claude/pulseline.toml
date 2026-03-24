@@ -1,0 +1,43 @@
+[display]
+theme = "echo-sub-zero" # tokyo-night | echo-sub-zero | dark | light
+icons = true            # nerd font icons vs ascii
+
+[segments.identity]     # Line 1 — model, style, version, project, git
+show_model = true
+show_style = true
+show_version = true
+show_project = true
+show_git = true
+show_git_stats = true
+
+[segments.config]       # Line 2 — CLAUDE.md, rules, hooks, MCPs, skills, duration
+show_claude_md = true
+show_rules = true
+show_hooks = true
+show_mcp = true
+show_skills = true
+show_duration = true
+
+[segments.budget]       # Line 3 — context, tokens, cost
+show_context = true
+show_tokens = true
+show_cost = true
+show_speed = true
+
+[segments.quota]
+enabled = true
+show_five_hour = true
+show_seven_day = true
+
+[segments.tools]
+enabled = true
+max_lines = 2           # max running tools shown
+max_completed = 8       # max completed tool counts
+
+[segments.agents]
+enabled = true
+max_lines = 3           # bumped to 3 so you see more agents
+
+[segments.todo]
+enabled = true
+max_lines = 2
