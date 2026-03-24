@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-03-24
+
+### Added
+
+- **Theme system with 8 built-in presets** — `ThemePalette` struct replaces hardcoded color constants. Presets: tokyo-night (default), echo-sub-zero, titanium-precision, cnc-telemetry, cyberdeck-hud, stark-hud, mako-reactor, aburaya-twilight. Set via `theme = "preset-name"` in config
+- **Custom themes** — Drop a JSON file in `~/.claude/pulseline/themes/` and reference by filename (without `.json`). Full 26-field `palette_mapping` controls all rendered colors
+- **Per-color TOML overrides** — `[colors]` section in config applies on top of any theme preset (e.g., `alert_red = 160`)
+- **`--preview` CLI flag** — `cc-pulseline --preview` renders all themes; `--preview theme1 theme2` previews specific themes side-by-side
+- **`variant` config field** — Explicit dark/light selection independent of theme name (`variant = "light"`)
+- **`--select-theme` CLI flag** — Interactive theme selector with color swatches and descriptions. Writes to user config; `--select-theme --project` writes to project config
+- **`--palette-map` CLI flag** — Colored ASCII diagram showing all 26 `palette_mapping` fields → rendered UI elements, grouped by category
+
+### Changed
+
+- **Render functions use `&ThemePalette`** — Layout functions receive the resolved palette from `RenderConfig` instead of threading `EmphasisTier` enums. All color selection goes through palette fields
+- **Theme presets use embedded JSON** — 8 theme files in `src/themes/` loaded via `include_str!()` and parsed with serde. Replaces hardcoded Rust `const` color values
+- **`resolve_palette()` replaces `emphasis_for_theme()`** — Theme resolution: name lookup → variant selection → TOML color overrides applied last
+- **Backward-compatible theme names** — `theme = "dark"` and `theme = "light"` map to tokyo-night with the appropriate variant, preserving existing configs
+
 ## [1.0.5] - 2026-03-23
 
 ### Added
@@ -102,6 +121,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.0.6]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.2...v1.0.3

@@ -156,7 +156,7 @@ For backward compatibility, old names map to the new tier system:
 
 - `109/108/182/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
 - `146/240` Counts: tier.secondary (the actual data -- most prominent on L2)
-- `60/247` Labels: tier.structural (descriptive text)
+- `103/245` Labels: tier.structural (descriptive text)
 - `238/252` Separators: tier.separator
 - **ASCII mode**: icons are absent, counts and labels use the same hierarchy
 
@@ -167,7 +167,7 @@ For backward compatibility, old names map to the new tier system:
 ```
 
 - `71/178/196` Context: icon+pct both use CTX_GOOD/WARN/CRITICAL (semantic, state-driven)
-- `60/247` Token labels: tier.structural (I:, O:, C:, R:)
+- `103/245` Token labels: tier.structural (I:, O:, C:, R:)
 - `251/234` Token values + speed: tier.primary (val_color) when data exists, tier.structural when absent
 - `222` Total cost: COST_BASE (warm gold)
 - `186/221/201` Burn rate: COST_LOW/MED/HIGH_RATE (rate-driven)

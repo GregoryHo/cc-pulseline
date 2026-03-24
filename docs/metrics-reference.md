@@ -4,7 +4,7 @@ Detailed reference for every metric rendered by cc-pulseline, covering data sour
 
 ## Line 1: Identity
 
-Five segments providing session identity at a glance.
+Seven segments providing session identity at a glance.
 
 | Metric | Prefix | Data Source | Parsing Method | Cache | Color |
 |--------|--------|-------------|----------------|-------|-------|
@@ -35,7 +35,7 @@ Five segments providing session identity at a glance.
 
 Zero-count categories are omitted. Stats appear after branch/ahead/behind. Toggled via `show_git_stats` (default: false).
 
-All L1 segments are individually togglable via config: `show_model`, `show_style`, `show_version`, `show_project`, `show_git`, `show_git_stats`.
+All L1 segments are individually togglable via config: `show_model`, `show_style`, `show_version`, `show_project`, `show_git`, `show_git_stats`, `show_agent`, `show_worktree`.
 
 ### Example Output
 
@@ -82,7 +82,7 @@ Seven segments showing the project's Claude Code configuration.
 Each L2 segment uses three color layers:
 - **Icon**: Per-metric INDICATOR color (unique visual fingerprint)
 - **Count**: tier.secondary (146/240) -- the actual data value
-- **Label**: tier.structural (60/247) -- descriptive text
+- **Label**: tier.structural (103/245) -- descriptive text
 
 All L2 segments are individually togglable via config: `show_claude_md`, `show_rules`, `show_memory`, `show_hooks`, `show_mcp`, `show_skills`, `show_duration`.
 
@@ -194,25 +194,19 @@ CTX:--% (--/--) | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)
 
 ## Quota Line
 
-Usage quota rendered between L3 and activity lines. Shows subscription usage percentage.
+Usage quota rendered between L3 and activity lines. Shows subscription usage percentage from Claude Code's native `rate_limits` stdin field (CC 2.1.80+).
 
 | Metric | Data Source | Parsing Method | Cache | Color |
 |--------|-------------|----------------|-------|-------|
-| 5-hour quota | Anthropic usage API | Background fetch via `--fetch-quota` subprocess | File cache (60s success / 15s failure TTL) | CTX thresholds (green/amber/red) |
-| 7-day quota | Anthropic usage API | Same as above | Same as above | CTX thresholds |
+| 5-hour quota | `payload.rate_limits.five_hour` | `used_percentage` (0-100) + `resets_at` (epoch seconds) → relative minutes | None (pure function) | CTX thresholds (green/amber/red) |
+| 7-day quota | `payload.rate_limits.seven_day` | Same as above | None | CTX thresholds |
 
 ### Quota Architecture
 
-The quota system uses a two-process design for performance:
+The quota system reads directly from the stdin payload — no network I/O, no background subprocess, no cache files:
 
-1. **Render path** (main process): Reads quota cache file only -- no network I/O
-2. **Fetch path** (`--fetch-quota` subprocess): Spawned detached when cache is stale; reads OAuth credentials, calls usage API, writes cache
-
-Credential sources (tried in order):
-- macOS Keychain (`Claude Code-credentials`, with 60s backoff on failure)
-- File fallback (`~/.claude/.credentials.json`)
-
-API users (subscription_type = "api") are skipped -- no quota line rendered.
+- `QuotaMetrics::from_rate_limits(rate_limits, now_secs)` — pure function converting epoch `resets_at` to relative minutes
+- `has_data()` — hidden when no percentage data present (API users, old CC versions, pre-first-call)
 
 ### Quota Color States
 
@@ -229,12 +223,11 @@ Uses the same CTX threshold colors as context percentage:
 
 | State | Display |
 |-------|---------|
-| Normal (75%) | `Q:Pro 5h: 75% (resets 2h 0m)` |
-| Limit reached | `Q:Max 5h: Limit reached (resets 15m)` |
-| Reset unknown | `Q:Pro 5h: 25%` |
-| Reset ≥24h | `Q:Max 7d: 55% (resets 2d 0h 0m)` |
-| Unavailable | `Q:Pro 5h: --` |
-| API user | (no quota line) |
+| Normal (75%) | `Q: 5h: 75% (resets 2h 0m)` |
+| Limit reached | `Q: 5h: Limit reached (resets 15m)` |
+| Reset unknown | `Q: 5h: 25%` |
+| Reset ≥24h | `Q: 7d: 55% (resets 2d 0h 0m)` |
+| No data | (no quota line) |
 
 Config toggles: `show_quota` (master), `show_quota_five_hour`, `show_quota_seven_day`. Quota line is treated as activity-level for width degradation (dropped first).
 
@@ -382,11 +375,3 @@ Line 3 metrics (context, tokens, cost) use a special merge strategy:
 - **Errors**: All load/save errors silently ignored (never crashes the statusline)
 - **Schema evolution**: Cache uses `#[serde(default)]`; schema changes (e.g., v1.0.4 `completed_tool_counts` format change) cause old files to silently fail deserialization and regenerate fresh
 
-### Layer 6: Quota Cache
-
-- **File**: `{temp_dir}/cc-pulseline-quota.json`
-- **Written by**: Background `--fetch-quota` subprocess (detached, no stdin/stdout)
-- **Read by**: Main render process via `CachedFileQuotaCollector`
-- **TTL**: 60s on success, 15s on failure (triggers re-fetch when stale)
-- **Write**: Atomic (`.tmp` + rename)
-- **Contains**: `QuotaCacheFile { fetched_at_ms, snapshot: QuotaSnapshot }`

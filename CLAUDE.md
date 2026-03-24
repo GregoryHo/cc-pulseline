@@ -27,6 +27,9 @@ cc-pulseline --init           # Create user config (~/.claude/pulseline/config.t
 cc-pulseline --init --project # Create project config (.claude/pulseline.toml)
 cc-pulseline --check          # Validate config files
 cc-pulseline --print          # Show effective merged config
+cc-pulseline --preview        # Preview all themes (or --preview theme1 theme2)
+cc-pulseline --select-theme   # Interactively select and apply a theme
+cc-pulseline --palette-map    # Show palette field → UI element mapping
 ```
 
 ### Configuration
@@ -61,11 +64,11 @@ stdin JSON → StdinPayload (deserialize)
 - **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, recent tools (persist after completion for display), and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
   - `state/cache.rs` — Persists `SessionState` to `{temp_dir}/cc-pulseline-{hash}.json` across process invocations (prevents L3 metric flicker). Uses atomic writes (.tmp + rename) with silent failure on errors.
 
-- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, and segment toggles (`show_git_stats`, `show_agent`, `show_worktree`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`).
+- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, `palette: ThemePalette` (resolved via `resolve_palette()`), line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, and segment toggles (`show_git_stats`, `show_agent`, `show_worktree`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`).
 
 - **`render/`** — Pure rendering logic, split into submodules:
   - `layout.rs` — Formats the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines.
-  - `color.rs` — 256-color ANSI palette with semantic color constants and `EmphasisTier` theme logic
+  - `color.rs` — `ThemePalette` struct (26 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
@@ -112,11 +115,14 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 ### Color System
 
-The project uses a 256-color ANSI palette with semantic color constants. See `docs/theme-palette.md` for the full specification. Key principles:
+The project uses a `ThemePalette` struct with 26 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
 
-- **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light theme via `EmphasisTier`
-- **Semantic colors** (STABLE_BLUE, GIT_GREEN, etc.) are fixed across themes
+- **8 built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`: tokyo-night (default), echo-sub-zero, titanium-precision, cnc-telemetry, cyberdeck-hud, stark-hud, mako-reactor, aburaya-twilight
+- **Custom themes** — JSON files in `~/.claude/pulseline/themes/` loaded at runtime with per-process caching
+- **Per-color overrides** — `[colors]` TOML section applies on top of any preset (e.g., `alert_red = 160`)
+- **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light variant within each theme
+- **Semantic colors** (stable_blue, alert_red, etc.) are theme-specific but consistent within a theme
 - **Icon color = value color** — icons are never independently dimmed
-- **L1 hierarchy**: model/git use semantic colors; style/version/project use tier.secondary (promoted from structural)
-- Theme is controlled via config file (`theme = "dark"` or `"light"` in config.toml)
-- Color constants live in `render/color.rs`; theme logic uses `emphasis_for_theme()`
+- **Backward compat** — `theme = "dark"` and `"light"` map to tokyo-night with the appropriate variant
+- Layout functions receive `&ThemePalette` via `config.palette`; legacy `pub const` values retained for test assertions
+- Preview themes: `cc-pulseline --preview`

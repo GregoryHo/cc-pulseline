@@ -675,6 +675,65 @@ pub fn check_configs(project_root: Option<&str>) -> Vec<(PathBuf, String)> {
     errors
 }
 
+/// Update the `theme = "..."` line in a config file, preserving comments and formatting.
+/// If the file does not exist, creates it from `template` with the theme pre-set.
+/// If the file exists but has no `theme =` line, prepends a `[display]` section.
+pub fn update_theme_in_config(
+    path: &std::path::Path,
+    template: &str,
+    theme_name: &str,
+) -> Result<(), String> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create directory: {e}"))?;
+        }
+        let content = template.replace("theme = \"dark\"", &format!("theme = \"{theme_name}\""));
+        std::fs::write(path, content)
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        return Ok(());
+    }
+
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+
+    let mut found = false;
+    let updated: String = contents
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if !found
+                && !trimmed.starts_with('#')
+                && (trimmed.starts_with("theme =") || trimmed.starts_with("theme="))
+            {
+                found = true;
+                let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                format!("{indent}theme = \"{theme_name}\"")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let new_contents = if found {
+        updated
+    } else {
+        format!("[display]\ntheme = \"{theme_name}\"\n\n{contents}")
+    };
+
+    let new_contents = if new_contents.ends_with('\n') {
+        new_contents
+    } else {
+        format!("{new_contents}\n")
+    };
+
+    std::fs::write(path, new_contents)
+        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+
+    Ok(())
+}
+
 /// Generate the default project config file content.
 pub fn default_project_config_toml() -> &'static str {
     r#"# Project-level pulseline overrides

@@ -169,6 +169,8 @@ struct LightEmphasis {
 struct ThemeFile {
     palette_mapping: PresetColors,
     light_emphasis: Option<LightEmphasis>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 struct ThemePreset {
@@ -404,9 +406,23 @@ pub fn resolve_palette(
 
 /// Returns built-in preset names + any custom themes found in `~/.claude/pulseline/themes/`.
 pub fn available_presets() -> Vec<String> {
-    let mut presets: Vec<String> = BUILTIN_THEMES
+    theme_descriptions()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Returns `(name, description)` pairs for all available themes (built-in + custom).
+pub fn theme_descriptions() -> Vec<(String, String)> {
+    let mut descs: Vec<(String, String)> = BUILTIN_THEMES
         .iter()
-        .map(|(name, _)| name.to_string())
+        .map(|(name, json)| {
+            let desc = serde_json::from_str::<ThemeFile>(json)
+                .ok()
+                .and_then(|f| f.description)
+                .unwrap_or_default();
+            (name.to_string(), desc)
+        })
         .collect();
 
     if let Some(custom_dir) = custom_themes_dir() {
@@ -414,10 +430,15 @@ pub fn available_presets() -> Vec<String> {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "json") {
-                    if let Some(name) = path.file_stem() {
-                        let name_str = name.to_string_lossy().to_string();
-                        if !presets.contains(&name_str) {
-                            presets.push(name_str);
+                    if let Some(stem) = path.file_stem() {
+                        let name = stem.to_string_lossy().to_string();
+                        if !descs.iter().any(|(n, _)| n == &name) {
+                            let desc = std::fs::read_to_string(&path)
+                                .ok()
+                                .and_then(|json| serde_json::from_str::<ThemeFile>(&json).ok())
+                                .and_then(|f| f.description)
+                                .unwrap_or_default();
+                            descs.push((name, desc));
                         }
                     }
                 }
@@ -425,7 +446,15 @@ pub fn available_presets() -> Vec<String> {
         }
     }
 
-    presets
+    descs
+}
+
+/// Extract the ANSI 256-color code number from an escape string like `\x1b[38;5;111m`.
+pub fn extract_ansi_code(escape: &str) -> Option<u8> {
+    escape
+        .strip_prefix("\x1b[38;5;")
+        .and_then(|s| s.strip_suffix('m'))
+        .and_then(|s| s.parse().ok())
 }
 
 fn custom_themes_dir() -> Option<std::path::PathBuf> {
