@@ -1,5 +1,5 @@
 [display]
-theme = "echo-sub-zero" # tokyo-night | echo-sub-zero | dark | light
+theme = "titanium-precision" # tokyo-night | echo-sub-zero | titanium-precision | dark | light
 icons = true            # nerd font icons vs ascii
 
 [segments.identity]     # Line 1 — model, style, version, project, git

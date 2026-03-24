@@ -113,6 +113,18 @@
       ]
     },
 
+    "light_emphasis": {
+      "type": "object",
+      "description": "Emphasis tier overrides for light terminal backgrounds. If omitted, light variant uses the same values as dark (from palette_mapping).",
+      "properties": {
+        "primary":    { "$ref": "#/$defs/ansi256" },
+        "secondary":  { "$ref": "#/$defs/ansi256" },
+        "structural": { "$ref": "#/$defs/ansi256" },
+        "separator":  { "$ref": "#/$defs/ansi256" }
+      },
+      "required": ["primary", "secondary", "structural", "separator"]
+    },
+
     "element_mapping": {
       "type": "object",
       "description": "Optional: documents which UI element uses which color. For design reference only — not consumed by code.",

@@ -283,11 +283,16 @@ impl Default for SegmentToggle {
     }
 }
 
+/// Resolve the user's home directory from environment.
+pub fn user_home() -> Option<String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+}
+
 /// Returns `~/.claude/pulseline/config.toml`
 pub fn config_path() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
+    let home = user_home().unwrap_or_else(|| ".".to_string());
     PathBuf::from(home)
         .join(".claude")
         .join("pulseline")

@@ -1,4 +1,5 @@
-use crate::config::{ColorTheme, ColorsConfig};
+use crate::config::{user_home, ColorTheme, ColorsConfig};
+use serde::Deserialize;
 
 pub const RESET: &str = "\x1b[0m";
 
@@ -109,17 +110,25 @@ impl ThemePalette {
 
 impl Default for ThemePalette {
     fn default() -> Self {
-        build_palette(&tokyo_night_preset().dark)
+        let preset =
+            load_builtin_theme("tokyo-night").expect("built-in tokyo-night theme must parse");
+        build_palette(&preset.dark)
     }
 }
 
-// ── Preset definitions ──
+// ── Theme file parsing ──
 
-#[derive(Clone, Copy)]
+/// Maps directly to the `palette_mapping` object in theme JSON files.
+/// Field names match JSON keys; emphasis fields accept both `primary` and `emphasis_primary`.
+#[derive(Clone, Copy, Deserialize)]
 struct PresetColors {
+    #[serde(alias = "emphasis_primary")]
     primary: u8,
+    #[serde(alias = "emphasis_secondary")]
     secondary: u8,
+    #[serde(alias = "emphasis_structural")]
     structural: u8,
+    #[serde(alias = "emphasis_separator")]
     separator: u8,
     alert_red: u8,
     alert_orange: u8,
@@ -145,91 +154,115 @@ struct PresetColors {
     cost_high_rate: u8,
 }
 
+/// Light variant emphasis overrides (only 4 fields differ from dark).
+#[derive(Deserialize)]
+struct LightEmphasis {
+    primary: u8,
+    secondary: u8,
+    structural: u8,
+    separator: u8,
+}
+
+/// Top-level theme JSON file structure.
+/// Only `palette_mapping` is required; all other fields are design documentation.
+#[derive(Deserialize)]
+struct ThemeFile {
+    palette_mapping: PresetColors,
+    light_emphasis: Option<LightEmphasis>,
+}
+
 struct ThemePreset {
     dark: PresetColors,
     light: PresetColors,
 }
 
-/// Build a ThemePreset from shared semantic colors + dark/light emphasis overrides.
-/// Only emphasis tiers (primary, secondary, structural, separator) differ between variants.
-fn make_preset(shared: PresetColors, light_emphasis: [u8; 4]) -> ThemePreset {
-    let mut light = PresetColors { ..shared };
-    light.primary = light_emphasis[0];
-    light.secondary = light_emphasis[1];
-    light.structural = light_emphasis[2];
-    light.separator = light_emphasis[3];
-    ThemePreset {
-        dark: shared,
-        light,
+/// Parse a theme JSON string into a ThemePreset (dark + light variants).
+fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
+    let file: ThemeFile =
+        serde_json::from_str(json).map_err(|e| format!("invalid theme JSON: {e}"))?;
+    let dark = file.palette_mapping;
+    let light = match file.light_emphasis {
+        Some(le) => PresetColors {
+            primary: le.primary,
+            secondary: le.secondary,
+            structural: le.structural,
+            separator: le.separator,
+            ..dark
+        },
+        None => dark,
+    };
+    Ok(ThemePreset { dark, light })
+}
+
+// ── Built-in themes (embedded at compile time, parsed once) ──
+
+static BUILTIN_THEMES: &[(&str, &str)] = &[
+    ("tokyo-night", include_str!("../themes/tokyo-night.json")),
+    (
+        "echo-sub-zero",
+        include_str!("../themes/echo-sub-zero.json"),
+    ),
+    (
+        "titanium-precision",
+        include_str!("../themes/titanium-precision.json"),
+    ),
+];
+
+/// Load a built-in theme by name. Parsed once per process via OnceLock cache.
+fn load_builtin_theme(name: &str) -> Option<ThemePreset> {
+    // Cache parsed presets to avoid re-parsing embedded JSON on every call
+    static CACHE: std::sync::OnceLock<Vec<(String, ThemePreset)>> = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| {
+        BUILTIN_THEMES
+            .iter()
+            .filter_map(|(n, json)| {
+                parse_theme_json(json)
+                    .map(|preset| (n.to_string(), preset))
+                    .ok()
+            })
+            .collect()
+    });
+    cache
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, preset)| ThemePreset {
+            dark: preset.dark,
+            light: preset.light,
+        })
+}
+
+/// Load a custom theme from `~/.claude/pulseline/themes/{name}.json`.
+/// Cached per process — file is only read once per theme name.
+fn load_custom_theme(name: &str) -> Option<ThemePreset> {
+    type Cache = std::sync::Mutex<Vec<(String, Option<(PresetColors, PresetColors)>)>>;
+    static CUSTOM_CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
+
+    let cache = CUSTOM_CACHE.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    let mut entries = cache.lock().ok()?;
+
+    if let Some((_, cached)) = entries.iter().find(|(n, _)| n == name) {
+        return cached.map(|(dark, light)| ThemePreset { dark, light });
     }
+
+    let result = load_custom_theme_from_disk(name);
+    let cache_entry = result.as_ref().map(|p| (p.dark, p.light));
+    entries.push((name.to_string(), cache_entry));
+    result
 }
 
-fn tokyo_night_preset() -> ThemePreset {
-    make_preset(
-        PresetColors {
-            primary: 251,
-            secondary: 146,
-            structural: 103,
-            separator: 238,
-            alert_red: 196,
-            alert_orange: 214,
-            alert_magenta: 201,
-            active_cyan: 117,
-            active_purple: 183,
-            active_teal: 80,
-            active_amber: 178,
-            active_coral: 209,
-            stable_blue: 111,
-            stable_green: 71,
-            indicator_claude_md: 109,
-            indicator_rules: 108,
-            indicator_memory: 182,
-            indicator_hooks: 179,
-            indicator_mcp: 139,
-            indicator_skills: 73,
-            indicator_duration: 174,
-            completed_check: 67,
-            cost_base: 222,
-            cost_low_rate: 186,
-            cost_med_rate: 221,
-            cost_high_rate: 201,
-        },
-        [234, 240, 245, 252], // light emphasis: primary, secondary, structural, separator
-    )
-}
-
-fn echo_sub_zero_preset() -> ThemePreset {
-    make_preset(
-        PresetColors {
-            primary: 255,
-            secondary: 250,
-            structural: 244,
-            separator: 239,
-            alert_red: 160,
-            alert_orange: 214,
-            alert_magenta: 160,
-            active_cyan: 110,
-            active_purple: 110,
-            active_teal: 110,
-            active_amber: 191,
-            active_coral: 250,
-            stable_blue: 250,
-            stable_green: 244,
-            indicator_claude_md: 244,
-            indicator_rules: 244,
-            indicator_memory: 244,
-            indicator_hooks: 244,
-            indicator_mcp: 244,
-            indicator_skills: 244,
-            indicator_duration: 244,
-            completed_check: 108,
-            cost_base: 110,
-            cost_low_rate: 248,
-            cost_med_rate: 110,
-            cost_high_rate: 160,
-        },
-        [234, 241, 246, 253], // light emphasis
-    )
+fn load_custom_theme_from_disk(name: &str) -> Option<ThemePreset> {
+    let home = user_home()?;
+    let path = std::path::PathBuf::from(home)
+        .join(".claude/pulseline/themes")
+        .join(format!("{name}.json"));
+    let content = std::fs::read_to_string(&path).ok()?;
+    match parse_theme_json(&content) {
+        Ok(preset) => Some(preset),
+        Err(e) => {
+            eprintln!("warning: failed to load theme \"{name}\": {e}");
+            None
+        }
+    }
 }
 
 // ── Palette builder ──
@@ -318,8 +351,34 @@ pub fn resolve_palette(
     variant: Option<&str>,
     overrides: &ColorsConfig,
 ) -> ThemePalette {
-    let (preset_fn, resolved_variant) = resolve_preset_and_variant(theme, variant);
-    let preset = preset_fn();
+    let theme_lower = theme.to_lowercase();
+
+    // Resolve variant: explicit field > inferred from theme name > default dark
+    let resolved_variant = match variant {
+        Some(v) if v.eq_ignore_ascii_case("light") => ColorTheme::Light,
+        Some(_) => ColorTheme::Dark,
+        None => {
+            if theme_lower == "light" {
+                ColorTheme::Light
+            } else {
+                ColorTheme::Dark
+            }
+        }
+    };
+
+    // Resolve theme: backward compat aliases → built-in → custom → fallback
+    let resolved_name = match theme_lower.as_str() {
+        "dark" | "light" => "tokyo-night",
+        other => other,
+    };
+
+    let preset = load_builtin_theme(resolved_name)
+        .or_else(|| load_custom_theme(resolved_name))
+        .unwrap_or_else(|| {
+            eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
+            load_builtin_theme("tokyo-night").expect("built-in tokyo-night must exist")
+        });
+
     let preset_colors = match resolved_variant {
         ColorTheme::Dark => &preset.dark,
         ColorTheme::Light => &preset.light,
@@ -329,44 +388,34 @@ pub fn resolve_palette(
     palette
 }
 
-/// Map theme string + variant to preset function + ColorTheme.
-/// Handles backward compatibility: "dark" → tokyo-night/Dark, "light" → tokyo-night/Light.
-fn resolve_preset_and_variant(
-    theme: &str,
-    variant: Option<&str>,
-) -> (fn() -> ThemePreset, ColorTheme) {
-    let theme_lower = theme.to_lowercase();
+/// Returns built-in preset names + any custom themes found in `~/.claude/pulseline/themes/`.
+pub fn available_presets() -> Vec<String> {
+    let mut presets: Vec<String> = BUILTIN_THEMES
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
 
-    // Resolve variant from explicit field or infer from theme name
-    let resolved_variant = match variant {
-        Some(v) if v.eq_ignore_ascii_case("light") => ColorTheme::Light,
-        Some(_) => ColorTheme::Dark,
-        None => {
-            // Backward compat: "light" as theme name implies light variant
-            if theme_lower == "light" {
-                ColorTheme::Light
-            } else {
-                ColorTheme::Dark
+    if let Some(custom_dir) = custom_themes_dir() {
+        if let Ok(entries) = std::fs::read_dir(custom_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "json") {
+                    if let Some(name) = path.file_stem() {
+                        let name_str = name.to_string_lossy().to_string();
+                        if !presets.contains(&name_str) {
+                            presets.push(name_str);
+                        }
+                    }
+                }
             }
         }
-    };
+    }
 
-    // Resolve preset
-    let preset_fn: fn() -> ThemePreset = match theme_lower.as_str() {
-        "dark" | "light" | "tokyo-night" => tokyo_night_preset,
-        "echo-sub-zero" => echo_sub_zero_preset,
-        unknown => {
-            eprintln!("warning: unknown theme \"{unknown}\", falling back to tokyo-night");
-            tokyo_night_preset
-        }
-    };
-
-    (preset_fn, resolved_variant)
+    presets
 }
 
-/// Returns the list of available preset theme names.
-pub fn available_presets() -> &'static [&'static str] {
-    &["tokyo-night", "echo-sub-zero"]
+fn custom_themes_dir() -> Option<std::path::PathBuf> {
+    user_home().map(|home| std::path::PathBuf::from(home).join(".claude/pulseline/themes"))
 }
 
 // ── Legacy pub const — used by integration tests for Tokyo Night assertions ──
@@ -573,7 +622,8 @@ mod tests {
 
     #[test]
     fn tokyo_night_dark_palette_matches_legacy_consts() {
-        let p = build_palette(&tokyo_night_preset().dark);
+        let preset = load_builtin_theme("tokyo-night").unwrap();
+        let p = build_palette(&preset.dark);
         assert_eq!(p.stable_blue, STABLE_BLUE);
         assert_eq!(p.alert_red, ALERT_RED);
         assert_eq!(p.active_cyan, ACTIVE_CYAN);
@@ -583,7 +633,8 @@ mod tests {
 
     #[test]
     fn echo_sub_zero_dark_palette_values() {
-        let p = build_palette(&echo_sub_zero_preset().dark);
+        let preset = load_builtin_theme("echo-sub-zero").unwrap();
+        let p = build_palette(&preset.dark);
         assert!(p.primary.contains("255"));
         assert!(p.active_cyan.contains("110"));
         assert!(p.active_purple.contains("110")); // same as cyan

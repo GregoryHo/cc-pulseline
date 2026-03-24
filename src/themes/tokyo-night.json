@@ -1,5 +1,5 @@
 {
-  "$schema": "../theme-schema.json",
+  "$schema": "../../docs/theme-schema.json",
   "theme": "tokyo-night",
   "author": "cc-pulseline (inspired by folke/tokyonight.nvim)",
   "description": "Blue-tinted grays, 25+ semantic colors. Rich differentiation per element type.",
@@ -57,6 +57,13 @@
     "cost_low_rate":       186,
     "cost_med_rate":       221,
     "cost_high_rate":      201
+  },
+
+  "light_emphasis": {
+    "primary": 234,
+    "secondary": 240,
+    "structural": 245,
+    "separator": 252
   },
 
   "element_mapping": {

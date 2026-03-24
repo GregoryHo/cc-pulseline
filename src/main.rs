@@ -220,10 +220,10 @@ fn print_config(project_root: Option<&str>) {
 }
 
 fn preview_themes(theme_args: &[&str]) {
-    let themes: Vec<&str> = if theme_args.is_empty() {
-        available_presets().to_vec()
+    let themes: Vec<String> = if theme_args.is_empty() {
+        available_presets()
     } else {
-        theme_args.to_vec()
+        theme_args.iter().map(|s| s.to_string()).collect()
     };
 
     let color_on = std::env::var("NO_COLOR").is_err();
@@ -366,7 +366,8 @@ ENVIRONMENT:
     COLUMNS     Terminal width for layout degradation
 
 THEMES:
-    tokyo-night      Blue-tinted grays, 25+ semantic colors (default)
-    echo-sub-zero    Mono-accent minimalist, 3-stage signaling"
+    tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
+    echo-sub-zero       Mono-accent minimalist, 3-stage signaling
+    titanium-precision  Industrial steel blues, amber warnings, brick reds"
     );
 }

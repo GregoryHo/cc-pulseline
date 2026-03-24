@@ -283,16 +283,104 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 - Indicator tier (109, 108, 182, 179, 139, 73, 174) -- muted pastels, readable on both
 - Cost tier (222, 186, 221, 201) -- warm/bright tones, always legible
 
-## How to Customize
+## Built-in Themes
 
-Set the theme in your config file:
+| Theme | Description |
+|-------|-------------|
+| `tokyo-night` | Blue-tinted grays, 25+ semantic colors (default) |
+| `echo-sub-zero` | Mono-accent minimalist, 3-stage CTX/cost signaling |
+| `titanium-precision` | Industrial steel blues, amber warnings, brick reds |
+
+Set theme in config:
 
 ```toml
-# ~/.claude/pulseline/config.toml
 [display]
-theme = "dark"  # or "light"
-icons = true    # Nerd Font icons (false for ASCII)
+theme = "echo-sub-zero"   # or tokyo-night, titanium-precision
+variant = "dark"           # dark | light
 ```
+
+Preview all themes: `cc-pulseline --preview`
+
+### Per-Color Overrides
+
+Override individual colors on top of any preset:
+
+```toml
+[colors]
+alert_red = 160        # ANSI 256-color code (0-255)
+stable_blue = 75
+```
+
+## Custom Themes
+
+Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filename (without `.json`).
+
+### Creating a Custom Theme
+
+1. Copy an existing theme as a starting point:
+   ```bash
+   mkdir -p ~/.claude/pulseline/themes
+   cp src/themes/echo-sub-zero.json ~/.claude/pulseline/themes/my-theme.json
+   ```
+
+2. Edit `palette_mapping` — these are the 26 ANSI 256-color codes that control rendering:
+
+   | Field | Purpose |
+   |-------|---------|
+   | `emphasis_primary` | Core data values (brightest text) |
+   | `emphasis_secondary` | Supporting data, counts |
+   | `emphasis_structural` | Labels, icons, metadata |
+   | `emphasis_separator` | Punctuation: `\|` `(` `)` `/` |
+   | `alert_red` | Context >=70%, quota >=85% |
+   | `alert_orange` | Git dirty `*` |
+   | `alert_magenta` | Cost burn >$50/h |
+   | `active_cyan` | Tool activity |
+   | `active_purple` | Agent activity |
+   | `active_teal` | Todo activity |
+   | `active_amber` | Context warning 55-69% |
+   | `active_coral` | Git ahead/behind |
+   | `stable_blue` | Model identity on L1 |
+   | `stable_green` | Git branch (clean) |
+   | `indicator_claude_md` | L2 icon: CLAUDE.md |
+   | `indicator_rules` | L2 icon: rules |
+   | `indicator_memory` | L2 icon: memories |
+   | `indicator_hooks` | L2 icon: hooks |
+   | `indicator_mcp` | L2 icon: MCPs |
+   | `indicator_skills` | L2 icon: skills |
+   | `indicator_duration` | L2 icon: duration |
+   | `completed_check` | Checkmark + completed name |
+   | `cost_base` | Total cost display |
+   | `cost_low_rate` | Burn rate <$10/h |
+   | `cost_med_rate` | Burn rate $10-50/h |
+   | `cost_high_rate` | Burn rate >$50/h |
+
+3. Optionally add `light_emphasis` for light terminal backgrounds:
+   ```json
+   "light_emphasis": {
+     "primary": 234,
+     "secondary": 240,
+     "structural": 245,
+     "separator": 252
+   }
+   ```
+
+4. Set it in config:
+   ```toml
+   [display]
+   theme = "my-theme"
+   ```
+
+5. Preview: `cc-pulseline --preview my-theme`
+
+### Theme JSON Schema
+
+Theme files are validated against `docs/theme-schema.json`. Only `palette_mapping` is required — all other sections (`colors`, `element_mapping`, `usage_logic`, `design_notes`) are optional design documentation.
+
+### Tips
+
+- Multiple fields CAN share the same color code (mono-accent themes use one color for tools/agents/todos)
+- Use `--preview theme1 theme2` to compare two themes side by side
+- The `[colors]` TOML section in config applies on top of ANY theme (built-in or custom)
 
 ### NO_COLOR Support
 
