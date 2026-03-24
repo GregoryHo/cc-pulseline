@@ -206,6 +206,20 @@ static BUILTIN_THEMES: &[(&str, &str)] = &[
         "titanium-precision",
         include_str!("../themes/titanium-precision.json"),
     ),
+    (
+        "cnc-telemetry",
+        include_str!("../themes/cnc-telemetry.json"),
+    ),
+    (
+        "cyberdeck-hud",
+        include_str!("../themes/cyberdeck-hud.json"),
+    ),
+    ("stark-hud", include_str!("../themes/stark-hud.json")),
+    ("mako-reactor", include_str!("../themes/mako-reactor.json")),
+    (
+        "aburaya-twilight",
+        include_str!("../themes/aburaya-twilight.json"),
+    ),
 ];
 
 /// Load a built-in theme by name. Parsed once per process via OnceLock cache.

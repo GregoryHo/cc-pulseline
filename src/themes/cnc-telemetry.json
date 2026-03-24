@@ -1,0 +1,90 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "cnc-telemetry",
+  "author": "Gemini Collaborative Design",
+  "description": "Hardware engineering aesthetic. Anodized teal, matte copper, rust red. Raw machined metal feel.",
+
+  "colors": {
+    "emphasis": {
+      "primary":    252,
+      "secondary":  246,
+      "structural": 240,
+      "separator":  237
+    },
+    "alerts": {
+      "critical":  131,
+      "warning":   137,
+      "git_dirty": 137,
+      "high_burn": 131
+    },
+    "active": {
+      "accent":    73,
+      "success":   108,
+      "git_clean": 240
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    252,
+    "emphasis_secondary":  246,
+    "emphasis_structural": 240,
+    "emphasis_separator":  237,
+
+    "alert_red":           131,
+    "alert_orange":        137,
+    "alert_magenta":       131,
+
+    "active_cyan":         73,
+    "active_purple":       73,
+    "active_teal":         73,
+    "active_amber":        137,
+    "active_coral":        246,
+
+    "stable_blue":         246,
+    "stable_green":        240,
+
+    "indicator_claude_md": 240,
+    "indicator_rules":     240,
+    "indicator_memory":    240,
+    "indicator_hooks":     240,
+    "indicator_mcp":       240,
+    "indicator_skills":    240,
+    "indicator_duration":  240,
+
+    "completed_check":     108,
+
+    "cost_base":           73,
+    "cost_low_rate":       240,
+    "cost_med_rate":       137,
+    "cost_high_rate":      131
+  },
+
+  "light_emphasis": {
+    "primary": 234,
+    "secondary": 241,
+    "structural": 245,
+    "separator": 250
+  },
+
+  "usage_logic": {
+    "stage_1": { "threshold": "<55%",   "color": 73,  "intent": "Nominal / Cool Operation" },
+    "stage_2": { "threshold": "55-69%", "color": 137, "intent": "Warming up / Friction (Copper)" },
+    "stage_3": { "threshold": ">=70%",  "color": 131, "intent": "Physical Threshold Met (Rust)" }
+  },
+
+  "cost_logic": {
+    "stage_1": { "threshold": "<$10/h",  "color": 240, "intent": "Negligible expense" },
+    "stage_2": { "threshold": "$10-50/h", "color": 137, "intent": "Noticeable expenditure (Copper = Coins)" },
+    "stage_3": { "threshold": ">$50/h",  "color": 131, "intent": "Critical financial burn (Rust)" }
+  },
+
+  "design_notes": {
+    "philosophy": "Escaping the 'neon software' look. Mimics high-end hardware telemetry — oxidized metals and recessed structural elements. Only 3 distinct hues (Teal, Copper, Rust) against a strict 4-tier grayscale.",
+    "color_vocabulary": {
+      "73_teal":    "Machine Nominal (Cold)",
+      "137_copper": "Friction / Active Expenditure (Warm)",
+      "131_rust":   "Critical Limit Reached (Hot)",
+      "108_sage":   "Task Resolved"
+    }
+  }
+}

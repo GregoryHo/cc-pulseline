@@ -368,6 +368,11 @@ ENVIRONMENT:
 THEMES:
     tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
     echo-sub-zero       Mono-accent minimalist, 3-stage signaling
-    titanium-precision  Industrial steel blues, amber warnings, brick reds"
+    titanium-precision  Industrial steel blues, amber warnings, brick reds
+    cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
+    cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
+    stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
+    mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
+    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues"
     );
 }

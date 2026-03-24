@@ -290,6 +290,11 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 | `tokyo-night` | Blue-tinted grays, 25+ semantic colors (default) |
 | `echo-sub-zero` | Mono-accent minimalist, 3-stage CTX/cost signaling |
 | `titanium-precision` | Industrial steel blues, amber warnings, brick reds |
+| `cnc-telemetry` | Hardware telemetry: anodized teal, matte copper, rust red |
+| `cyberdeck-hud` | Sci-Fi HUD: neon cyan, cyber orange, laser crimson |
+| `stark-hud` | Iron Man: Arc Reactor cyan, Armor red, Faceplate gold |
+| `mako-reactor` | FFVII: Shinra steel, Mako cyan-green, Materia accents |
+| `aburaya-twilight` | Spirited Away: bathhouse red, dragon teal, spirit blues |
 
 Set theme in config:
 
@@ -353,6 +358,126 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    | `cost_low_rate` | Burn rate <$10/h |
    | `cost_med_rate` | Burn rate $10-50/h |
    | `cost_high_rate` | Burn rate >$50/h |
+
+### Palette → UI Mapping
+
+How each `palette_mapping` field connects to the rendered statusline:
+
+```
+ JSON palette_mapping                          Rendered UI
+ ─────────────────────                         ──────────────────────────────────────────
+                                               L1: Identity
+ stable_blue ─────────────────────────────────→ M:Opus 4.6
+ emphasis_secondary ──────────────────────────→ S:explanatory | CC:2.1.80 | P:~/myapp
+ stable_green ────────────────────────────────→ G:main (clean branch)
+ alert_orange ────────────────────────────────→ G:main* (dirty asterisk)
+ active_coral ────────────────────────────────→ ↑2 ↓1 (ahead/behind)
+ emphasis_separator ──────────────────────────→ | (pipes between segments)
+
+                                               L2: Config Counts
+ indicator_claude_md ─┐                        ┌→ 󰈙 (CLAUDE.md icon)
+ indicator_rules ─────┤ (7 indicator fields    ├→ 󰱇 (rules icon)
+ indicator_memory ────┤  control icon colors   ├→ 󰧜 (memories icon)
+ indicator_hooks ─────┤  independently —       ├→ 󱭧 (hooks icon)
+ indicator_mcp ───────┤  or set all to same    ├→ 󰆧 (MCPs icon)
+ indicator_skills ────┤  value for ghosting)   ├→ ⚡ (skills icon)
+ indicator_duration ──┘                        └→ ⏱ (duration icon)
+ emphasis_primary ────────────────────────────→ 2, 9, 1, 32 (count values)
+ emphasis_structural ─────────────────────────→ CLAUDE.md, rules, ... (labels)
+
+                                               L3: Budget — Triple-Stage Context
+ stable_green ────────── (<55%) ─────────────→ CTX:43% (good — calm)
+ active_amber ────────── (55-69%) ───────────→ CTX:60% (warn — attention)
+ alert_red ───────────── (>=70%) ────────────→ CTX:82% (crit — urgent)
+ emphasis_primary ────────────────────────────→ 86.0k/200.0k (token values)
+ emphasis_structural ─────────────────────────→ TOK I: O: C: (labels)
+
+                                               L3: Budget — Triple-Stage Cost
+ cost_base ───────────────────────────────────→ $3.50 (total cost)
+ cost_low_rate ───────── (<$10/h) ───────────→ $3.50/h (low burn)
+ cost_med_rate ───────── ($10-50/h) ─────────→ $25/h (med burn)
+ cost_high_rate ──────── (>$50/h) ───────────→ $85/h (high burn)
+
+                                               Quota
+ stable_green ────────── (<50%) ─────────────→ 25% (good)
+ active_amber ────────── (50-84%) ───────────→ 65% (warn)
+ alert_red ───────────── (>=85%) ────────────→ 92% (crit)
+
+                                               Activity Lines
+ completed_check ─────────────────────────────→ ✓ Read ×12 | ✓ Bash ×5
+ active_cyan ─────────────────────────────────→ T:Read: .../main.rs
+ active_purple ───────────────────────────────→ A:Explore [haiku]: ...
+ active_teal ─────────────────────────────────→ TODO:Fixing auth bug
+ completed_check ─────────────────────────────→ ✓ All todos complete
+```
+
+### JSON File Structure
+
+```
+theme.json
+├── "$schema"              (string, optional — points to docs/theme-schema.json)
+├── "theme"                (string, required — identifier used in config.toml)
+├── "author"               (string, optional)
+├── "description"          (string, optional)
+│
+├── "palette_mapping"      ★ REQUIRED — the 26 ANSI color codes that control rendering
+│   ├── emphasis_primary        (u8) ─── brightest text: token values, counts
+│   ├── emphasis_secondary      (u8) ─── supporting: style, version, project, targets
+│   ├── emphasis_structural     (u8) ─── labels, icons, metadata text
+│   ├── emphasis_separator      (u8) ─── punctuation: | ( ) /
+│   ├── alert_red               (u8) ─── CTX >=70%, quota >=85%, cost >$50/h
+│   ├── alert_orange            (u8) ─── git dirty asterisk (*)
+│   ├── alert_magenta           (u8) ─── (alias for high cost burn)
+│   ├── active_cyan             (u8) ─── tool activity (T:Read, T:Bash)
+│   ├── active_purple           (u8) ─── agent activity (A:Explore)
+│   ├── active_teal             (u8) ─── todo activity (TODO:...)
+│   ├── active_amber            (u8) ─── CTX 55-69%, quota 50-84%
+│   ├── active_coral            (u8) ─── git ahead/behind (↑n ↓n)
+│   ├── stable_blue             (u8) ─── model name on L1
+│   ├── stable_green            (u8) ─── git branch (clean), CTX <55%
+│   ├── indicator_claude_md     (u8) ┐
+│   ├── indicator_rules         (u8) │
+│   ├── indicator_memory        (u8) │  L2 icon colors
+│   ├── indicator_hooks         (u8) │  (set all same for ghosting,
+│   ├── indicator_mcp           (u8) │   or unique per-metric)
+│   ├── indicator_skills        (u8) │
+│   ├── indicator_duration      (u8) ┘
+│   ├── completed_check         (u8) ─── ✓ checkmark + completed name
+│   ├── cost_base               (u8) ─── total cost display
+│   ├── cost_low_rate           (u8) ─── burn <$10/h
+│   ├── cost_med_rate           (u8) ─── burn $10-50/h
+│   └── cost_high_rate          (u8) ─── burn >$50/h
+│
+├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
+│   ├── primary            (u8)
+│   ├── secondary          (u8)
+│   ├── structural         (u8)
+│   └── separator          (u8)
+│
+├── "colors"               (optional — design documentation, not consumed by code)
+├── "element_mapping"      (optional — documents which UI element uses which color)
+├── "usage_logic"          (optional — documents context threshold stages)
+├── "cost_logic"           (optional — documents cost threshold stages)
+└── "design_notes"         (optional — philosophy, color vocabulary)
+```
+
+### Design Patterns
+
+**Mono-accent** (echo-sub-zero, titanium-precision, cnc-telemetry):
+Set `active_cyan = active_purple = active_teal` to the same value.
+Color signals STATE (active/done/danger), not TYPE (tool/agent/todo).
+
+**Multi-accent** (tokyo-night):
+Each activity type gets a unique color. Color signals WHAT something is.
+
+**Ghosted icons** (all minimalist themes):
+Set all 7 `indicator_*` fields to `emphasis_structural`. Icons blend with labels.
+
+**Rainbow icons** (tokyo-night):
+Each `indicator_*` gets a unique muted accent color for fast visual scanning.
+
+**Invisible "good" state** (cyberdeck-hud, cc-vanguard-telemetry):
+Set `stable_green` very dark. "Good" context percentage vanishes — only warnings and critical states draw attention.
 
 3. Optionally add `light_emphasis` for light terminal backgrounds:
    ```json

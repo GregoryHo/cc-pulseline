@@ -1,0 +1,90 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "cyberdeck-hud",
+  "author": "Gemini Collaborative Design",
+  "description": "Sci-Fi HUD aesthetic. Neon cyan, cyber orange, laser crimson against dark wireframe structural elements.",
+
+  "colors": {
+    "emphasis": {
+      "primary":    253,
+      "secondary":  248,
+      "structural": 242,
+      "separator":  239
+    },
+    "alerts": {
+      "critical":  197,
+      "warning":   208,
+      "git_dirty": 208,
+      "high_burn": 197
+    },
+    "active": {
+      "accent":    51,
+      "success":   82,
+      "git_clean": 242
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    253,
+    "emphasis_secondary":  248,
+    "emphasis_structural": 242,
+    "emphasis_separator":  239,
+
+    "alert_red":           197,
+    "alert_orange":        208,
+    "alert_magenta":       197,
+
+    "active_cyan":         51,
+    "active_purple":       51,
+    "active_teal":         51,
+    "active_amber":        208,
+    "active_coral":        248,
+
+    "stable_blue":         246,
+    "stable_green":        242,
+
+    "indicator_claude_md": 242,
+    "indicator_rules":     242,
+    "indicator_memory":    242,
+    "indicator_hooks":     242,
+    "indicator_mcp":       242,
+    "indicator_skills":    242,
+    "indicator_duration":  242,
+
+    "completed_check":     82,
+
+    "cost_base":           246,
+    "cost_low_rate":       242,
+    "cost_med_rate":       51,
+    "cost_high_rate":      197
+  },
+
+  "light_emphasis": {
+    "primary": 234,
+    "secondary": 240,
+    "structural": 245,
+    "separator": 250
+  },
+
+  "usage_logic": {
+    "stage_1_safe":     { "threshold": "<55%",   "color": 51,  "intent": "Hologram Cyan / System Nominal" },
+    "stage_2_warning":  { "threshold": "55-69%", "color": 208, "intent": "Cyber Orange / Core Warming" },
+    "stage_3_critical": { "threshold": ">=70%",  "color": 197, "intent": "Laser Crimson / Overload" }
+  },
+
+  "cost_logic": {
+    "stage_1_low":  { "threshold": "<$10/h",  "color": 242, "intent": "Wireframe / Power Saving Mode" },
+    "stage_2_med":  { "threshold": "$10-50/h", "color": 51,  "intent": "Hologram Cyan / Active Drain" },
+    "stage_3_high": { "threshold": ">$50/h",  "color": 197, "intent": "Laser Crimson / Critical Drain" }
+  },
+
+  "design_notes": {
+    "philosophy": "Simulates a high-tech Mech HUD or Cyberdeck. Structural UI elements recede into dark background. Only dynamic data and active processes light up using high-intensity neon colors.",
+    "color_vocabulary": {
+      "51_neon_cyan":      "Active process / Holographic data / Safe state",
+      "208_cyber_orange":  "System warning / Unsaved state",
+      "197_laser_crimson": "Critical threshold / Power overload",
+      "82_terminal_green": "Objective completed"
+    }
+  }
+}

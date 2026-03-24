@@ -100,6 +100,17 @@ printf "  ${C}${ACYN}maccent${R}  ${C}${AAMB}mwarn${R}  ${C}${ARED}malert${R}  $
 
 This exercises all 26 palette colors across realistic UI states.
 
+After the color preview, also print the field→UI mapping for the specific theme values:
+
+```bash
+printf "\n  \033[2mField → UI Mapping:\033[0m\n"
+printf "  L1: stable_blue(${SBLU})→model  secondary(${SEC})→style/ver/proj  alert_orange(${AORG})→dirty*\n"
+printf "  L2: indicator_*(${ICMD})→icons  primary(${PRI})→counts  structural(${STR})→labels\n"
+printf "  L3: stable_green(${SGRN})→good  active_amber(${AAMB})→warn  alert_red(${ARED})→crit\n"
+printf "  $$: cost_low(${CLOW})→<10/h  cost_med(${CMED})→10-50/h  cost_high(${CHI})→>50/h\n"
+printf "  Act: active_cyan(${ACYN})→tools  active_purple(${APUR})→agents  completed(${CCHK})→✓done\n"
+```
+
 ## Step 3: Ask User Intent
 
 After rendering, ask:
