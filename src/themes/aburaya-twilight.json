@@ -26,7 +26,7 @@
 
   "palette_mapping": {
     "emphasis_primary": 253,
-    "emphasis_secondary": 249,
+    "emphasis_secondary": 250,
     "emphasis_structural": 109,
     "emphasis_separator": 239,
 
@@ -43,40 +43,41 @@
     "stable_blue": 67,
     "stable_green": 71,
 
-    "indicator_claude_md": 109,
-    "indicator_rules": 109,
-    "indicator_memory": 109,
-    "indicator_hooks": 109,
-    "indicator_mcp": 109,
-    "indicator_skills": 109,
-    "indicator_duration": 109,
+    "indicator_claude_md": 67,
+    "indicator_rules": 131,
+    "indicator_memory": 179,
+    "indicator_hooks": 97,
+    "indicator_mcp": 80,
+    "indicator_skills": 71,
+    "indicator_duration": 208,
 
-    "completed_check": 71,
+    "completed_check": 108,
 
     "cost_base": 249,
-    "cost_low_rate": 109,
+    "cost_low_rate": 144,
     "cost_med_rate": 214,
     "cost_high_rate": 160
   },
 
   "light_emphasis": {
     "primary": 236,
-    "secondary": 242,
-    "structural": 248,
-    "separator": 252
+    "secondary": 241,
+    "structural": 246,
+    "separator": 253
   },
 
   "design_notes": {
     "philosophy": "The Bathhouse at Twilight. Muted multi-accent with Ghibli warmth. Every color is softened — rich but never harsh.",
     "color_vocabulary": {
       "109_twilight_sea":   "Structural framework / Ocean train tracks at dusk",
-      "80_haku_dragon":     "Tool activity / Cleansing water and magic",
-      "97_yubaba_magic":    "Agent activity / Spirit world presence",
+      "80_haku_dragon":     "Tool activity / Magic / Haku's scales / MCPs",
+      "97_yubaba_magic":    "Agent activity / Spirit world presence / Hooks",
       "73_river_spirit":    "Todo activity / Gentle flowing water",
-      "71_ghibli_moss":     "Completed / Clean git / Natural growth",
-      "67_fog_lantern":     "Model identity / Lantern through mist",
-      "214_noface_gold":    "Warning / Temptation gold / Paper lanterns",
-      "160_bathhouse_red":  "Critical / Traditional lacquer red",
+      "71_ghibli_moss":     "Completed / Clean git / Natural growth / Skills",
+      "67_fog_lantern":     "Model identity / Lantern through mist / Documentation",
+      "214_noface_gold":    "Warning / Memories / Temptation gold",
+      "160_bathhouse_red":  "Critical / Rules / Traditional lacquer red",
+      "208_sunset_orange":  "Time passage / Duration / Dusk light",
       "126_yubaba_magenta": "Extreme cost / Overwhelming magic"
     }
   }

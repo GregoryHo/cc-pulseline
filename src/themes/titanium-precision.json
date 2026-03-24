@@ -26,9 +26,9 @@
 
   "palette_mapping": {
     "emphasis_primary":    253,
-    "emphasis_secondary":  246,
-    "emphasis_structural": 242,
-    "emphasis_separator":  238,
+    "emphasis_secondary":  248,
+    "emphasis_structural": 240,
+    "emphasis_separator":  236,
 
     "alert_red":           167,
     "alert_orange":        136,
@@ -38,18 +38,18 @@
     "active_purple":       74,
     "active_teal":         74,
     "active_amber":        136,
-    "active_coral":        246,
+    "active_coral":        173,
 
-    "stable_blue":         246,
-    "stable_green":        242,
+    "stable_blue":         109,
+    "stable_green":        108,
 
-    "indicator_claude_md": 242,
-    "indicator_rules":     242,
-    "indicator_memory":    242,
-    "indicator_hooks":     242,
-    "indicator_mcp":       242,
-    "indicator_skills":    242,
-    "indicator_duration":  242,
+    "indicator_claude_md": 109,
+    "indicator_rules":     136,
+    "indicator_memory":    146,
+    "indicator_hooks":     74,
+    "indicator_mcp":       167,
+    "indicator_skills":    108,
+    "indicator_duration":  244,
 
     "completed_check":     108,
 
@@ -61,9 +61,9 @@
 
   "light_emphasis": {
     "primary": 234,
-    "secondary": 241,
-    "structural": 245,
-    "separator": 250
+    "secondary": 240,
+    "structural": 246,
+    "separator": 252
   },
 
   "usage_logic": {
@@ -79,12 +79,15 @@
   },
 
   "design_notes": {
-    "philosophy": "Emulates professional engineering tools. Replaces harsh alerts with muted, intentional industrial colors.",
+    "philosophy": "Emulates professional engineering tools. Replaces harsh alerts with muted, intentional industrial colors. Unique metallic indicators provide passive visual fingerprints.",
     "color_vocabulary": {
-      "74_steel_blue":   "Primary engine operation / active components",
-      "136_amber":       "System warnings / unsaved changes",
-      "167_brick_red":   "Critical thresholds / high expenditure",
-      "108_sage_green":  "Task completion"
+      "109_steel_blue":  "Primary identity / documentation / passive metallic data",
+      "74_active_blue":  "Primary engine operation / active components / hooks",
+      "136_amber":       "System warnings / rules / unsaved changes",
+      "167_brick_red":   "Critical thresholds / high expenditure / MCPs",
+      "146_titanium":    "Secondary passive data / memories",
+      "108_sage_green":  "Task completion / skills",
+      "240-244_industrial_gray": "Structural UI framework / labels / duration"
     }
   }
 }

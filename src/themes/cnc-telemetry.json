@@ -2,61 +2,61 @@
   "$schema": "../../docs/theme-schema.json",
   "theme": "cnc-telemetry",
   "author": "Gemini Collaborative Design",
-  "description": "Hardware engineering aesthetic. Anodized teal, matte copper, rust red. Raw machined metal feel.",
+  "description": "Hardware engineering aesthetic. Deep anodized teal, patina copper, oxidized rust. Raw machined metal feel.",
 
   "colors": {
     "emphasis": {
       "primary":    252,
       "secondary":  246,
-      "structural": 240,
-      "separator":  237
+      "structural": 238,
+      "separator":  235
     },
     "alerts": {
-      "critical":  131,
-      "warning":   137,
-      "git_dirty": 137,
-      "high_burn": 131
+      "critical":  124,
+      "warning":   130,
+      "git_dirty": 130,
+      "high_burn": 124
     },
     "active": {
-      "accent":    73,
+      "accent":    66,
       "success":   108,
-      "git_clean": 240
+      "git_clean": 238
     }
   },
 
   "palette_mapping": {
     "emphasis_primary":    252,
     "emphasis_secondary":  246,
-    "emphasis_structural": 240,
-    "emphasis_separator":  237,
+    "emphasis_structural": 238,
+    "emphasis_separator":  235,
 
-    "alert_red":           131,
-    "alert_orange":        137,
-    "alert_magenta":       131,
+    "alert_red":           124,
+    "alert_orange":        130,
+    "alert_magenta":       124,
 
-    "active_cyan":         73,
-    "active_purple":       73,
-    "active_teal":         73,
-    "active_amber":        137,
-    "active_coral":        246,
+    "active_cyan":         66,
+    "active_purple":       66,
+    "active_teal":         66,
+    "active_amber":        130,
+    "active_coral":        173,
 
-    "stable_blue":         246,
-    "stable_green":        240,
+    "stable_blue":         109,
+    "stable_green":        108,
 
-    "indicator_claude_md": 240,
-    "indicator_rules":     240,
-    "indicator_memory":    240,
-    "indicator_hooks":     240,
-    "indicator_mcp":       240,
-    "indicator_skills":    240,
-    "indicator_duration":  240,
+    "indicator_claude_md": 238,
+    "indicator_rules":     238,
+    "indicator_memory":    238,
+    "indicator_hooks":     238,
+    "indicator_mcp":       238,
+    "indicator_skills":    238,
+    "indicator_duration":  238,
 
     "completed_check":     108,
 
-    "cost_base":           73,
-    "cost_low_rate":       240,
-    "cost_med_rate":       137,
-    "cost_high_rate":      131
+    "cost_base":           66,
+    "cost_low_rate":       238,
+    "cost_med_rate":       130,
+    "cost_high_rate":      124
   },
 
   "light_emphasis": {
@@ -67,24 +67,24 @@
   },
 
   "usage_logic": {
-    "stage_1": { "threshold": "<55%",   "color": 73,  "intent": "Nominal / Cool Operation" },
-    "stage_2": { "threshold": "55-69%", "color": 137, "intent": "Warming up / Friction (Copper)" },
-    "stage_3": { "threshold": ">=70%",  "color": 131, "intent": "Physical Threshold Met (Rust)" }
+    "stage_1": { "threshold": "<55%",   "color": 108, "intent": "Sage Green — Nominal / System Healthy" },
+    "stage_2": { "threshold": "55-69%", "color": 130, "intent": "Patina Copper — Warming up / Friction" },
+    "stage_3": { "threshold": ">=70%",  "color": 124, "intent": "Oxidized Rust — Physical Threshold Met" }
   },
 
   "cost_logic": {
-    "stage_1": { "threshold": "<$10/h",  "color": 240, "intent": "Negligible expense" },
-    "stage_2": { "threshold": "$10-50/h", "color": 137, "intent": "Noticeable expenditure (Copper = Coins)" },
-    "stage_3": { "threshold": ">$50/h",  "color": 131, "intent": "Critical financial burn (Rust)" }
+    "stage_1": { "threshold": "<$10/h",  "color": 238, "intent": "Negligible expense (structural fade)" },
+    "stage_2": { "threshold": "$10-50/h", "color": 130, "intent": "Noticeable expenditure (Patina Copper)" },
+    "stage_3": { "threshold": ">$50/h",  "color": 124, "intent": "Critical financial burn (Oxidized Rust)" }
   },
 
   "design_notes": {
-    "philosophy": "Escaping the 'neon software' look. Mimics high-end hardware telemetry — oxidized metals and recessed structural elements. Only 3 distinct hues (Teal, Copper, Rust) against a strict 4-tier grayscale.",
+    "philosophy": "Escaping the 'neon software' look. Mimics high-end hardware telemetry — oxidized metals and deeply recessed structural elements. Only 3 distinct hues (Deep Teal, Patina Copper, Oxidized Rust) against a strict 4-tier grayscale.",
     "color_vocabulary": {
-      "73_teal":    "Machine Nominal (Cold)",
-      "137_copper": "Friction / Active Expenditure (Warm)",
-      "131_rust":   "Critical Limit Reached (Hot)",
-      "108_sage":   "Task Resolved"
+      "66_deep_teal":      "Machine Nominal (Cold)",
+      "130_patina_copper": "Friction / Active Expenditure (Warm)",
+      "124_oxidized_rust": "Critical Limit Reached (Hot)",
+      "108_sage":          "Task Resolved / System Healthy"
     }
   }
 }

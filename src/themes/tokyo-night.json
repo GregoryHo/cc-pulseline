@@ -62,8 +62,8 @@
   "light_emphasis": {
     "primary": 234,
     "secondary": 240,
-    "structural": 245,
-    "separator": 252
+    "structural": 246,
+    "separator": 253
   },
 
   "element_mapping": {

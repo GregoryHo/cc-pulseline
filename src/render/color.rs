@@ -222,6 +222,10 @@ static BUILTIN_THEMES: &[(&str, &str)] = &[
         "aburaya-twilight",
         include_str!("../themes/aburaya-twilight.json"),
     ),
+    (
+        "matte-carbon-neon",
+        include_str!("../themes/matte-carbon-neon.json"),
+    ),
 ];
 
 /// Load a built-in theme by name. Parsed once per process via OnceLock cache.
@@ -628,8 +632,8 @@ mod tests {
         let p = resolve_palette("tokyo-night", Some("light"), &ColorsConfig::default());
         assert!(p.primary.contains("234"));
         assert!(p.secondary.contains("240"));
-        assert!(p.structural.contains("245"));
-        assert!(p.separator.contains("252"));
+        assert!(p.structural.contains("246"));
+        assert!(p.separator.contains("253"));
     }
 
     #[test]

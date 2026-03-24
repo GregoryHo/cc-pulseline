@@ -27,7 +27,7 @@
   "palette_mapping": {
     "emphasis_primary": 255,
     "emphasis_secondary": 252,
-    "emphasis_structural": 73,
+    "emphasis_structural": 244,
     "emphasis_separator": 239,
 
     "alert_red": 196,
@@ -41,17 +41,17 @@
     "active_coral": 203,
 
     "stable_blue": 39,
-    "stable_green": 46,
+    "stable_green": 34,
 
-    "indicator_claude_md": 73,
-    "indicator_rules": 73,
-    "indicator_memory": 73,
-    "indicator_hooks": 73,
-    "indicator_mcp": 73,
-    "indicator_skills": 73,
+    "indicator_claude_md": 46,
+    "indicator_rules": 220,
+    "indicator_memory": 135,
+    "indicator_hooks": 39,
+    "indicator_mcp": 203,
+    "indicator_skills": 50,
     "indicator_duration": 73,
 
-    "completed_check": 43,
+    "completed_check": 108,
 
     "cost_base": 250,
     "cost_low_rate": 73,
@@ -62,20 +62,24 @@
   "light_emphasis": {
     "primary": 232,
     "secondary": 238,
-    "structural": 244,
-    "separator": 250
+    "structural": 245,
+    "separator": 252
   },
 
   "design_notes": {
     "philosophy": "FFVII Shinra Terminal & Mako Energy. Multi-accent with Materia-inspired activity colors. Industrial cyan-teal structural framework with glowing Mako green accents.",
     "color_vocabulary": {
-      "73_shinra_steel":   "Industrial infrastructure / Labels & icons",
-      "43_mako_energy":    "Tool activity / Completed state / Core glow",
-      "135_materia_purple": "Agent activity / Independent Materia",
-      "50_materia_teal":   "Todo activity / Support Materia",
-      "220_gold_saucer":   "Warning / Attention needed",
-      "196_weapon":        "Critical threshold / Danger",
-      "199_meteor":        "Extreme cost burn / Impending doom"
+      "244_industrial_gray": "Structural infrastructure / Labels",
+      "73_shinra_steel":    "Time duration / Muted metallic data",
+      "43_mako_energy":     "Tool activity / Completed state / Core glow",
+      "135_materia_purple":  "Agent activity / Independent Materia / Memories",
+      "50_materia_teal":    "Todo activity / Support Materia / Skills",
+      "39_materia_blue":    "Support Materia / Model identity / Hooks",
+      "46_materia_green":   "Magic Materia / Clean branch / CLAUDE.md",
+      "220_materia_yellow": "Command Materia / Warning / Rules",
+      "203_materia_red":    "Summon Materia / Git ahead-behind / MCPs",
+      "196_weapon":         "Critical threshold / Danger",
+      "199_meteor":         "Extreme cost burn / Impending doom"
     }
   }
 }

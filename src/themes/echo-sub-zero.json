@@ -38,18 +38,18 @@
     "active_purple":       110,
     "active_teal":         110,
     "active_amber":        191,
-    "active_coral":        250,
+    "active_coral":        174,
 
-    "stable_blue":         250,
-    "stable_green":        244,
+    "stable_blue":         109,
+    "stable_green":        249,
 
-    "indicator_claude_md": 244,
-    "indicator_rules":     244,
-    "indicator_memory":    244,
-    "indicator_hooks":     244,
-    "indicator_mcp":       244,
-    "indicator_skills":    244,
-    "indicator_duration":  244,
+    "indicator_claude_md": 242,
+    "indicator_rules":     242,
+    "indicator_memory":    242,
+    "indicator_hooks":     242,
+    "indicator_mcp":       242,
+    "indicator_skills":    242,
+    "indicator_duration":  242,
 
     "completed_check":     108,
 
@@ -62,12 +62,12 @@
   "light_emphasis": {
     "primary": 234,
     "secondary": 241,
-    "structural": 246,
+    "structural": 247,
     "separator": 253
   },
 
   "usage_logic": {
-    "stage_1_low":  { "value": "<55%",   "color": 110, "note": "Accent Blue (正常運作)" },
+    "stage_1_low":  { "value": "<55%",   "color": 249, "note": "Light Gray (正常運作 — 低調可讀)" },
     "stage_2_med":  { "value": "55-69%", "color": 191, "note": "Neon Lime (注意用量)" },
     "stage_3_high": { "value": ">=70%",  "color": 160, "note": "Vivid Red (必須清理)" }
   },
@@ -85,9 +85,9 @@
       "style":            { "color": 244, "note": "structural — fades away" },
       "version":          { "color": 244, "note": "structural" },
       "project":          { "color": 244, "note": "structural" },
-      "git_branch_clean": { "color": 244, "note": "structural — invisible when clean" },
+      "git_branch_clean": { "color": 249, "note": "light gray — subtle but readable" },
       "git_branch_dirty": { "color": 214, "note": "唯一暖色 — pale gold asterisk" },
-      "git_ahead_behind": { "color": 250, "note": "secondary — subtle" },
+      "git_ahead_behind": { "color": 174, "note": "muted pink — warm accent for git direction" },
       "separators":       { "color": 239, "note": "separator" }
     },
     "L2_config_counts": {
@@ -96,7 +96,7 @@
       "labels": { "color": 244, "note": "structural" }
     },
     "L3_budget": {
-      "ctx_good":       { "color": 110, "note": "<55% (Accent Blue)" },
+      "ctx_good":       { "color": 249, "note": "<55% (Light Gray — readable)" },
       "ctx_warn":       { "color": 191, "note": "55-69% (Neon Lime)" },
       "ctx_critical":   { "color": 160, "note": ">=70% (Vivid Red)" },
       "token_labels":   { "color": 244, "note": "structural" },

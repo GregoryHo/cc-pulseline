@@ -38,10 +38,10 @@
     "active_purple":       51,
     "active_teal":         51,
     "active_amber":        208,
-    "active_coral":        248,
+    "active_coral":        203,
 
     "stable_blue":         246,
-    "stable_green":        242,
+    "stable_green":        108,
 
     "indicator_claude_md": 242,
     "indicator_rules":     242,
@@ -55,7 +55,7 @@
 
     "cost_base":           246,
     "cost_low_rate":       242,
-    "cost_med_rate":       51,
+    "cost_med_rate":       208,
     "cost_high_rate":      197
   },
 
@@ -67,14 +67,14 @@
   },
 
   "usage_logic": {
-    "stage_1_safe":     { "threshold": "<55%",   "color": 51,  "intent": "Hologram Cyan / System Nominal" },
+    "stage_1_safe":     { "threshold": "<55%",   "color": 108, "intent": "Sage Green / System Nominal" },
     "stage_2_warning":  { "threshold": "55-69%", "color": 208, "intent": "Cyber Orange / Core Warming" },
     "stage_3_critical": { "threshold": ">=70%",  "color": 197, "intent": "Laser Crimson / Overload" }
   },
 
   "cost_logic": {
     "stage_1_low":  { "threshold": "<$10/h",  "color": 242, "intent": "Wireframe / Power Saving Mode" },
-    "stage_2_med":  { "threshold": "$10-50/h", "color": 51,  "intent": "Hologram Cyan / Active Drain" },
+    "stage_2_med":  { "threshold": "$10-50/h", "color": 208, "intent": "Cyber Orange / Active Drain" },
     "stage_3_high": { "threshold": ">$50/h",  "color": 197, "intent": "Laser Crimson / Critical Drain" }
   },
 

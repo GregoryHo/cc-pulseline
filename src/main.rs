@@ -834,6 +834,7 @@ THEMES:
     cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
     stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
     mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
-    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues"
+    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
+    matte-carbon-neon   Industrial tech: grayscale chrome, piercing neon accents"
     );
 }
