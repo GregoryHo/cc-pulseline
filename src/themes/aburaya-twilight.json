@@ -1,0 +1,84 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "aburaya-twilight",
+  "author": "Gemini",
+  "description": "Spirited Away: Bathhouse red, Haku's dragon teal, No-Face gold, twilight spirit blues.",
+
+  "colors": {
+    "emphasis": {
+      "primary": 253,
+      "secondary": 249,
+      "structural": 109,
+      "separator": 239
+    },
+    "alerts": {
+      "critical": 160,
+      "warning": 214,
+      "git_dirty": 208,
+      "high_burn": 126
+    },
+    "active": {
+      "accent": 80,
+      "success": 71,
+      "git_clean": 67
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary": 253,
+    "emphasis_secondary": 250,
+    "emphasis_structural": 109,
+    "emphasis_separator": 239,
+
+    "alert_red": 160,
+    "alert_orange": 214,
+    "alert_magenta": 126,
+
+    "active_cyan": 80,
+    "active_purple": 97,
+    "active_teal": 73,
+    "active_amber": 220,
+    "active_coral": 210,
+
+    "stable_blue": 67,
+    "stable_green": 71,
+
+    "indicator_claude_md": 67,
+    "indicator_rules": 131,
+    "indicator_memory": 179,
+    "indicator_hooks": 97,
+    "indicator_mcp": 80,
+    "indicator_skills": 71,
+    "indicator_duration": 208,
+
+    "completed_check": 108,
+
+    "cost_base": 249,
+    "cost_low_rate": 144,
+    "cost_med_rate": 214,
+    "cost_high_rate": 160
+  },
+
+  "light_emphasis": {
+    "primary": 236,
+    "secondary": 241,
+    "structural": 246,
+    "separator": 253
+  },
+
+  "design_notes": {
+    "philosophy": "The Bathhouse at Twilight. Muted multi-accent with Ghibli warmth. Every color is softened — rich but never harsh.",
+    "color_vocabulary": {
+      "109_twilight_sea":   "Structural framework / Ocean train tracks at dusk",
+      "80_haku_dragon":     "Tool activity / Magic / Haku's scales / MCPs",
+      "97_yubaba_magic":    "Agent activity / Spirit world presence / Hooks",
+      "73_river_spirit":    "Todo activity / Gentle flowing water",
+      "71_ghibli_moss":     "Completed / Clean git / Natural growth / Skills",
+      "67_fog_lantern":     "Model identity / Lantern through mist / Documentation",
+      "214_noface_gold":    "Warning / Memories / Temptation gold",
+      "160_bathhouse_red":  "Critical / Rules / Traditional lacquer red",
+      "208_sunset_orange":  "Time passage / Duration / Dusk light",
+      "126_yubaba_magenta": "Extreme cost / Overwhelming magic"
+    }
+  }
+}

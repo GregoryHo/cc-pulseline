@@ -42,7 +42,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
 - **Adaptive rendering** — Width degradation for narrow terminals
-- **Tokyo Night color palette** — 256-color ANSI with dark/light theme support
+- **8 built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview`
 - **Minimal dependencies** — 3 runtime crates (serde, serde_json, toml)
 - **Configurable** — TOML config with per-project overrides and segment toggles
 
@@ -106,7 +106,8 @@ cc-pulseline --print             # Show effective merged config
 
 ```toml
 [display]
-theme = "dark"          # dark | light
+theme = "tokyo-night"   # tokyo-night | echo-sub-zero | titanium-precision | ...
+# variant = "dark"      # dark | light (overrides theme default)
 icons = true            # nerd font icons vs ascii
 
 [segments.identity]     # Line 1 — model, style, version, project, git
@@ -148,7 +149,7 @@ max_lines = 2
 ## CLI Usage
 
 ```
-cc-pulseline 1.0.4 - High-performance Claude Code statusline
+cc-pulseline 1.0.6 - High-performance Claude Code statusline
 
 USAGE:
     cc-pulseline [OPTIONS]
@@ -161,6 +162,12 @@ OPTIONS:
     --init --project Create project config (.claude/pulseline.toml)
     --check          Validate config files
     --print          Show effective merged config
+    --preview [THEME ...] Preview theme(s). No args = all presets.
+                     Example: --preview tokyo-night echo-sub-zero
+    --select-theme   Interactively select and apply a theme
+    --select-theme --project  Select theme for project config
+    --palette-map [THEME]  Show palette field → UI element mapping
+                     Example: --palette-map echo-sub-zero
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.
@@ -173,6 +180,16 @@ CONFIG FILES:
 ENVIRONMENT:
     NO_COLOR    Disable color output
     COLUMNS     Terminal width for layout degradation
+
+THEMES:
+    tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
+    echo-sub-zero       Mono-accent minimalist, 3-stage signaling
+    titanium-precision  Industrial steel blues, amber warnings, brick reds
+    cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
+    cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
+    stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
+    mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
+    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
 ```
 
 ## Environment Variables

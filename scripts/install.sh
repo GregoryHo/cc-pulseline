@@ -1,6 +1,6 @@
 #!/bin/bash
 # Install cc-pulseline for Claude Code
-# Builds from source or downloads prebuilt binary
+# Builds from source via cargo install, or downloads prebuilt binary
 
 set -euo pipefail
 
@@ -39,6 +39,7 @@ download_prebuilt() {
     local url="https://github.com/${REPO}/releases/latest/download/${BINARY_NAME}-${platform}.tar.gz"
 
     echo "Downloading prebuilt binary for ${platform}..."
+    mkdir -p "$INSTALL_DIR"
     if command -v curl &>/dev/null; then
         curl -fsSL "$url" | tar xz -C "$INSTALL_DIR"
     elif command -v wget &>/dev/null; then
@@ -47,20 +48,19 @@ download_prebuilt() {
         echo "Error: curl or wget required for download"
         return 1
     fi
+    chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+    INSTALLED_PATH="${INSTALL_DIR}/${BINARY_NAME}"
 }
 
-build_from_source() {
-    echo "Building cc-pulseline from source..."
-    cargo build --release 2>&1 || { echo "cargo build failed"; exit 1; }
-    cp "target/release/${BINARY_NAME}" "${INSTALL_DIR}/"
+install_from_source() {
+    echo "Installing cc-pulseline via cargo install..."
+    cargo install --path . 2>&1 || { echo "cargo install failed"; exit 1; }
+    INSTALLED_PATH="$(which ${BINARY_NAME})"
 }
 
-# Create install directory
-mkdir -p "$INSTALL_DIR"
-
-# Try to build from source if cargo is available and we're in the repo
+# Determine install method
 if [ -f "Cargo.toml" ] && command -v cargo &>/dev/null; then
-    build_from_source
+    install_from_source
 else
     platform="$(detect_platform)"
     if [ -z "$platform" ]; then
@@ -71,19 +71,18 @@ else
     download_prebuilt "$platform"
 fi
 
-chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
-
-# Create default config
-"${INSTALL_DIR}/${BINARY_NAME}" --init 2>/dev/null || true
+# Create config directory and default config
+mkdir -p "$INSTALL_DIR"
+"$INSTALLED_PATH" --init 2>/dev/null || true
 
 echo ""
-echo "Installation complete!"
+echo "Installation complete! (${INSTALLED_PATH})"
 echo ""
 echo "Add to your Claude Code settings (~/.claude/settings.json):"
 echo ""
 echo '  "statusLine": {'
 echo '    "type": "command",'
-echo "    \"command\": \"${INSTALL_DIR}/${BINARY_NAME}\""
+echo "    \"command\": \"${BINARY_NAME}\""
 echo '  }'
 echo ""
 echo "Commands:"
@@ -92,3 +91,6 @@ echo "  ${BINARY_NAME} --init              Create user config"
 echo "  ${BINARY_NAME} --init --project    Create project config"
 echo "  ${BINARY_NAME} --check             Validate config files"
 echo "  ${BINARY_NAME} --print             Show effective merged config"
+echo "  ${BINARY_NAME} --preview           Preview all themes"
+echo "  ${BINARY_NAME} --select-theme      Interactively select a theme"
+echo "  ${BINARY_NAME} --palette-map       Show palette field → UI mapping"

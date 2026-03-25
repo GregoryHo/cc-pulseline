@@ -4,3 +4,4 @@ node_modules/
 npm-publish/
 .npmrc
 *.tgz
+.claude/pulseline.toml

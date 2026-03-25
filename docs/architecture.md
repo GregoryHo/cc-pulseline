@@ -80,8 +80,6 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 | `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills |
 | `git.rs` | `GitCollector` | `LocalGitCollector` | Shells out to `git` for branch, dirty state, ahead/behind, file stats |
 | `transcript.rs` | `TranscriptCollector` | `FileTranscriptCollector` | Incremental JSONL parsing with seek-based offsets |
-| `quota.rs` | `QuotaCollector` | `CachedFileQuotaCollector` | Reads quota cache file written by background fetch subprocess |
-| `quota_fetch.rs` | (entry point) | `run_fetch_quota()` | Background subprocess: reads OAuth creds, calls usage API, writes cache |
 
 ### `state/mod.rs` -- Session State
 
@@ -193,10 +191,10 @@ Backward compatibility with older transcript formats and test fixtures:
 
 ## Output Line Format
 
-- **L1**: `M:{model} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [up-n] [down-n] [!3 +1 ✘2 ?4]`
+- **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10k O:20k C:30k/40k | ↗42/s | $3.50 ($3.50/h)`
-- **Quota**: `Q:Pro 5h: 75% (resets 2h 0m)`
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:30.0k/40.0k | $3.50 ($3.50/h)`
+- **Quota**: `Q: 5h: 75% (resets 2h 0m)`
 - **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, wraps at `tools_per_line`)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`

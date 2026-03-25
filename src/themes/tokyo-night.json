@@ -1,0 +1,111 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "tokyo-night",
+  "author": "cc-pulseline (inspired by folke/tokyonight.nvim)",
+  "description": "Blue-tinted grays, 25+ semantic colors. Rich differentiation per element type.",
+
+  "colors": {
+    "emphasis": {
+      "primary":    251,
+      "secondary":  146,
+      "structural": 103,
+      "separator":  238
+    },
+    "alerts": {
+      "critical":  196,
+      "warning":   178,
+      "git_dirty": 214,
+      "high_burn": 201
+    },
+    "active": {
+      "accent":    117,
+      "success":   67,
+      "git_clean": 71
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    251,
+    "emphasis_secondary":  146,
+    "emphasis_structural": 103,
+    "emphasis_separator":  238,
+
+    "alert_red":           196,
+    "alert_orange":        214,
+    "alert_magenta":       201,
+
+    "active_cyan":         117,
+    "active_purple":       183,
+    "active_teal":         80,
+    "active_amber":        178,
+    "active_coral":        209,
+
+    "stable_blue":         111,
+    "stable_green":        71,
+
+    "indicator_claude_md": 109,
+    "indicator_rules":     108,
+    "indicator_memory":    182,
+    "indicator_hooks":     179,
+    "indicator_mcp":       139,
+    "indicator_skills":    73,
+    "indicator_duration":  174,
+
+    "completed_check":     67,
+
+    "cost_base":           222,
+    "cost_low_rate":       186,
+    "cost_med_rate":       221,
+    "cost_high_rate":      201
+  },
+
+  "light_emphasis": {
+    "primary": 234,
+    "secondary": 240,
+    "structural": 246,
+    "separator": 253
+  },
+
+  "element_mapping": {
+    "L1_identity": {
+      "model":            { "color": 111, "note": "STABLE_BLUE — most important identity" },
+      "agent_name":       { "color": 111, "note": "STABLE_BLUE — same as model" },
+      "style":            { "color": 146, "note": "secondary — promoted from structural" },
+      "version":          { "color": 146, "note": "secondary" },
+      "project":          { "color": 146, "note": "secondary" },
+      "git_branch_clean": { "color": 71,  "note": "STABLE_GREEN" },
+      "git_branch_dirty": { "color": 214, "note": "ALERT_ORANGE asterisk" },
+      "git_ahead_behind": { "color": 209, "note": "ACTIVE_CORAL" },
+      "separators":       { "color": 238, "note": "separator" }
+    },
+    "L2_config_counts": {
+      "icons":  "per-metric unique: 109/108/182/179/139/73/174",
+      "counts": { "color": 251, "note": "primary" },
+      "labels": { "color": 103, "note": "structural" }
+    },
+    "L3_budget": {
+      "ctx_good":      { "color": 71,  "note": "<55%" },
+      "ctx_warn":      { "color": 178, "note": "55-69% (amber)" },
+      "ctx_critical":  { "color": 196, "note": ">=70% (red)" },
+      "token_labels":  { "color": 103, "note": "structural" },
+      "token_values":  { "color": 251, "note": "primary" },
+      "cost_total":    { "color": 222, "note": "warm gold" },
+      "cost_burn_low": { "color": 186, "note": "<$10/h (peach)" },
+      "cost_burn_med": { "color": 221, "note": "$10-50/h (gold)" },
+      "cost_burn_high":{ "color": 201, "note": ">$50/h (magenta)" }
+    },
+    "activity": {
+      "tool_name":       { "color": 117, "note": "ACTIVE_CYAN — unique per type" },
+      "agent_name":      { "color": 183, "note": "ACTIVE_PURPLE — unique per type" },
+      "todo_text":       { "color": 80,  "note": "ACTIVE_TEAL — unique per type" },
+      "completed_check": { "color": 67,  "note": "steel blue checkmark" }
+    }
+  },
+
+  "design_notes": {
+    "philosophy": "Color encodes WHAT something is. Each element type gets its own color.",
+    "total_unique_colors": 25,
+    "inspiration": "Tokyo Night Storm (folke/tokyonight.nvim)",
+    "emphasis_tint": "Blue-tinted grays (103 structural is blue-purple)"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "matte-carbon-neon",
+  "author": "Gemini",
+  "description": "Minimalist industrial tech: Matte grayscale structures with piercing neon data accents for extreme contrast and balanced readability.",
+
+  "colors": {
+    "emphasis": {
+      "primary": 255,
+      "secondary": 250,
+      "structural": 242,
+      "separator": 237
+    },
+    "alerts": {
+      "critical": 196,
+      "warning": 226,
+      "git_dirty": 208,
+      "high_burn": 198
+    },
+    "active": {
+      "accent": 51,
+      "success": 82,
+      "git_clean": 82
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary": 255,
+    "emphasis_secondary": 250,
+    "emphasis_structural": 240,
+    "emphasis_separator": 234,
+
+    "alert_red": 196,
+    "alert_orange": 208,
+    "alert_magenta": 198,
+
+    "active_cyan": 51,
+    "active_purple": 135,
+    "active_teal": 50,
+    "active_amber": 226,
+    "active_coral": 203,
+
+    "stable_blue": 39,
+    "stable_green": 82,
+
+    "indicator_claude_md": 245,
+    "indicator_rules": 244,
+    "indicator_memory": 243,
+    "indicator_hooks": 242,
+    "indicator_mcp": 241,
+    "indicator_skills": 246,
+    "indicator_duration": 238,
+
+    "completed_check": 108,
+
+    "cost_base": 252,
+    "cost_low_rate": 244,
+    "cost_med_rate": 226,
+    "cost_high_rate": 196
+  },
+
+  "light_emphasis": {
+    "primary": 232,
+    "secondary": 239,
+    "structural": 245,
+    "separator": 253
+  },
+
+  "design_notes": {
+    "core_concept": "Industrial Dark Mode & Laser Accents",
+    "indicator_* (240-245) & emphasis_structural (240)": "Pure Grayscale - The UI chrome and icons are stripped of all color. Subtle grayscale variation on icons provides unique visual fingerprints without breaking the cold, matte industrial aesthetic.",
+    "emphasis_primary (255)": "Absolute White - Maximum contrast for the most important data points against dark terminal backgrounds.",
+    "active_cyan (51) & active_purple (135)": "Laser Neon - Pure, piercing cyan and purple for active tools and agents. Background is grayscale, so these pop without clashing.",
+    "active_teal (50) & stable_blue (39)": "Bright Neon - High-intensity teal and blue accents for secondary activity and identity.",
+    "stable_green (82) & completed_check (82)": "Acid Green - A sharp, high-tech yellow-green (ANSI 82) instead of a muted forest green, matching the cyberpunk/industrial tech vibe.",
+    "active_amber (226) & alert_red (196)": "Warning Tape - High-visibility industrial yellow (226) and pure laser red (196) for warnings and critical alerts."
+  }
+}

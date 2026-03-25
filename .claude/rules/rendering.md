@@ -2,7 +2,7 @@
 
 ## Color System
 
-- ALL rendering functions take `EmphasisTier` + `color_enabled` as parameters
+- ALL rendering functions take `&ThemePalette` (via `config.palette`) + `color_enabled` as parameters
 - ALWAYS use `colorize()` — never write raw ANSI escape codes
 - Define new colors as `const` in `render/color.rs`
 - Define new icons as `const` in `render/icons.rs`
@@ -16,12 +16,11 @@ Four tiers that vary by dark/light theme:
 - **Structural** — labels, static text (dimmest text)
 - **Separator** — pipe characters between segments
 
-Thread `EmphasisTier` from `render_frame()` down to every format function. Never call `emphasis_for_theme()` in leaf functions — receive the tier from the caller.
+Thread palette references from `render_frame()` down to every format function. The palette is accessed via `config.palette` in `render_frame()` and passed as `&ThemePalette` to format functions. Never call `resolve_palette()` in leaf functions.
 
 ## Semantic Colors
 
-Fixed across themes (never change by dark/light mode):
-- STABLE_BLUE, GIT_GREEN, ALERT_RED, etc. — defined as `const` in `color.rs`
+Semantic colors are fields on `ThemePalette` (e.g., `p.stable_blue`, `p.alert_red`). Legacy `pub const` values are retained for test assertions but new code should use palette fields:
 - Icon color = value color (icons are NEVER independently dimmed)
 - COMPLETED_CHECK (67) for `✓Name` completed items
 
@@ -49,7 +48,7 @@ When `terminal_width` is set and content exceeds it:
 
 1. Add data field to the appropriate `LineNMetrics` struct in `types.rs`
 2. Add `show_*` toggle following the Config Layer Pattern (7 places)
-3. Write format function in `render/layout.rs` taking `EmphasisTier` + `color_enabled`
+3. Write format function in `render/layout.rs` taking `&ThemePalette` + `color_enabled`
 4. Wire into the appropriate line's format function in `layout.rs`
 5. Test with `color_enabled: true` AND `color_enabled: false`
 6. Verify width degradation still works

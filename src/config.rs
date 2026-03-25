@@ -1,3 +1,4 @@
+use crate::render::color::{resolve_palette, ThemePalette};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -24,6 +25,8 @@ pub struct PulselineConfig {
     #[serde(default)]
     pub display: DisplayConfig,
     #[serde(default)]
+    pub colors: ColorsConfig,
+    #[serde(default)]
     pub segments: SegmentsConfig,
 }
 
@@ -31,6 +34,8 @@ pub struct PulselineConfig {
 pub struct DisplayConfig {
     #[serde(default = "default_dark")]
     pub theme: String,
+    #[serde(default)]
+    pub variant: Option<String>,
     #[serde(default = "default_true")]
     pub icons: bool,
 }
@@ -39,9 +44,75 @@ impl Default for DisplayConfig {
     fn default() -> Self {
         Self {
             theme: default_dark(),
+            variant: None,
             icons: true,
         }
     }
+}
+
+/// Optional per-color overrides (ANSI 256-color codes, 0-255).
+/// Applied on top of the selected theme preset.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ColorsConfig {
+    // Emphasis tiers
+    #[serde(default)]
+    pub primary: Option<u8>,
+    #[serde(default)]
+    pub secondary: Option<u8>,
+    #[serde(default)]
+    pub structural: Option<u8>,
+    #[serde(default)]
+    pub separator: Option<u8>,
+    // Alert tier
+    #[serde(default)]
+    pub alert_red: Option<u8>,
+    #[serde(default)]
+    pub alert_orange: Option<u8>,
+    #[serde(default)]
+    pub alert_magenta: Option<u8>,
+    // Active tier
+    #[serde(default)]
+    pub active_cyan: Option<u8>,
+    #[serde(default)]
+    pub active_purple: Option<u8>,
+    #[serde(default)]
+    pub active_teal: Option<u8>,
+    #[serde(default)]
+    pub active_amber: Option<u8>,
+    #[serde(default)]
+    pub active_coral: Option<u8>,
+    // Stable tier
+    #[serde(default)]
+    pub stable_blue: Option<u8>,
+    #[serde(default)]
+    pub stable_green: Option<u8>,
+    // Indicator tier (L2 icons)
+    #[serde(default)]
+    pub indicator_claude_md: Option<u8>,
+    #[serde(default)]
+    pub indicator_rules: Option<u8>,
+    #[serde(default)]
+    pub indicator_memory: Option<u8>,
+    #[serde(default)]
+    pub indicator_hooks: Option<u8>,
+    #[serde(default)]
+    pub indicator_mcp: Option<u8>,
+    #[serde(default)]
+    pub indicator_skills: Option<u8>,
+    #[serde(default)]
+    pub indicator_duration: Option<u8>,
+    // Completed accent
+    #[serde(default)]
+    pub completed_check: Option<u8>,
+    // Cost tier
+    #[serde(default)]
+    pub cost_base: Option<u8>,
+    #[serde(default)]
+    pub cost_low_rate: Option<u8>,
+    #[serde(default)]
+    pub cost_med_rate: Option<u8>,
+    #[serde(default)]
+    pub cost_high_rate: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -212,11 +283,16 @@ impl Default for SegmentToggle {
     }
 }
 
+/// Resolve the user's home directory from environment.
+pub fn user_home() -> Option<String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+}
+
 /// Returns `~/.claude/pulseline/config.toml`
 pub fn config_path() -> PathBuf {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| ".".to_string());
+    let home = user_home().unwrap_or_else(|| ".".to_string());
     PathBuf::from(home)
         .join(".claude")
         .join("pulseline")
@@ -238,8 +314,14 @@ pub fn load_config() -> PulselineConfig {
 /// Generate the default config file content.
 pub fn default_config_toml() -> &'static str {
     r#"[display]
-theme = "dark"          # dark | light
+theme = "dark"          # tokyo-night | echo-sub-zero | dark | light
+# variant = "dark"      # dark | light (overrides theme-implied variant)
 icons = true            # nerd font icons vs ascii
+
+# [colors]              # Override individual ANSI 256-color codes (0-255)
+# primary = 251         # emphasis tiers
+# alert_red = 196       # alert/active/stable/indicator/cost tiers
+# See docs/theme-palette.md for all 26 field names
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -292,12 +374,14 @@ max_lines = 2
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectOverrideConfig {
     pub display: Option<ProjectDisplayOverride>,
+    pub colors: Option<ColorsConfig>,
     pub segments: Option<ProjectSegmentsOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectDisplayOverride {
     pub theme: Option<String>,
+    pub variant: Option<String>,
     pub icons: Option<bool>,
 }
 
@@ -396,9 +480,49 @@ pub fn merge_configs(
         if let Some(theme) = &display.theme {
             user.display.theme = theme.clone();
         }
+        if let Some(variant) = &display.variant {
+            user.display.variant = Some(variant.clone());
+        }
         if let Some(icons) = display.icons {
             user.display.icons = icons;
         }
+    }
+
+    // Color overrides (field-by-field Some wins)
+    if let Some(colors) = &project.colors {
+        macro_rules! merge_color {
+            ($field:ident) => {
+                if let Some(v) = colors.$field {
+                    user.colors.$field = Some(v);
+                }
+            };
+        }
+        merge_color!(primary);
+        merge_color!(secondary);
+        merge_color!(structural);
+        merge_color!(separator);
+        merge_color!(alert_red);
+        merge_color!(alert_orange);
+        merge_color!(alert_magenta);
+        merge_color!(active_cyan);
+        merge_color!(active_purple);
+        merge_color!(active_teal);
+        merge_color!(active_amber);
+        merge_color!(active_coral);
+        merge_color!(stable_blue);
+        merge_color!(stable_green);
+        merge_color!(indicator_claude_md);
+        merge_color!(indicator_rules);
+        merge_color!(indicator_memory);
+        merge_color!(indicator_hooks);
+        merge_color!(indicator_mcp);
+        merge_color!(indicator_skills);
+        merge_color!(indicator_duration);
+        merge_color!(completed_check);
+        merge_color!(cost_base);
+        merge_color!(cost_low_rate);
+        merge_color!(cost_med_rate);
+        merge_color!(cost_high_rate);
     }
 
     // Segment overrides
@@ -551,6 +675,65 @@ pub fn check_configs(project_root: Option<&str>) -> Vec<(PathBuf, String)> {
     errors
 }
 
+/// Update the `theme = "..."` line in a config file, preserving comments and formatting.
+/// If the file does not exist, creates it from `template` with the theme pre-set.
+/// If the file exists but has no `theme =` line, prepends a `[display]` section.
+pub fn update_theme_in_config(
+    path: &std::path::Path,
+    template: &str,
+    theme_name: &str,
+) -> Result<(), String> {
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create directory: {e}"))?;
+        }
+        let content = template.replace("theme = \"dark\"", &format!("theme = \"{theme_name}\""));
+        std::fs::write(path, content)
+            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        return Ok(());
+    }
+
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+
+    let mut found = false;
+    let updated: String = contents
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if !found
+                && !trimmed.starts_with('#')
+                && (trimmed.starts_with("theme =") || trimmed.starts_with("theme="))
+            {
+                found = true;
+                let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                format!("{indent}theme = \"{theme_name}\"")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let new_contents = if found {
+        updated
+    } else {
+        format!("[display]\ntheme = \"{theme_name}\"\n\n{contents}")
+    };
+
+    let new_contents = if new_contents.ends_with('\n') {
+        new_contents
+    } else {
+        format!("{new_contents}\n")
+    };
+
+    std::fs::write(path, new_contents)
+        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+
+    Ok(())
+}
+
 /// Generate the default project config file content.
 pub fn default_project_config_toml() -> &'static str {
     r#"# Project-level pulseline overrides
@@ -616,11 +799,11 @@ pub enum WidthDegradeStrategy {
     CompressCoreLines,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderConfig {
     pub glyph_mode: GlyphMode,
     pub color_enabled: bool,
-    pub color_theme: ColorTheme,
+    pub palette: ThemePalette,
     // L1 segment toggles
     pub show_model: bool,
     pub show_style: bool,
@@ -667,7 +850,7 @@ impl Default for RenderConfig {
         Self {
             glyph_mode: GlyphMode::Ascii,
             color_enabled: false,
-            color_theme: ColorTheme::Dark,
+            palette: ThemePalette::default(),
             show_model: true,
             show_style: true,
             show_version: true,
@@ -720,16 +903,17 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         GlyphMode::Ascii
     };
 
-    let color_theme = match pulseline.display.theme.to_lowercase().as_str() {
-        "light" => ColorTheme::Light,
-        _ => ColorTheme::Dark,
-    };
+    let palette = resolve_palette(
+        &pulseline.display.theme,
+        pulseline.display.variant.as_deref(),
+        &pulseline.colors,
+    );
 
     let terminal_width = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok());
 
     RenderConfig {
         color_enabled,
-        color_theme,
+        palette,
         glyph_mode,
         terminal_width,
         // L1 identity toggles

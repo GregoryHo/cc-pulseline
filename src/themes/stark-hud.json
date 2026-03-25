@@ -1,0 +1,82 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "stark-hud",
+  "author": "Gemini",
+  "description": "Iron Man aesthetic: Arc Reactor cyan, Armor red, Faceplate gold, J.A.R.V.I.S. holographic grays.",
+
+  "colors": {
+    "emphasis": {
+      "primary": 255,
+      "secondary": 248,
+      "structural": 242,
+      "separator": 238
+    },
+    "alerts": {
+      "critical": 196,
+      "warning": 214,
+      "git_dirty": 208,
+      "high_burn": 198
+    },
+    "active": {
+      "accent": 51,
+      "success": 46,
+      "git_clean": 39
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary": 255,
+    "emphasis_secondary": 248,
+    "emphasis_structural": 240,
+    "emphasis_separator": 236,
+
+    "alert_red": 196,
+    "alert_orange": 208,
+    "alert_magenta": 198,
+
+    "active_cyan": 51,
+    "active_purple": 141,
+    "active_teal": 73,
+    "active_amber": 214,
+    "active_coral": 203,
+
+    "stable_blue": 39,
+    "stable_green": 29,
+
+    "indicator_claude_md": 74,
+    "indicator_rules": 75,
+    "indicator_memory": 111,
+    "indicator_hooks": 81,
+    "indicator_mcp": 117,
+    "indicator_skills": 153,
+    "indicator_duration": 159,
+
+    "completed_check": 46,
+
+    "cost_base": 248,
+    "cost_low_rate": 74,
+    "cost_med_rate": 214,
+    "cost_high_rate": 196
+  },
+
+  "light_emphasis": {
+    "primary": 232,
+    "secondary": 238,
+    "structural": 244,
+    "separator": 252
+  },
+
+  "design_notes": {
+    "philosophy": "Iron Man HUD. Multi-accent: each activity type gets a distinct color. Arc Reactor cyan for tools, J.A.R.V.I.S. lavender for agents, muted teal for todos. Holographic blue-cyan icons provide per-metric scanning fingerprints.",
+    "color_vocabulary": {
+      "240_recessive_gray": "Holographic UI framework / structural elements",
+      "51_arc_reactor":    "Tool activity / System processing / High intensity",
+      "141_jarvis":        "Agent activity / AI processing / J.A.R.V.I.S.",
+      "73_subsystem":      "Todo activity / Subsidiary tasks",
+      "214_faceplate_gold": "Warning / Attention needed",
+      "196_armor_red":     "Critical threshold / Danger",
+      "46_neon_green":     "Objective complete / Clean state",
+      "74-159_holograms":  "Passive HUD elements (L2 icons) — unique blue-cyan variations"
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "titanium-precision",
+  "author": "Gemini Collaborative Design",
+  "description": "Utilitarian engineering style. Uses muted steel blues, industrial ambers, and brick reds for a balanced, tool-like precision aesthetic.",
+
+  "colors": {
+    "emphasis": {
+      "primary":    253,
+      "secondary":  246,
+      "structural": 242,
+      "separator":  238
+    },
+    "alerts": {
+      "critical":  167,
+      "warning":   136,
+      "git_dirty": 136,
+      "high_burn": 167
+    },
+    "active": {
+      "accent":    74,
+      "success":   108,
+      "git_clean": 242
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    253,
+    "emphasis_secondary":  248,
+    "emphasis_structural": 240,
+    "emphasis_separator":  236,
+
+    "alert_red":           167,
+    "alert_orange":        136,
+    "alert_magenta":       167,
+
+    "active_cyan":         74,
+    "active_purple":       74,
+    "active_teal":         74,
+    "active_amber":        136,
+    "active_coral":        173,
+
+    "stable_blue":         109,
+    "stable_green":        108,
+
+    "indicator_claude_md": 109,
+    "indicator_rules":     136,
+    "indicator_memory":    146,
+    "indicator_hooks":     74,
+    "indicator_mcp":       167,
+    "indicator_skills":    108,
+    "indicator_duration":  244,
+
+    "completed_check":     108,
+
+    "cost_base":           246,
+    "cost_low_rate":       242,
+    "cost_med_rate":       74,
+    "cost_high_rate":      167
+  },
+
+  "light_emphasis": {
+    "primary": 234,
+    "secondary": 240,
+    "structural": 246,
+    "separator": 252
+  },
+
+  "usage_logic": {
+    "stage_1_safe":     { "threshold": "<55%",   "color": 74,  "name": "Steel Blue" },
+    "stage_2_warning":  { "threshold": "55-69%", "color": 136, "name": "Industrial Amber" },
+    "stage_3_critical": { "threshold": ">=70%",  "color": 167, "name": "Brick Red" }
+  },
+
+  "cost_logic": {
+    "stage_1_low":  { "threshold": "<$10/h",   "color": 242, "name": "Structural Gray" },
+    "stage_2_med":  { "threshold": "$10-50/h", "color": 74,  "name": "Steel Blue" },
+    "stage_3_high": { "threshold": ">$50/h",   "color": 167, "name": "Brick Red" }
+  },
+
+  "design_notes": {
+    "philosophy": "Emulates professional engineering tools. Replaces harsh alerts with muted, intentional industrial colors. Unique metallic indicators provide passive visual fingerprints.",
+    "color_vocabulary": {
+      "109_steel_blue":  "Primary identity / documentation / passive metallic data",
+      "74_active_blue":  "Primary engine operation / active components / hooks",
+      "136_amber":       "System warnings / rules / unsaved changes",
+      "167_brick_red":   "Critical thresholds / high expenditure / MCPs",
+      "146_titanium":    "Secondary passive data / memories",
+      "108_sage_green":  "Task completion / skills",
+      "240-244_industrial_gray": "Structural UI framework / labels / duration"
+    }
+  }
+}
