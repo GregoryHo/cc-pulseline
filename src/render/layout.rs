@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
@@ -10,6 +11,7 @@ use super::fmt::{
     format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
 };
 use super::icons::*;
+use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
 
 /// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
 /// Used in width degradation to determine what counts as "activity" lines.
@@ -19,20 +21,27 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let color = config.color_enabled;
     let p = &config.palette;
 
-    let mut lines = vec![
-        format_line1(frame, config, p),
-        format_line2(frame, config, " | ", p),
-        format_line3(frame, config, p),
-    ];
+    let mut lines: Vec<String> = Vec::new();
+    let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
 
-    // Quota line: between L3 and activity lines
+    let start = lines.len();
+    lines.push(format_line1(frame, config, p));
+    groups.push((LineKind::Identity, start..lines.len()));
+
+    let start = lines.len();
+    lines.push(format_line2(frame, config, " | ", p));
+    groups.push((LineKind::Config, start..lines.len()));
+
+    let start = lines.len();
+    lines.push(format_line3(frame, config, p));
     if config.show_quota {
         if let Some(line) = format_quota_line(&frame.quota, config, p) {
             lines.push(line);
         }
     }
+    groups.push((LineKind::Budget, start..lines.len()));
 
-    // Tool lines: completed counts (stable, multi-line) then recent tools (volatile)
+    let activity_start = lines.len();
     if config.show_tools {
         if !frame.completed_tools.is_empty() {
             lines.extend(format_completed_tool_lines(frame, config, p));
@@ -41,28 +50,69 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
             lines.push(format_recent_tool_line(frame, config, p));
         }
     }
-
-    // Agent lines: one per agent, conditional
     if config.show_agents {
         for agent in frame.agents.iter().take(config.max_agent_lines) {
             lines.push(format_agent_line(agent, config, p));
         }
     }
-
-    // Todo lines: conditional
     if config.show_todo {
         if let Some(todo) = &frame.todo {
             lines.extend(format_todo_lines(todo, config, p));
         }
     }
+    if lines.len() > activity_start {
+        groups.push((LineKind::Activity, activity_start..lines.len()));
+    }
 
-    if let Some(width) = config.terminal_width {
+    // Deduct border cost from the degradation budget so framing + content
+    // together fit within the real terminal width.
+    let pane_active = !matches!(config.pane_style, PaneStyle::None);
+    let effective_width = match (config.terminal_width, pane_active) {
+        (Some(w), true) if w >= config.pane_min_width + 4 => Some(w - 4),
+        (w, _) => w,
+    };
+
+    if let Some(width) = effective_width {
         let compressed_line2 = format_line2(frame, config, " ", p);
         lines =
             apply_width_degradation(lines, width, &config.degrade_order, compressed_line2, color);
     }
 
+    if pane_active {
+        lines = apply_pane(lines, &groups, &pane_config_from(config));
+    }
+
     lines
+}
+
+fn pane_config_from(config: &RenderConfig) -> PaneConfig {
+    let default_groups = vec![
+        PaneGroup {
+            label: "Identity".to_string(),
+            kinds: vec![LineKind::Identity],
+        },
+        PaneGroup {
+            label: "Config".to_string(),
+            kinds: vec![LineKind::Config],
+        },
+        PaneGroup {
+            label: "Budget".to_string(),
+            kinds: vec![LineKind::Budget],
+        },
+        PaneGroup {
+            label: "Activity".to_string(),
+            kinds: vec![LineKind::Activity],
+        },
+    ];
+    PaneConfig {
+        style: config.pane_style,
+        width_mode: config.pane_width_mode,
+        min_width: config.pane_min_width,
+        max_width: config.pane_max_width,
+        groups: default_groups,
+        glyph_mode: config.glyph_mode,
+        terminal_width: config.terminal_width,
+    }
 }
 
 /// Format completed tool counts across multiple lines.

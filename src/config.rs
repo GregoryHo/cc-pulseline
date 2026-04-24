@@ -1,4 +1,5 @@
 use crate::render::color::{resolve_palette, ThemePalette};
+use crate::render::pane::{PaneStyle, PaneWidth};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -28,6 +29,47 @@ pub struct PulselineConfig {
     pub colors: ColorsConfig,
     #[serde(default)]
     pub segments: SegmentsConfig,
+    #[serde(default)]
+    pub pane: PaneSection,
+}
+
+fn default_pane_style() -> String {
+    "none".to_string()
+}
+fn default_pane_width_mode() -> String {
+    "auto".to_string()
+}
+fn default_pane_min_width() -> usize {
+    60
+}
+fn default_pane_max_width() -> usize {
+    140
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PaneSection {
+    #[serde(default = "default_pane_style")]
+    pub style: String,
+    #[serde(default = "default_pane_width_mode")]
+    pub width_mode: String,
+    #[serde(default)]
+    pub fixed_width: Option<usize>,
+    #[serde(default = "default_pane_min_width")]
+    pub min_width: usize,
+    #[serde(default = "default_pane_max_width")]
+    pub max_width: usize,
+}
+
+impl Default for PaneSection {
+    fn default() -> Self {
+        Self {
+            style: default_pane_style(),
+            width_mode: default_pane_width_mode(),
+            fixed_width: None,
+            min_width: default_pane_min_width(),
+            max_width: default_pane_max_width(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -378,6 +420,13 @@ max_lines = 2
 [segments.todo]
 enabled = true
 max_lines = 2
+
+[pane]
+style = "none"          # "none" | "rail" | "box" — wrap output in a Unicode frame
+width_mode = "auto"     # "auto" | "terminal" | "fixed"
+# fixed_width = 100     # only used when width_mode = "fixed"
+min_width = 60          # skip framing when terminal can't fit this many cols + 4
+max_width = 140         # clamp auto-sized frames to this many cols
 "#
 }
 
@@ -388,6 +437,16 @@ pub struct ProjectOverrideConfig {
     pub display: Option<ProjectDisplayOverride>,
     pub colors: Option<ColorsConfig>,
     pub segments: Option<ProjectSegmentsOverride>,
+    pub pane: Option<ProjectPaneOverride>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectPaneOverride {
+    pub style: Option<String>,
+    pub width_mode: Option<String>,
+    pub fixed_width: Option<usize>,
+    pub min_width: Option<usize>,
+    pub max_width: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -657,6 +716,24 @@ pub fn merge_configs(
         }
     }
 
+    if let Some(pane) = &project.pane {
+        if let Some(v) = &pane.style {
+            user.pane.style = v.clone();
+        }
+        if let Some(v) = &pane.width_mode {
+            user.pane.width_mode = v.clone();
+        }
+        if pane.fixed_width.is_some() {
+            user.pane.fixed_width = pane.fixed_width;
+        }
+        if let Some(v) = pane.min_width {
+            user.pane.min_width = v;
+        }
+        if let Some(v) = pane.max_width {
+            user.pane.max_width = v;
+        }
+    }
+
     user
 }
 
@@ -802,6 +879,13 @@ pub fn default_project_config_toml() -> &'static str {
 # [segments.todo]
 # enabled = true
 # max_lines = 2
+
+# [pane]
+# style = "box"             # "none" | "rail" | "box"
+# width_mode = "auto"       # "auto" | "terminal" | "fixed"
+# fixed_width = 100
+# min_width = 60
+# max_width = 140
 "#
 }
 
@@ -873,6 +957,11 @@ pub struct RenderConfig {
     pub transcript_poll_throttle_ms: u64,
     pub terminal_width: Option<usize>,
     pub degrade_order: Vec<WidthDegradeStrategy>,
+    // Pane framing
+    pub pane_style: PaneStyle,
+    pub pane_width_mode: PaneWidth,
+    pub pane_min_width: usize,
+    pub pane_max_width: usize,
 }
 
 impl Default for RenderConfig {
@@ -922,7 +1011,27 @@ impl Default for RenderConfig {
                 WidthDegradeStrategy::CompressLine2,
                 WidthDegradeStrategy::CompressCoreLines,
             ],
+            pane_style: PaneStyle::None,
+            pane_width_mode: PaneWidth::Auto,
+            pane_min_width: 60,
+            pane_max_width: 140,
         }
+    }
+}
+
+fn parse_pane_style(value: &str) -> PaneStyle {
+    match value.to_lowercase().as_str() {
+        "box" => PaneStyle::Box,
+        "rail" => PaneStyle::Rail,
+        _ => PaneStyle::None,
+    }
+}
+
+fn parse_pane_width_mode(value: &str, fixed_width: Option<usize>) -> PaneWidth {
+    match value.to_lowercase().as_str() {
+        "terminal" => PaneWidth::Terminal,
+        "fixed" => PaneWidth::Fixed(fixed_width.unwrap_or(100)),
+        _ => PaneWidth::Auto,
     }
 }
 
@@ -987,6 +1096,13 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tools: pulseline.segments.tools.enabled,
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,
+        pane_style: parse_pane_style(&pulseline.pane.style),
+        pane_width_mode: parse_pane_width_mode(
+            &pulseline.pane.width_mode,
+            pulseline.pane.fixed_width,
+        ),
+        pane_min_width: pulseline.pane.min_width,
+        pane_max_width: pulseline.pane.max_width,
         ..RenderConfig::default()
     }
 }
