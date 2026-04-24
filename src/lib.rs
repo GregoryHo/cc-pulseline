@@ -160,6 +160,7 @@ fn build_render_frame(
     frame.line2.hooks_count = env_snapshot.hooks_count;
     frame.line2.mcp_count = env_snapshot.mcp_count;
     frame.line2.skills_count = env_snapshot.skills_count;
+    frame.line2.plugins_count = env_snapshot.plugins_count;
 
     frame.tools = transcript_snapshot.tools;
     frame.completed_tools = transcript_snapshot.completed_counts;

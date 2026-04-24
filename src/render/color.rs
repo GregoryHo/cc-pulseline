@@ -70,6 +70,20 @@ impl ThemePalette {
         }
     }
 
+    /// Pick an intensity-appropriate color for a model effort level.
+    /// Unknown values fall through to `secondary` so future Claude Code
+    /// levels render without code changes.
+    pub fn color_for_effort_level(&self, level: &str) -> &str {
+        match level {
+            "low" => &self.structural,
+            "medium" => &self.stable_blue,
+            "high" => &self.active_amber,
+            "xhigh" => &self.active_coral,
+            "max" => &self.alert_red,
+            _ => &self.secondary,
+        }
+    }
+
     pub fn git_green(&self) -> &str {
         &self.stable_green
     }

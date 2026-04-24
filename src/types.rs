@@ -18,6 +18,12 @@ pub struct StdinPayload {
     pub agent: Option<AgentInfo>,
     #[serde(default)]
     pub worktree: Option<WorktreeInfo>,
+    /// Active effort level (CC 2.1.119+): "low" | "medium" | "high" | "xhigh" | "max" | "auto".
+    #[serde(default)]
+    pub effort: Option<EffortInfo>,
+    /// Thinking mode toggle (CC 2.1.119+).
+    #[serde(default)]
+    pub thinking: Option<ThinkingInfo>,
 }
 
 impl StdinPayload {
@@ -112,6 +118,22 @@ pub struct AgentInfo {
     pub agent_type: Option<String>,
 }
 
+/// Active effort level for the model (Claude Code 2.1.119+).
+///
+/// Known values: `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"auto"`.
+/// Unknown values are preserved as-is — Claude Code adds levels frequently
+/// (e.g. `xhigh` was added in 2.1.111), and the renderer falls back gracefully.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct EffortInfo {
+    pub level: Option<String>,
+}
+
+/// Thinking-mode toggle (Claude Code 2.1.119+).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ThinkingInfo {
+    pub enabled: Option<bool>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WorktreeInfo {
     pub name: Option<String>,
@@ -137,6 +159,10 @@ pub struct Line1Metrics {
     pub git_untracked: u32,
     pub agent_name: Option<String>,
     pub in_worktree: bool,
+    /// Effort level from stdin `effort.level` (CC 2.1.119+).
+    pub effort_level: Option<String>,
+    /// Thinking mode flag from stdin `thinking.enabled` (CC 2.1.119+).
+    pub thinking_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -147,6 +173,10 @@ pub struct Line2Metrics {
     pub mcp_count: u32,
     pub memory_count: u32,
     pub skills_count: u32,
+    /// Count of enabled Claude Code plugins (CC 2.0.12+).
+    /// Sourced from `~/.claude/plugins/installed_plugins.json` cross-referenced
+    /// with `enabledPlugins` in `~/.claude/settings.json`.
+    pub plugins_count: u32,
     pub elapsed_minutes: u64,
 }
 
@@ -353,6 +383,8 @@ impl RenderFrame {
                 git_untracked: 0,
                 agent_name: payload.agent.as_ref().and_then(|a| a.name.clone()),
                 in_worktree: payload.worktree.is_some(),
+                effort_level: payload.effort.as_ref().and_then(|e| e.level.clone()),
+                thinking_enabled: payload.thinking.as_ref().and_then(|t| t.enabled),
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
@@ -361,6 +393,7 @@ impl RenderFrame {
                 hooks_count: 0,
                 mcp_count: 0,
                 skills_count: 0,
+                plugins_count: 0,
                 elapsed_minutes,
             },
             line3: Line3Metrics {

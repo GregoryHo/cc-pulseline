@@ -390,7 +390,7 @@ impl SessionState {
         let remaining = max_total.saturating_sub(result.len());
         if remaining > 0 {
             let mut completed: Vec<&AgentSummary> = self.completed_agents.iter().collect();
-            completed.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+            completed.sort_by_key(|agent| std::cmp::Reverse(agent.completed_at));
             for agent in completed.into_iter().take(remaining) {
                 result.push(agent.clone());
             }

@@ -516,10 +516,32 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
             let path = input.get("file_path").and_then(Value::as_str)?;
             Some(truncate_path(path, 30))
         }
-        "Bash" => {
+        // PowerShell (CC 2.1.84 Windows / 2.1.111 Linux & Mac opt-in) is a Bash analog.
+        "Bash" | "PowerShell" => {
             let cmd = input.get("command").and_then(Value::as_str)?;
             Some(truncate_str(cmd, 30))
         }
+        // Background script monitor (CC 2.1.98+).
+        "Monitor" => input
+            .get("script_id")
+            .and_then(Value::as_str)
+            .or_else(|| input.get("pattern").and_then(Value::as_str))
+            .map(|s| truncate_str(s, 20)),
+        // Push notifications (CC 2.1.110 / 2.1.113+).
+        "PushNotification" => input
+            .get("title")
+            .and_then(Value::as_str)
+            .map(|s| truncate_str(s, 30)),
+        // Experimental advisor tool (CC 2.1.117+).
+        "Advisor" => input
+            .get("query")
+            .and_then(Value::as_str)
+            .map(|s| truncate_str(s, 30)),
+        // MCP discovery (CC 2.1.79+). ToolSearch is in NOISE_TOOLS and never reaches here.
+        "MCPSearch" => input
+            .get("query")
+            .and_then(Value::as_str)
+            .map(|s| truncate_str(s, 30)),
         "Glob" | "Grep" => {
             let pattern = input.get("pattern").and_then(Value::as_str)?;
             Some(truncate_str(pattern, 20))

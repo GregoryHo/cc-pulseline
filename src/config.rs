@@ -151,6 +151,10 @@ pub struct IdentitySegmentConfig {
     pub show_agent: bool,
     #[serde(default = "default_true")]
     pub show_worktree: bool,
+    #[serde(default = "default_true")]
+    pub show_effort: bool,
+    #[serde(default = "default_true")]
+    pub show_thinking: bool,
 }
 
 impl Default for IdentitySegmentConfig {
@@ -164,6 +168,8 @@ impl Default for IdentitySegmentConfig {
             show_git_stats: false,
             show_agent: true,
             show_worktree: true,
+            show_effort: true,
+            show_thinking: true,
         }
     }
 }
@@ -183,6 +189,8 @@ pub struct ConfigSegmentConfig {
     #[serde(default = "default_true")]
     pub show_skills: bool,
     #[serde(default = "default_true")]
+    pub show_plugins: bool,
+    #[serde(default = "default_true")]
     pub show_duration: bool,
 }
 
@@ -195,6 +203,7 @@ impl Default for ConfigSegmentConfig {
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
+            show_plugins: true,
             show_duration: true,
         }
     }
@@ -332,6 +341,8 @@ show_git = true
 show_git_stats = false  # !3 +1 ✘2 ?4 file stats after branch
 show_agent = true       # AG:agent-name when --agent is active
 show_worktree = true    # (WT) indicator when in a worktree session
+show_effort = true      # effort level pill (low/medium/high/xhigh/max, CC 2.1.119+)
+show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
@@ -340,6 +351,7 @@ show_memory = true
 show_hooks = true
 show_mcp = true
 show_skills = true
+show_plugins = true      # N plugins (enabled Claude Code plugins, CC 2.0.12+)
 show_duration = true
 
 [segments.budget]       # Line 3 — context, tokens, cost
@@ -406,6 +418,8 @@ pub struct ProjectIdentityOverride {
     pub show_git_stats: Option<bool>,
     pub show_agent: Option<bool>,
     pub show_worktree: Option<bool>,
+    pub show_effort: Option<bool>,
+    pub show_thinking: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -416,6 +430,7 @@ pub struct ProjectConfigOverride {
     pub show_hooks: Option<bool>,
     pub show_mcp: Option<bool>,
     pub show_skills: Option<bool>,
+    pub show_plugins: Option<bool>,
     pub show_duration: Option<bool>,
 }
 
@@ -552,6 +567,12 @@ pub fn merge_configs(
             if let Some(v) = identity.show_worktree {
                 user.segments.identity.show_worktree = v;
             }
+            if let Some(v) = identity.show_effort {
+                user.segments.identity.show_effort = v;
+            }
+            if let Some(v) = identity.show_thinking {
+                user.segments.identity.show_thinking = v;
+            }
         }
         if let Some(config) = &segments.config {
             if let Some(v) = config.show_claude_md {
@@ -571,6 +592,9 @@ pub fn merge_configs(
             }
             if let Some(v) = config.show_skills {
                 user.segments.config.show_skills = v;
+            }
+            if let Some(v) = config.show_plugins {
+                user.segments.config.show_plugins = v;
             }
             if let Some(v) = config.show_duration {
                 user.segments.config.show_duration = v;
@@ -748,10 +772,13 @@ pub fn default_project_config_toml() -> &'static str {
 # show_git_stats = true
 # show_agent = true
 # show_worktree = true
+# show_effort = false
+# show_thinking = false
 
 # [segments.config]
 # show_memory = false
 # show_skills = false
+# show_plugins = false
 
 # [segments.budget]
 # show_tokens = false
@@ -813,6 +840,8 @@ pub struct RenderConfig {
     pub show_git_stats: bool,
     pub show_agent: bool,
     pub show_worktree: bool,
+    pub show_effort: bool,
+    pub show_thinking: bool,
     // L2 segment toggles
     pub show_claude_md: bool,
     pub show_rules: bool,
@@ -820,6 +849,7 @@ pub struct RenderConfig {
     pub show_hooks: bool,
     pub show_mcp: bool,
     pub show_skills: bool,
+    pub show_plugins: bool,
     pub show_duration: bool,
     // L3 segment toggles
     pub show_context: bool,
@@ -859,12 +889,15 @@ impl Default for RenderConfig {
             show_git_stats: false,
             show_agent: true,
             show_worktree: true,
+            show_effort: true,
+            show_thinking: true,
             show_claude_md: true,
             show_rules: true,
             show_memory: true,
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
+            show_plugins: true,
             show_duration: true,
             show_context: true,
             show_tokens: true,
@@ -925,6 +958,8 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_git_stats: pulseline.segments.identity.show_git_stats,
         show_agent: pulseline.segments.identity.show_agent,
         show_worktree: pulseline.segments.identity.show_worktree,
+        show_effort: pulseline.segments.identity.show_effort,
+        show_thinking: pulseline.segments.identity.show_thinking,
         // L2 config toggles
         show_claude_md: pulseline.segments.config.show_claude_md,
         show_rules: pulseline.segments.config.show_rules,
@@ -932,6 +967,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_hooks: pulseline.segments.config.show_hooks,
         show_mcp: pulseline.segments.config.show_mcp,
         show_skills: pulseline.segments.config.show_skills,
+        show_plugins: pulseline.segments.config.show_plugins,
         show_duration: pulseline.segments.config.show_duration,
         // L3 budget toggles
         show_context: pulseline.segments.budget.show_context,

@@ -25,6 +25,13 @@ pub const ICON_TOKEN_INPUT: &str = "\u{f093}";
 pub const ICON_TOKEN_OUTPUT: &str = "\u{f019}";
 pub const ICON_TOKEN_CACHE_CREATE: &str = "\u{f0c7}";
 
+// Effort / thinking indicators (CC 2.1.119+)
+pub const ICON_EFFORT: &str = "\u{f0ccd}"; // 󰳍 nf-md-speedometer
+pub const ICON_THINKING: &str = "\u{f0335}"; // 󰌵 nf-md-lightbulb-on
+
+// Plugins (CC 2.0.12+)
+pub const ICON_PLUGIN: &str = "\u{f0431}"; // 󰐱 nf-md-puzzle
+
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
     match mode {
         GlyphMode::Icon => format!("{icon} "),

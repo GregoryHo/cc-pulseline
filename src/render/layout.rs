@@ -328,6 +328,23 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
         parts.push(format!("{model_label}{model_val}"));
     }
 
+    if config.show_effort {
+        if let Some(level) = &frame.line1.effort_level {
+            let effort_color = p.color_for_effort_level(level);
+            let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color);
+            let val = colorize(level, effort_color, color);
+            parts.push(format!("{label}{val}"));
+        }
+    }
+
+    if config.show_thinking && frame.line1.thinking_enabled == Some(true) {
+        // Label-only pill — no value; `enabled: false` or missing → omitted entirely.
+        // Trim before colorizing so the ANSI reset stays tight against the glyph.
+        let raw = glyph(mode, ICON_THINKING, "[T]");
+        let label = colorize(raw.trim_end(), &p.active_purple, color);
+        parts.push(label);
+    }
+
     if config.show_agent {
         if let Some(agent_name) = &frame.line1.agent_name {
             let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), &p.stable_blue, color);
@@ -436,6 +453,17 @@ fn format_line2(
             &p.indicator_skills,
             "skills",
             frame.line2.skills_count,
+        ));
+    }
+    if config.show_plugins && frame.line2.plugins_count > 0 {
+        // Reuse indicator_mcp tier — plugins are heterogeneous bundles of
+        // MCPs / skills / hooks, and sharing the MCP indicator color keeps
+        // L2 visually grouped without a palette change.
+        parts.push(format_item(
+            ICON_PLUGIN,
+            &p.indicator_mcp,
+            "plugins",
+            frame.line2.plugins_count,
         ));
     }
     if config.show_duration {
