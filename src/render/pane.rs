@@ -52,13 +52,12 @@ pub struct PaneConfig {
 }
 
 /// Insert group separators around `lines`:
-/// - Box: labelled horizontal dividers (`─── Config ──────`) between groups,
-///   skipping the first so Claude Code's own divider above the statusline
-///   acts as the top edge. No side or bottom borders.
+/// - Box: labelled horizontal dividers (`─── Config ──────`) above each group,
+///   including the first. No side or bottom borders.
 /// - Rail: left-side `│` guide with `├ Label` shoulder between groups.
 ///
 /// Returns `lines` unchanged when `cfg.style == PaneStyle::None` or when the
-/// terminal can't fit `cfg.min_width` plus border cost.
+/// terminal can't fit `cfg.min_width`.
 pub fn apply_pane(
     lines: Vec<String>,
     groups: &[(LineKind, Range<usize>)],
@@ -106,13 +105,9 @@ fn render_box(
         return lines.to_vec();
     }
 
-    let mut out: Vec<String> = Vec::with_capacity(grouped.len() + lines.len());
-    for (i, (label, group_lines)) in grouped.iter().enumerate() {
-        // Skip the divider above the first group — Claude Code's own separator
-        // already draws a line above the statusline.
-        if i > 0 {
-            out.push(render_section_divider(label, ruler_width, g));
-        }
+    let mut out: Vec<String> = Vec::with_capacity(grouped.len() * 2 + lines.len());
+    for (label, group_lines) in grouped.iter() {
+        out.push(render_section_divider(label, ruler_width, g));
         for line in group_lines {
             out.push((*line).to_string());
         }

@@ -51,28 +51,32 @@ fn box_mode_emits_section_dividers_without_outer_borders() {
     let cfg = base_config(PaneStyle::Box);
     let out = apply_pane(lines, &groups, &cfg);
 
-    // Identity content emits directly (no divider above); then divider + content
-    // for each subsequent group. 3 content + 2 dividers = 5 lines.
+    // Divider + content per group, including the first. 3 groups × 2 rows = 6 lines.
     assert_eq!(
         out.len(),
-        5,
-        "box should emit (content_lines + N-1 dividers) with no top/bottom borders; got {:#?}",
+        6,
+        "box should emit (divider + content) for every group; got {:#?}",
         out
     );
-    assert_eq!(
-        out[0], "hello world (long)",
-        "first group renders content directly (no header); got: {:?}",
+    assert!(
+        out[0].starts_with("─") && out[0].contains("Identity"),
+        "first line is the Identity divider; got: {:?}",
         out[0]
     );
-    assert!(
-        out[1].starts_with("─") && out[1].contains("Config"),
-        "divider before second group is a labeled horizontal ruler; got: {:?}",
+    assert_eq!(
+        out[1], "hello world (long)",
+        "Identity content follows its divider; got: {:?}",
         out[1]
     );
     assert!(
-        out[3].starts_with("─") && out[3].contains("Budget"),
-        "divider before third group is a labeled horizontal ruler; got: {:?}",
-        out[3]
+        out[2].starts_with("─") && out[2].contains("Config"),
+        "divider before second group; got: {:?}",
+        out[2]
+    );
+    assert!(
+        out[4].starts_with("─") && out[4].contains("Budget"),
+        "divider before third group; got: {:?}",
+        out[4]
     );
 
     for line in &out {
@@ -260,10 +264,10 @@ fn render_frame_integration_applies_box_pane_when_enabled() {
         "expected a ─── Budget ─── divider"
     );
     assert!(
-        !lines
+        lines
             .iter()
             .any(|l| l.contains("Identity") && l.contains('─')),
-        "Identity must not emit its own divider — CC's separator is the top edge"
+        "expected a ─── Identity ─── divider above the first group"
     );
     for line in &lines {
         for border in ['╭', '╮', '╰', '╯', '├', '┤', '│'] {
