@@ -69,10 +69,14 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     // rail/bullet/gutter add ~2-3 cols; labeled/pill consume 5-6 cols.
     let pane_active = !matches!(config.pane_style, PaneStyle::None);
     let style_overhead = match config.pane_style {
-        PaneStyle::None | PaneStyle::Box => 0,
+        PaneStyle::None | PaneStyle::Box | PaneStyle::Zones => 0,
         PaneStyle::Rail | PaneStyle::Bullet | PaneStyle::Gutter => 3,
         PaneStyle::Pill => 5,
         PaneStyle::Labeled => 6,
+        // Grid consumes `label_width + 2` cols on the left. The default group
+        // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
+        // + 2 for " │ " = ~12 cols. Budget value for width degradation.
+        PaneStyle::Grid => 12,
     };
     let effective_width = config
         .terminal_width

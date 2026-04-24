@@ -316,6 +316,126 @@ fn color_enabled_gutter_wraps_prefix_in_ansi_escapes() {
 }
 
 #[test]
+fn grid_adds_label_column_with_divider_and_aligned_content() {
+    let lines = vec![
+        "alpha content".to_string(),
+        "longer beta content here".to_string(),
+        "gamma".to_string(),
+    ];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..3),
+    ];
+    let cfg = base_config(PaneStyle::Grid);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    assert_eq!(out.len(), 3, "grid adds zero rows");
+
+    // Left label column contains the group name; `│` follows.
+    assert!(
+        out[0].starts_with("Identity  │"),
+        "first row shows Identity label + divider; got: {:?}",
+        out[0]
+    );
+    assert!(
+        out[1].starts_with("Config    │"),
+        "second row aligns label to same width; got: {:?}",
+        out[1]
+    );
+    assert!(out[2].starts_with("Budget    │"), "third row: {:?}", out[2]);
+
+    // Every row right-padded to the same visible width.
+    let widths: Vec<usize> = out.iter().map(|s| visible_width(s)).collect();
+    assert!(
+        widths.iter().all(|&w| w == widths[0]),
+        "all rows must be padded to equal visible width; got {:?}",
+        widths
+    );
+}
+
+#[test]
+fn grid_continuation_rows_blank_the_label() {
+    let lines = vec![
+        "first".to_string(),
+        "second".to_string(),
+        "third".to_string(),
+    ];
+    // Single group spanning all three lines — continuations should blank the label.
+    let groups = vec![(LineKind::Activity, 0..3)];
+    let mut cfg = base_config(PaneStyle::Grid);
+    cfg.groups = vec![PaneGroup {
+        label: "Activity".into(),
+        kinds: vec![LineKind::Activity],
+    }];
+    let out = apply_pane(lines, &groups, &cfg);
+
+    assert_eq!(out.len(), 3);
+    assert!(out[0].starts_with("Activity"), "first row labeled");
+    assert!(
+        out[1].starts_with("          │"),
+        "second row blank label, divider aligns; got: {:?}",
+        out[1]
+    );
+    assert!(
+        out[2].starts_with("          │"),
+        "third row blank label; got: {:?}",
+        out[2]
+    );
+}
+
+#[test]
+fn zones_inserts_single_rule_before_activity() {
+    let lines = vec![
+        "identity-line".to_string(),
+        "config-line".to_string(),
+        "budget-line".to_string(),
+        "activity-line-1".to_string(),
+        "activity-line-2".to_string(),
+    ];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..3),
+        (LineKind::Activity, 3..5),
+    ];
+    let mut cfg = base_config(PaneStyle::Zones);
+    cfg.groups.push(PaneGroup {
+        label: "Activity".into(),
+        kinds: vec![LineKind::Activity],
+    });
+    let out = apply_pane(lines, &groups, &cfg);
+
+    // 5 content lines + 1 rule = 6 rows.
+    assert_eq!(out.len(), 6, "zones adds exactly one rule; got {:#?}", out);
+
+    assert_eq!(out[0], "identity-line", "state content emitted first");
+    assert_eq!(out[1], "config-line");
+    assert_eq!(out[2], "budget-line");
+
+    // The rule must appear between Budget (out[2]) and the first Activity line.
+    assert!(
+        out[3].starts_with('─') && out[3].contains("activity"),
+        "rule must precede Activity and be labelled 'activity'; got: {:?}",
+        out[3]
+    );
+    assert_eq!(out[4], "activity-line-1");
+    assert_eq!(out[5], "activity-line-2");
+}
+
+#[test]
+fn zones_omits_rule_when_no_activity() {
+    let lines = vec!["identity-line".to_string(), "config-line".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let cfg = base_config(PaneStyle::Zones);
+    let out = apply_pane(lines.clone(), &groups, &cfg);
+    assert_eq!(
+        out, lines,
+        "zones should pass lines through unchanged when there is no activity"
+    );
+}
+
+#[test]
 fn none_style_returns_lines_unchanged() {
     let lines = vec!["a".to_string(), "b".to_string()];
     let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];

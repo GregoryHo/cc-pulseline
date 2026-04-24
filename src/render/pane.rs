@@ -17,6 +17,15 @@ pub enum PaneStyle {
     Bullet,
     /// Per-line reverse-video "tag" pill (e.g. ` ID  Opus 4.7 ...`).
     Pill,
+    /// Two strata separated by a single labelled rule (echoes CC's own
+    /// horizontal rules above/below the input box). State (Identity/Config/
+    /// Budget) above, `──── activity ────` rule, then live Activity below.
+    Zones,
+    /// Table layout with a fixed label column + `│` divider + right-padded
+    /// content. Every line begins and ends at the same visual position —
+    /// solves jagged right edges and makes group boundaries explicit without
+    /// adding rows. Activity continuation rows span the label column.
+    Grid,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,8 +120,98 @@ pub fn apply_pane(
         PaneStyle::Gutter | PaneStyle::Labeled | PaneStyle::Bullet | PaneStyle::Pill => {
             render_prefixed(&lines, groups, cfg)
         }
+        PaneStyle::Zones => render_zones(&grouped, &lines, groups, cfg, g),
+        PaneStyle::Grid => render_grid(&lines, groups, cfg, g),
         PaneStyle::None => lines,
     }
+}
+
+/// Grid: fixed-width left label column + `│` + content right-padded to the
+/// longest natural row. Activity continuation rows show blank label (span).
+fn render_grid(
+    lines: &[String],
+    groups: &[(LineKind, Range<usize>)],
+    cfg: &PaneConfig,
+    g: &FrameGlyphs,
+) -> Vec<String> {
+    // Label width = longest configured group label + 2 cols padding.
+    let label_width = cfg
+        .groups
+        .iter()
+        .map(|pg| visible_width(&pg.label))
+        .max()
+        .unwrap_or(0)
+        + 2;
+
+    // Content width = longest natural line; right-pad every line to this.
+    let content_width = lines.iter().map(|l| visible_width(l)).max().unwrap_or(0);
+
+    let label_for = |kind: LineKind| -> &str {
+        cfg.groups
+            .iter()
+            .find(|pg| pg.kinds.contains(&kind))
+            .map(|pg| pg.label.as_str())
+            .unwrap_or("")
+    };
+
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    for (kind, range) in groups {
+        let label = label_for(*kind);
+        let mut first = true;
+        for idx in range.start..range.end {
+            let Some(line) = lines.get(idx) else { continue };
+            let lbl = if first { label } else { "" };
+            let lbl_pad = label_width.saturating_sub(visible_width(lbl));
+            let content_pad = content_width.saturating_sub(visible_width(line));
+            let lpad = " ".repeat(lbl_pad);
+            let rpad = " ".repeat(content_pad);
+            out.push(format!("{lbl}{lpad}{v} {line}{rpad}", v = g.v));
+            first = false;
+        }
+    }
+    out
+}
+
+/// Zones: one labelled horizontal rule separating state (Identity/Config/
+/// Budget) from activity (Tools/Agents/Todos). Uses CC's own visual idiom
+/// (single thin rule) so the statusline reads as an extension of the input
+/// box rather than a competing panel.
+fn render_zones(
+    grouped: &Grouped<'_>,
+    lines: &[String],
+    groups: &[(LineKind, Range<usize>)],
+    cfg: &PaneConfig,
+    g: &FrameGlyphs,
+) -> Vec<String> {
+    let has_activity = groups
+        .iter()
+        .any(|(k, r)| matches!(k, LineKind::Activity) && r.start < r.end);
+
+    // No activity ⇒ skip the rule entirely; zones degrades to plain output.
+    if !has_activity {
+        return lines.to_vec();
+    }
+
+    let ruler_width = resolve_inner_width(grouped, cfg);
+    if ruler_width < cfg.min_width {
+        return lines.to_vec();
+    }
+
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + 1);
+    let mut rule_emitted = false;
+
+    for (kind, range) in groups {
+        if matches!(kind, LineKind::Activity) && !rule_emitted {
+            out.push(render_section_divider("activity", ruler_width, g));
+            rule_emitted = true;
+        }
+        for idx in range.start..range.end {
+            if let Some(line) = lines.get(idx) {
+                out.push(line.clone());
+            }
+        }
+    }
+    out
 }
 
 /// Per-line prefix styles: Gutter / Labeled / Bullet / Pill. All share the

@@ -432,19 +432,17 @@ enabled = true
 max_lines = 2
 
 [pane]
-# Group marker style. All add zero extra rows except rail/box, which add 3-5.
-#   "none"    — no grouping marker (flat)
-#   "rail"    — left-side ╭ ├ ╰ guide with vertical │ continuation (+3-5 rows)
-#   "box"     — full-width ─── Label ─── dividers between groups (+3-4 rows)
-#   "gutter"  — 2-col Nerd Font icon per line (   󰈙  , etc.)
-#   "labeled" — 3-letter lowercase tag per line (id  · / cfg · / bdg · / act ·)
-#   "bullet"  — single glyph per line (● / ○ / ◆ / ▸)
-#   "pill"    — reverse-video bracketed tag per line ( ID / CF / $$ / AC )
+# Group marker style:
+#   "none"  — flat output, no grouping markers
+#   "zones" — one `─── activity ───` rule between state and live activity (+1 row)
+#   "grid"  — fixed label column + │ + right-padded content (table layout, 0 rows)
+#
+# (Legacy styles "rail" / "box" / "gutter" / "labeled" / "bullet" / "pill"
+#  are still accepted for backward compatibility but not recommended.)
 style = "none"
 # identity_spacing = false  # add a blank row after Identity, any style
 #
-# Width only applies to rail/box (which draw horizontal rulers). Prefix styles
-# ignore these fields.
+# Width only applies to zones / box (which draw horizontal rulers).
 width_mode = "auto"     # "auto" | "terminal" | "fixed"
 # fixed_width = 100     # only used when width_mode = "fixed"
 min_width = 60          # skip framing when terminal can't fit this many cols
@@ -1063,6 +1061,8 @@ fn parse_pane_style(value: &str) -> PaneStyle {
         "labeled" => PaneStyle::Labeled,
         "bullet" => PaneStyle::Bullet,
         "pill" => PaneStyle::Pill,
+        "zones" => PaneStyle::Zones,
+        "grid" => PaneStyle::Grid,
         _ => PaneStyle::None,
     }
 }
