@@ -33,6 +33,9 @@ fn base_config(style: PaneStyle) -> PaneConfig {
         glyph_mode: GlyphMode::Icon,
         terminal_width: None,
         cc_margin: 4,
+        group_colors: [String::new(), String::new(), String::new(), String::new()],
+        color_enabled: false,
+        identity_spacing: false,
     }
 }
 
@@ -173,6 +176,142 @@ fn ascii_glyph_mode_avoids_unicode_box_chars() {
     assert!(
         joined.contains('-'),
         "expected '-' horizontal chars in ASCII mode; got:\n{joined}"
+    );
+}
+
+#[test]
+fn gutter_style_prepends_icon_per_group() {
+    let lines = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..3),
+    ];
+    let cfg = base_config(PaneStyle::Gutter);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    assert_eq!(out.len(), 3, "gutter adds zero rows; got {:#?}", out);
+    assert!(
+        out[0].starts_with('\u{f007}') && out[0].ends_with("alpha"),
+        "identity line starts with user icon; got: {:?}",
+        out[0]
+    );
+    assert!(
+        out[1].starts_with('\u{f013}') && out[1].ends_with("beta"),
+        "config line starts with cog icon; got: {:?}",
+        out[1]
+    );
+    assert!(
+        out[2].starts_with('\u{f155}') && out[2].ends_with("gamma"),
+        "budget line starts with dollar icon; got: {:?}",
+        out[2]
+    );
+}
+
+#[test]
+fn labeled_style_uses_three_letter_text_prefix() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let cfg = base_config(PaneStyle::Labeled);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    assert_eq!(out.len(), 2, "labeled adds zero rows");
+    assert!(
+        out[0].starts_with("id  · ") && out[0].ends_with("alpha"),
+        "identity line: {:?}",
+        out[0]
+    );
+    assert!(
+        out[1].starts_with("cfg · ") && out[1].ends_with("beta"),
+        "config line: {:?}",
+        out[1]
+    );
+}
+
+#[test]
+fn bullet_style_uses_single_unicode_glyph_per_group() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let cfg = base_config(PaneStyle::Bullet);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    assert!(out[0].starts_with('●'), "bullet identity: {:?}", out[0]);
+    assert!(out[1].starts_with('○'), "bullet config: {:?}", out[1]);
+}
+
+#[test]
+fn bullet_style_ascii_fallback_uses_plain_chars() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let mut cfg = base_config(PaneStyle::Bullet);
+    cfg.glyph_mode = GlyphMode::Ascii;
+    let out = apply_pane(lines, &groups, &cfg);
+    assert!(
+        out[0].starts_with('*'),
+        "ASCII bullet identity: {:?}",
+        out[0]
+    );
+    assert!(out[1].starts_with('o'), "ASCII bullet config: {:?}", out[1]);
+    for line in &out {
+        for glyph in ['●', '○', '◆', '▸'] {
+            assert!(
+                !line.contains(glyph),
+                "ASCII mode must not emit Unicode bullet {:?}; got: {:?}",
+                glyph,
+                line
+            );
+        }
+    }
+}
+
+#[test]
+fn pill_style_uses_bracketed_tag_per_group() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let cfg = base_config(PaneStyle::Pill);
+    let out = apply_pane(lines, &groups, &cfg);
+    assert!(
+        out[0].starts_with(" ID  ") && out[0].ends_with("alpha"),
+        "pill identity: {:?}",
+        out[0]
+    );
+    assert!(
+        out[1].starts_with(" CF  ") && out[1].ends_with("beta"),
+        "pill config: {:?}",
+        out[1]
+    );
+}
+
+#[test]
+fn identity_spacing_adds_blank_row_after_identity() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let mut cfg = base_config(PaneStyle::Labeled);
+    cfg.identity_spacing = true;
+    let out = apply_pane(lines, &groups, &cfg);
+    assert_eq!(
+        out.len(),
+        3,
+        "expected identity line + blank row + config line; got {:#?}",
+        out
+    );
+    assert!(out[0].contains("alpha"));
+    assert_eq!(out[1], "", "row after identity must be blank");
+    assert!(out[2].contains("beta"));
+}
+
+#[test]
+fn color_enabled_gutter_wraps_prefix_in_ansi_escapes() {
+    let lines = vec!["alpha".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1)];
+    let mut cfg = base_config(PaneStyle::Gutter);
+    cfg.color_enabled = true;
+    cfg.group_colors[0] = "\x1b[38;5;111m".to_string();
+    let out = apply_pane(lines, &groups, &cfg);
+    assert!(
+        out[0].starts_with("\x1b[38;5;111m") && out[0].contains("\x1b[0m"),
+        "colored prefix must open with the group fg escape and reset after the glyph; got: {:?}",
+        out[0]
     );
 }
 

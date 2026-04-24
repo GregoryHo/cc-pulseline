@@ -63,6 +63,9 @@ pub struct PaneSection {
     pub max_width: usize,
     #[serde(default = "default_pane_cc_margin")]
     pub cc_margin: usize,
+    /// Emit a blank row after Identity. Orthogonal to `style`.
+    #[serde(default)]
+    pub identity_spacing: bool,
 }
 
 impl Default for PaneSection {
@@ -74,6 +77,7 @@ impl Default for PaneSection {
             min_width: default_pane_min_width(),
             max_width: default_pane_max_width(),
             cc_margin: default_pane_cc_margin(),
+            identity_spacing: false,
         }
     }
 }
@@ -428,16 +432,24 @@ enabled = true
 max_lines = 2
 
 [pane]
-style = "none"          # "none" | "rail" | "box" — wrap output in a Unicode frame
-# "terminal" mode works under Claude Code when cc_margin is set (default 4).
-# Without the margin, lines at the raw terminal width trigger wrap and break
-# multi-line statusline rendering.
+# Group marker style. All add zero extra rows except rail/box, which add 3-5.
+#   "none"    — no grouping marker (flat)
+#   "rail"    — left-side ╭ ├ ╰ guide with vertical │ continuation (+3-5 rows)
+#   "box"     — full-width ─── Label ─── dividers between groups (+3-4 rows)
+#   "gutter"  — 2-col Nerd Font icon per line (   󰈙  , etc.)
+#   "labeled" — 3-letter lowercase tag per line (id  · / cfg · / bdg · / act ·)
+#   "bullet"  — single glyph per line (● / ○ / ◆ / ▸)
+#   "pill"    — reverse-video bracketed tag per line ( ID / CF / $$ / AC )
+style = "none"
+# identity_spacing = false  # add a blank row after Identity, any style
+#
+# Width only applies to rail/box (which draw horizontal rulers). Prefix styles
+# ignore these fields.
 width_mode = "auto"     # "auto" | "terminal" | "fixed"
 # fixed_width = 100     # only used when width_mode = "fixed"
 min_width = 60          # skip framing when terminal can't fit this many cols
 max_width = 160         # clamp auto-sized frames to this many cols
 # cc_margin = 4         # cols subtracted from detected width in "terminal" mode
-                        # to stay below CC's statusline slot (tune up if still wraps)
 "#
 }
 
@@ -459,6 +471,7 @@ pub struct ProjectPaneOverride {
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub cc_margin: Option<usize>,
+    pub identity_spacing: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -747,6 +760,9 @@ pub fn merge_configs(
         if let Some(v) = pane.cc_margin {
             user.pane.cc_margin = v;
         }
+        if let Some(v) = pane.identity_spacing {
+            user.pane.identity_spacing = v;
+        }
     }
 
     user
@@ -979,6 +995,7 @@ pub struct RenderConfig {
     pub pane_min_width: usize,
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
+    pub pane_identity_spacing: bool,
 }
 
 impl Default for RenderConfig {
@@ -1033,6 +1050,7 @@ impl Default for RenderConfig {
             pane_min_width: 60,
             pane_max_width: 140,
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
+            pane_identity_spacing: false,
         }
     }
 }
@@ -1041,6 +1059,10 @@ fn parse_pane_style(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
         "box" => PaneStyle::Box,
         "rail" => PaneStyle::Rail,
+        "gutter" => PaneStyle::Gutter,
+        "labeled" => PaneStyle::Labeled,
+        "bullet" => PaneStyle::Bullet,
+        "pill" => PaneStyle::Pill,
         _ => PaneStyle::None,
     }
 }
@@ -1162,6 +1184,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_min_width: pulseline.pane.min_width,
         pane_max_width: pulseline.pane.max_width,
         pane_cc_margin: pulseline.pane.cc_margin,
+        pane_identity_spacing: pulseline.pane.identity_spacing,
         ..RenderConfig::default()
     }
 }

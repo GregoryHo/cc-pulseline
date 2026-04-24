@@ -2,13 +2,21 @@ use std::ops::Range;
 
 use crate::config::GlyphMode;
 
-use super::color::visible_width;
+use super::color::{colorize, visible_width};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneStyle {
     None,
     Rail,
     Box,
+    /// Per-line 2-col Nerd Font icon gutter (e.g. `  Opus 4.7 ...`).
+    Gutter,
+    /// Per-line 3-letter text label + middot (e.g. `id  · Opus 4.7 ...`).
+    Labeled,
+    /// Per-line single-char bullet (e.g. `●  Opus 4.7 ...`).
+    Bullet,
+    /// Per-line reverse-video "tag" pill (e.g. ` ID  Opus 4.7 ...`).
+    Pill,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +57,18 @@ pub struct PaneConfig {
     pub glyph_mode: GlyphMode,
     pub terminal_width: Option<usize>,
     pub cc_margin: usize,
+    /// ANSI fg-color escapes per group, indexed by `LineKind as usize`:
+    /// [Identity, Config, Budget, Activity]. Used by Gutter / Labeled /
+    /// Bullet / Pill styles to tier-color their prefixes. Empty strings
+    /// mean "don't emit color" — degrades cleanly under `NO_COLOR`.
+    pub group_colors: [String; 4],
+    /// When true, the prefix styles (Gutter/Labeled/Bullet/Pill) also
+    /// emit colored prefixes. Matches the semantics of `color_enabled`
+    /// elsewhere in `RenderConfig`.
+    pub color_enabled: bool,
+    /// When true, emit a blank row after the Identity group. Orthogonal
+    /// to `style` — combines with any non-None style.
+    pub identity_spacing: bool,
 }
 
 /// Insert group separators around `lines`:
@@ -88,7 +108,104 @@ pub fn apply_pane(
     match cfg.style {
         PaneStyle::Box => render_box(&grouped, &lines, cfg, g),
         PaneStyle::Rail => render_rail(&grouped, g),
+        PaneStyle::Gutter | PaneStyle::Labeled | PaneStyle::Bullet | PaneStyle::Pill => {
+            render_prefixed(&lines, groups, cfg)
+        }
         PaneStyle::None => lines,
+    }
+}
+
+/// Per-line prefix styles: Gutter / Labeled / Bullet / Pill. All share the
+/// same shape — prepend a group-specific prefix to every content line. No
+/// extra rows introduced (except the optional `identity_spacing` blank).
+fn render_prefixed(
+    lines: &[String],
+    groups: &[(LineKind, Range<usize>)],
+    cfg: &PaneConfig,
+) -> Vec<String> {
+    let extra = if cfg.identity_spacing { 1 } else { 0 };
+    let mut out: Vec<String> = Vec::with_capacity(lines.len() + extra);
+
+    for (kind, range) in groups {
+        let prefix = build_prefix(*kind, cfg);
+        for idx in range.start..range.end {
+            if let Some(line) = lines.get(idx) {
+                out.push(format!("{prefix}{line}"));
+            }
+        }
+        if cfg.identity_spacing && matches!(kind, LineKind::Identity) {
+            out.push(String::new());
+        }
+    }
+    out
+}
+
+fn build_prefix(kind: LineKind, cfg: &PaneConfig) -> String {
+    let glyph = prefix_glyph(cfg.style, kind, cfg.glyph_mode);
+    let color = &cfg.group_colors[group_idx(kind)];
+    let tint = cfg.color_enabled && !color.is_empty();
+    let colored = colorize(&glyph, color, tint);
+    // Pill wraps the colored prefix in reverse video. The `\x1b[7m` must come
+    // before the fg-color escape so the terminal swaps fg↔bg using the tinted
+    // color as bg; the RESET inside `colored` closes both attributes at once.
+    if matches!(cfg.style, PaneStyle::Pill) && tint {
+        format!("\x1b[7m{colored}")
+    } else {
+        colored
+    }
+}
+
+const fn group_idx(kind: LineKind) -> usize {
+    match kind {
+        LineKind::Identity => 0,
+        LineKind::Config => 1,
+        LineKind::Budget => 2,
+        LineKind::Activity => 3,
+    }
+}
+
+/// Returns `(icon, ascii)` base glyphs for `(style, kind)`. Callers choose
+/// the mode-appropriate string and apply style-specific framing (spacing,
+/// middot, brackets) in `prefix_glyph`.
+fn glyph_pair(style: PaneStyle, kind: LineKind) -> (&'static str, &'static str) {
+    use LineKind::{Activity, Budget, Config, Identity};
+    use PaneStyle::{Bullet, Gutter, Labeled, Pill};
+    match (style, kind) {
+        // Gutter — Nerd Font icons: user / cog / dollar / bolt.
+        (Gutter, Identity) => ("\u{f007}", "ID"),
+        (Gutter, Config) => ("\u{f013}", "CF"),
+        (Gutter, Budget) => ("\u{f155}", "$$"),
+        (Gutter, Activity) => ("\u{f0e7}", "AC"),
+        // Labeled — mode-agnostic 3-letter tags.
+        (Labeled, Identity) => ("id ", "id "),
+        (Labeled, Config) => ("cfg", "cfg"),
+        (Labeled, Budget) => ("bdg", "bdg"),
+        (Labeled, Activity) => ("act", "act"),
+        // Bullet — solid/hollow/diamond/triangle with ASCII fallback.
+        (Bullet, Identity) => ("●", "*"),
+        (Bullet, Config) => ("○", "o"),
+        (Bullet, Budget) => ("◆", "#"),
+        (Bullet, Activity) => ("▸", ">"),
+        // Pill — mode-agnostic 2-char tags (wrapped in spaces at frame time).
+        (Pill, Identity) => ("ID", "ID"),
+        (Pill, Config) => ("CF", "CF"),
+        (Pill, Budget) => ("$$", "$$"),
+        (Pill, Activity) => ("AC", "AC"),
+        _ => ("", ""),
+    }
+}
+
+fn prefix_glyph(style: PaneStyle, kind: LineKind, mode: GlyphMode) -> String {
+    let (icon, ascii) = glyph_pair(style, kind);
+    let base = match mode {
+        GlyphMode::Icon => icon,
+        GlyphMode::Ascii => ascii,
+    };
+    match style {
+        PaneStyle::Gutter | PaneStyle::Bullet => format!("{base}  "),
+        PaneStyle::Labeled => format!("{base} · "),
+        PaneStyle::Pill => format!(" {base}  "),
+        _ => String::new(),
     }
 }
 

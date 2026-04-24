@@ -64,12 +64,15 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         groups.push((LineKind::Activity, activity_start..lines.len()));
     }
 
-    // Box mode has no side borders; rail prefixes 2 cols. Deduct only what the
-    // active style consumes so width degradation sizes content correctly.
+    // Deduct the active style's left overhead from the degradation budget so
+    // content + prefix together fit the terminal. Box/None add no prefix;
+    // rail/bullet/gutter add ~2-3 cols; labeled/pill consume 5-6 cols.
     let pane_active = !matches!(config.pane_style, PaneStyle::None);
     let style_overhead = match config.pane_style {
-        PaneStyle::Rail => 2,
-        PaneStyle::Box | PaneStyle::None => 0,
+        PaneStyle::None | PaneStyle::Box => 0,
+        PaneStyle::Rail | PaneStyle::Bullet | PaneStyle::Gutter => 3,
+        PaneStyle::Pill => 5,
+        PaneStyle::Labeled => 6,
     };
     let effective_width = config
         .terminal_width
@@ -107,6 +110,16 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
             kinds: vec![LineKind::Activity],
         },
     ];
+    // Tier-color map indexed by group (Identity/Config/Budget/Activity).
+    // Pane prefixes pick from these to color their glyphs.
+    let p = &config.palette;
+    let group_colors = [
+        p.stable_blue.clone(), // Identity
+        p.structural.clone(),  // Config
+        p.primary.clone(),     // Budget
+        p.active_cyan.clone(), // Activity
+    ];
+
     PaneConfig {
         style: config.pane_style,
         width_mode: config.pane_width_mode,
@@ -116,6 +129,9 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
         glyph_mode: config.glyph_mode,
         terminal_width: config.terminal_width,
         cc_margin: config.pane_cc_margin,
+        group_colors,
+        color_enabled: config.color_enabled,
+        identity_spacing: config.pane_identity_spacing,
     }
 }
 
