@@ -569,7 +569,7 @@ fn format_context_segment(line3: &Line3Metrics, config: &RenderConfig, p: &Theme
 
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(used_pct), Some(size)) => {
-            let pct_color = p.color_for_ctx_pct(used_pct);
+            let pct_color = p.color_for_ctx_pct(used_pct, Some(size));
 
             let used_tokens = (size as f64 * used_pct as f64 / 100.0) as u64;
 

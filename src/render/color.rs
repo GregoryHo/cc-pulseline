@@ -42,14 +42,41 @@ pub struct ThemePalette {
     pub cost_high_rate: String,
 }
 
-/// Context usage thresholds for color switching.
+/// Legacy percentage thresholds — used only when `window_size` is unknown (e.g.
+/// `--preview` demos, missing stdin fields). For real rendering the token-based
+/// thresholds below apply, which stay meaningful at both 200k and 1M windows.
 pub const CTX_WARN_THRESHOLD: u64 = 55;
 pub const CTX_CRITICAL_THRESHOLD: u64 = 70;
+
+/// Warn when fewer than this many tokens remain in the context window.
+/// Chosen so the boundary matches the legacy 55% threshold at 200k (200k − 90k = 110k = 55%).
+pub const CTX_WARN_REMAINING_TOKENS: u64 = 90_000;
+
+/// Critical when fewer than this many tokens remain.
+pub const CTX_CRITICAL_REMAINING_TOKENS: u64 = 50_000;
 
 /// Semantic aliases and color-selection helpers.
 impl ThemePalette {
     /// Pick the context color for a given usage percentage.
-    pub fn color_for_ctx_pct(&self, pct: u64) -> &str {
+    ///
+    /// When `window_size` is provided, uses remaining-token thresholds — this
+    /// keeps warning semantics honest at large contexts (1M window on Opus 4.7
+    /// should not fire "warning" at 55% used = 450k left). When `window_size`
+    /// is `None`, falls back to the legacy percentage thresholds so preview
+    /// and demo paths still show the three color tiers.
+    pub fn color_for_ctx_pct(&self, pct: u64, window_size: Option<u64>) -> &str {
+        if let Some(size) = window_size {
+            let used = size.saturating_mul(pct) / 100;
+            let remaining = size.saturating_sub(used);
+            if remaining <= CTX_CRITICAL_REMAINING_TOKENS {
+                return self.ctx_critical();
+            }
+            if remaining <= CTX_WARN_REMAINING_TOKENS {
+                return self.ctx_warn();
+            }
+            return self.ctx_good();
+        }
+        // Fallback: no window known, use percentage thresholds.
         if pct >= CTX_CRITICAL_THRESHOLD {
             self.ctx_critical()
         } else if pct >= CTX_WARN_THRESHOLD {
@@ -758,5 +785,57 @@ mod tests {
         assert_eq!(p.tool_blue(), &p.active_cyan);
         assert_eq!(p.agent_purple(), &p.active_purple);
         assert_eq!(p.todo_teal(), &p.active_teal);
+    }
+
+    // ── Context threshold: token-based, window-aware (CC 2.1.77+ 1M support) ──
+
+    #[test]
+    fn ctx_200k_tiers_match_legacy_behavior() {
+        let p = ThemePalette::default();
+        let w = Some(200_000u64);
+        // 40% used → 120k remaining → good
+        assert_eq!(p.color_for_ctx_pct(40, w), p.ctx_good());
+        // 55% used → 90k remaining → warn boundary
+        assert_eq!(p.color_for_ctx_pct(55, w), p.ctx_warn());
+        // 75% used → 50k remaining → critical boundary
+        assert_eq!(p.color_for_ctx_pct(75, w), p.ctx_critical());
+        // 95% used → 10k remaining → critical
+        assert_eq!(p.color_for_ctx_pct(95, w), p.ctx_critical());
+    }
+
+    #[test]
+    fn ctx_1m_tiers_fire_correctly_at_large_window() {
+        let p = ThemePalette::default();
+        let w = Some(1_000_000u64);
+        // 55% used at 1M → 450k remaining → STILL GOOD (legacy %-threshold would
+        // have misfired warn here).
+        assert_eq!(p.color_for_ctx_pct(55, w), p.ctx_good());
+        // 85% used → 150k remaining → good (token threshold 90k not yet crossed)
+        assert_eq!(p.color_for_ctx_pct(85, w), p.ctx_good());
+        // 91% used → 90k remaining → warn boundary
+        assert_eq!(p.color_for_ctx_pct(91, w), p.ctx_warn());
+        // 95% used → 50k remaining → critical
+        assert_eq!(p.color_for_ctx_pct(95, w), p.ctx_critical());
+        // 99% used → 10k remaining → critical
+        assert_eq!(p.color_for_ctx_pct(99, w), p.ctx_critical());
+    }
+
+    #[test]
+    fn ctx_no_window_falls_back_to_percentage_thresholds() {
+        let p = ThemePalette::default();
+        // 43% → good  (was good at any window)
+        assert_eq!(p.color_for_ctx_pct(43, None), p.ctx_good());
+        // 60% → warn  (crosses CTX_WARN_THRESHOLD=55)
+        assert_eq!(p.color_for_ctx_pct(60, None), p.ctx_warn());
+        // 82% → critical  (crosses CTX_CRITICAL_THRESHOLD=70)
+        assert_eq!(p.color_for_ctx_pct(82, None), p.ctx_critical());
+    }
+
+    #[test]
+    fn ctx_saturating_math_avoids_overflow() {
+        let p = ThemePalette::default();
+        // Nonsensical pct > 100 should not panic — saturating_mul caps it.
+        // At any window, used > size → remaining = 0 → critical.
+        assert_eq!(p.color_for_ctx_pct(150, Some(200_000)), p.ctx_critical());
     }
 }

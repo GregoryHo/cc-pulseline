@@ -623,7 +623,7 @@ mod tests {
         .unwrap();
 
         // user_mcp=1 (user-extra disabled), project=1 (proj-disabled removed) → total 2
-        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 2);
+        assert_eq!(count_mcp_servers_scoped(&root, Some(&home), &[]), 2);
     }
 
     #[test]
@@ -647,7 +647,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 1);
+        assert_eq!(count_mcp_servers_scoped(&root, Some(&home), &[]), 1);
     }
 
     #[test]
@@ -681,14 +681,16 @@ mod tests {
         .unwrap();
 
         // plugin-a has 2 skill dirs, plugin-b disabled → total 2
-        assert_eq!(count_plugin_skills(&home), 2);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_skills(&paths), 2);
     }
 
     #[test]
     fn plugin_skills_missing_files() {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().join("nonexistent_home");
-        assert_eq!(count_plugin_skills(&home), 0);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_skills(&paths), 0);
     }
 
     #[test]
@@ -796,7 +798,8 @@ mod tests {
         .unwrap();
 
         // Only plugin-a is enabled → 2 handlers
-        assert_eq!(count_plugin_hooks(&home), 2);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 2);
     }
 
     #[test]
@@ -827,7 +830,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_plugin_hooks(&home), 1);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 1);
     }
 
     #[test]
@@ -853,7 +857,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_plugin_hooks(&home), 0);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 0);
     }
 
     // ── Memory file counting tests ──────────────────────────────────

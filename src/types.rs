@@ -41,6 +41,17 @@ impl StdinPayload {
             .or_else(|| self.cwd.clone())
     }
 
+    /// True when this session is inside a git worktree — via either the explicit
+    /// `--worktree` flag (CC 2.1.69) or the passive `workspace.git_worktree` field
+    /// (CC 2.1.97+). Accepts any non-null `git_worktree` value defensively.
+    pub fn is_in_worktree(&self) -> bool {
+        self.worktree.is_some()
+            || self
+                .workspace
+                .as_ref()
+                .is_some_and(|w| w.git_worktree.as_ref().is_some_and(|v| !v.is_null()))
+    }
+
     pub fn resolve_project_path_display(&self) -> String {
         let raw_path = self
             .resolve_project_path()
@@ -75,6 +86,13 @@ pub struct OutputStyleInfo {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WorkspaceInfo {
     pub current_dir: Option<String>,
+    /// CC 2.1.97+: present whenever the current directory sits in a linked git
+    /// worktree (independent of the `--worktree` CLI flag, which is `payload.worktree`).
+    ///
+    /// Type kept as `serde_json::Value` so a future CC schema change (bool → object)
+    /// does not break parsing — the renderer only checks for non-null presence.
+    #[serde(default)]
+    pub git_worktree: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -382,7 +400,7 @@ impl RenderFrame {
                 git_deleted: 0,
                 git_untracked: 0,
                 agent_name: payload.agent.as_ref().and_then(|a| a.name.clone()),
-                in_worktree: payload.worktree.is_some(),
+                in_worktree: payload.is_in_worktree(),
                 effort_level: payload.effort.as_ref().and_then(|e| e.level.clone()),
                 thinking_enabled: payload.thinking.as_ref().and_then(|t| t.enabled),
             },
