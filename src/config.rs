@@ -63,9 +63,6 @@ pub struct PaneSection {
     pub max_width: usize,
     #[serde(default = "default_pane_cc_margin")]
     pub cc_margin: usize,
-    /// Emit a blank row after Identity. Orthogonal to `style`.
-    #[serde(default)]
-    pub identity_spacing: bool,
 }
 
 impl Default for PaneSection {
@@ -77,7 +74,6 @@ impl Default for PaneSection {
             min_width: default_pane_min_width(),
             max_width: default_pane_max_width(),
             cc_margin: default_pane_cc_margin(),
-            identity_spacing: false,
         }
     }
 }
@@ -436,13 +432,9 @@ max_lines = 2
 #   "none"  — flat output, no grouping markers
 #   "zones" — one `─── activity ───` rule between state and live activity (+1 row)
 #   "grid"  — fixed label column + │ + right-padded content (table layout, 0 rows)
-#
-# (Legacy styles "rail" / "box" / "gutter" / "labeled" / "bullet" / "pill"
-#  are still accepted for backward compatibility but not recommended.)
 style = "none"
-# identity_spacing = false  # add a blank row after Identity, any style
 #
-# Width only applies to zones / box (which draw horizontal rulers).
+# Width only applies to "zones" (which draws a horizontal rule).
 width_mode = "auto"     # "auto" | "terminal" | "fixed"
 # fixed_width = 100     # only used when width_mode = "fixed"
 min_width = 60          # skip framing when terminal can't fit this many cols
@@ -469,7 +461,6 @@ pub struct ProjectPaneOverride {
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub cc_margin: Option<usize>,
-    pub identity_spacing: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -758,9 +749,6 @@ pub fn merge_configs(
         if let Some(v) = pane.cc_margin {
             user.pane.cc_margin = v;
         }
-        if let Some(v) = pane.identity_spacing {
-            user.pane.identity_spacing = v;
-        }
     }
 
     user
@@ -910,7 +898,7 @@ pub fn default_project_config_toml() -> &'static str {
 # max_lines = 2
 
 # [pane]
-# style = "box"             # "none" | "rail" | "box"
+# style = "grid"            # "none" | "zones" | "grid"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100
 # min_width = 60
@@ -993,7 +981,6 @@ pub struct RenderConfig {
     pub pane_min_width: usize,
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
-    pub pane_identity_spacing: bool,
 }
 
 impl Default for RenderConfig {
@@ -1048,19 +1035,12 @@ impl Default for RenderConfig {
             pane_min_width: 60,
             pane_max_width: 140,
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
-            pane_identity_spacing: false,
         }
     }
 }
 
 fn parse_pane_style(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
-        "box" => PaneStyle::Box,
-        "rail" => PaneStyle::Rail,
-        "gutter" => PaneStyle::Gutter,
-        "labeled" => PaneStyle::Labeled,
-        "bullet" => PaneStyle::Bullet,
-        "pill" => PaneStyle::Pill,
         "zones" => PaneStyle::Zones,
         "grid" => PaneStyle::Grid,
         _ => PaneStyle::None,
@@ -1184,7 +1164,6 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_min_width: pulseline.pane.min_width,
         pane_max_width: pulseline.pane.max_width,
         pane_cc_margin: pulseline.pane.cc_margin,
-        pane_identity_spacing: pulseline.pane.identity_spacing,
         ..RenderConfig::default()
     }
 }

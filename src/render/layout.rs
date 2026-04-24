@@ -69,10 +69,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     // rail/bullet/gutter add ~2-3 cols; labeled/pill consume 5-6 cols.
     let pane_active = !matches!(config.pane_style, PaneStyle::None);
     let style_overhead = match config.pane_style {
-        PaneStyle::None | PaneStyle::Box | PaneStyle::Zones => 0,
-        PaneStyle::Rail | PaneStyle::Bullet | PaneStyle::Gutter => 3,
-        PaneStyle::Pill => 5,
-        PaneStyle::Labeled => 6,
+        PaneStyle::None | PaneStyle::Zones => 0,
         // Grid consumes `label_width + 2` cols on the left. The default group
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
@@ -114,16 +111,6 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
             kinds: vec![LineKind::Activity],
         },
     ];
-    // Tier-color map indexed by group (Identity/Config/Budget/Activity).
-    // Pane prefixes pick from these to color their glyphs.
-    let p = &config.palette;
-    let group_colors = [
-        p.stable_blue.clone(), // Identity
-        p.structural.clone(),  // Config
-        p.primary.clone(),     // Budget
-        p.active_cyan.clone(), // Activity
-    ];
-
     PaneConfig {
         style: config.pane_style,
         width_mode: config.pane_width_mode,
@@ -133,9 +120,6 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
         glyph_mode: config.glyph_mode,
         terminal_width: config.terminal_width,
         cc_margin: config.pane_cc_margin,
-        group_colors,
-        color_enabled: config.color_enabled,
-        identity_spacing: config.pane_identity_spacing,
     }
 }
 
