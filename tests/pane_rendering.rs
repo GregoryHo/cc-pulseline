@@ -32,11 +32,12 @@ fn base_config(style: PaneStyle) -> PaneConfig {
         ],
         glyph_mode: GlyphMode::Icon,
         terminal_width: None,
+        cc_margin: 4,
     }
 }
 
 #[test]
-fn box_mode_wraps_with_borders_and_aligned_right_edge() {
+fn box_mode_emits_section_dividers_without_outer_borders() {
     let lines = vec![
         "hello world (long)".to_string(),
         "foo".to_string(),
@@ -50,47 +51,40 @@ fn box_mode_wraps_with_borders_and_aligned_right_edge() {
     let cfg = base_config(PaneStyle::Box);
     let out = apply_pane(lines, &groups, &cfg);
 
-    // 3 content lines + top border + 2 inner dividers + bottom border = 7 rendered lines.
+    // Identity content emits directly (no divider above); then divider + content
+    // for each subsequent group. 3 content + 2 dividers = 5 lines.
     assert_eq!(
         out.len(),
-        7,
-        "box mode should add top/bottom + N-1 dividers for N=3 groups; got {} lines: {:#?}",
-        out.len(),
+        5,
+        "box should emit (content_lines + N-1 dividers) with no top/bottom borders; got {:#?}",
         out
     );
-    assert!(
-        out[0].starts_with('╭'),
-        "top border must start with rounded corner; got: {:?}",
+    assert_eq!(
+        out[0], "hello world (long)",
+        "first group renders content directly (no header); got: {:?}",
         out[0]
     );
     assert!(
-        out[0].contains("Identity"),
-        "top border must display first group's label inline; got: {:?}",
-        out[0]
+        out[1].starts_with("─") && out[1].contains("Config"),
+        "divider before second group is a labeled horizontal ruler; got: {:?}",
+        out[1]
     );
     assert!(
-        out[2].starts_with('├'),
-        "inter-group divider must start with tee-left; got: {:?}",
-        out[2]
-    );
-    assert!(
-        out[2].contains("Config"),
-        "inter-group divider must include the group label; got: {:?}",
-        out[2]
-    );
-    assert!(
-        out[6].starts_with('╰'),
-        "bottom border must start with rounded corner; got: {:?}",
-        out[6]
+        out[3].starts_with("─") && out[3].contains("Budget"),
+        "divider before third group is a labeled horizontal ruler; got: {:?}",
+        out[3]
     );
 
-    let widths: Vec<usize> = out.iter().map(|s| visible_width(s)).collect();
-    let first = widths[0];
-    assert!(
-        widths.iter().all(|&w| w == first),
-        "all framed lines must align to identical visible width; got widths {:?}",
-        widths
-    );
+    for line in &out {
+        for border in ['╭', '╮', '╰', '╯', '├', '┤', '│'] {
+            assert!(
+                !line.contains(border),
+                "box no longer emits outer border glyph {:?}; got line: {:?}",
+                border,
+                line
+            );
+        }
+    }
 }
 
 #[test]
@@ -171,18 +165,10 @@ fn ascii_glyph_mode_avoids_unicode_box_chars() {
             joined
         );
     }
-    // Plausible ASCII substitutes are expected: +, -, |
-    assert!(
-        joined.contains('+'),
-        "expected '+' corner/tee chars in ASCII mode"
-    );
+    // Dividers use plain `-` in ASCII mode.
     assert!(
         joined.contains('-'),
-        "expected '-' horizontal chars in ASCII mode"
-    );
-    assert!(
-        joined.contains('|'),
-        "expected '|' vertical chars in ASCII mode"
+        "expected '-' horizontal chars in ASCII mode; got:\n{joined}"
     );
 }
 
@@ -261,33 +247,48 @@ fn render_frame_integration_applies_box_pane_when_enabled() {
         .expect("render should succeed with pane enabled");
 
     assert!(
-        lines.iter().any(|l| l.starts_with('╭')),
-        "output must contain box top-left corner when pane_style=Box; got:\n{}",
+        lines
+            .iter()
+            .any(|l| l.contains("Config") && l.contains('─')),
+        "expected a ─── Config ─── divider when pane_style=Box; got:\n{}",
         lines.join("\n")
     );
     assert!(
-        lines.iter().any(|l| l.starts_with('╰')),
-        "output must contain box bottom-left corner when pane_style=Box"
+        lines
+            .iter()
+            .any(|l| l.contains("Budget") && l.contains('─')),
+        "expected a ─── Budget ─── divider"
     );
     assert!(
-        lines.iter().any(|l| l.contains("Identity")),
-        "output must label the Identity group"
+        !lines
+            .iter()
+            .any(|l| l.contains("Identity") && l.contains('─')),
+        "Identity must not emit its own divider — CC's separator is the top edge"
     );
+    for line in &lines {
+        for border in ['╭', '╮', '╰', '╯', '├', '┤', '│'] {
+            assert!(
+                !line.contains(border),
+                "unexpected outer frame char {:?} in: {:?}",
+                border,
+                line
+            );
+        }
+    }
 
-    // All framed interior lines share the same visible width.
-    let framed_widths: Vec<usize> = lines
+    // Dividers should all be the same width (resolve_inner_width determines it).
+    let divider_widths: Vec<usize> = lines
         .iter()
-        .filter(|l| {
-            l.starts_with('╭') || l.starts_with('│') || l.starts_with('├') || l.starts_with('╰')
-        })
+        .filter(|l| l.starts_with("───"))
         .map(|l| visible_width(l))
         .collect();
-    let first = framed_widths[0];
-    assert!(
-        framed_widths.iter().all(|&w| w == first),
-        "all framed lines must be equal width; got {:?}",
-        framed_widths
-    );
+    if let Some(&first) = divider_widths.first() {
+        assert!(
+            divider_widths.iter().all(|&w| w == first),
+            "all dividers should share the same width; got {:?}",
+            divider_widths
+        );
+    }
 }
 
 #[test]
@@ -301,5 +302,97 @@ fn box_mode_disables_when_terminal_too_narrow_for_min_width() {
     assert_eq!(
         out, lines,
         "frame must silently disable when terminal can't fit min_width + border cost"
+    );
+}
+
+#[test]
+fn terminal_mode_subtracts_cc_margin_from_detected_width() {
+    // Regression: Claude Code allocates the statusline a sub-region that is
+    // narrower than the raw terminal (confirmed empirically on CC 2.1.119: a
+    // 149-col divider in a 149-col raw terminal triggered wrap and collapsed
+    // the multi-line render to 1 visible line). `cc_margin` subtracts a few
+    // cols from the detected width so every line stays strictly inside CC's
+    // slot. This test locks in that behavior — divider width MUST equal
+    // `terminal_width - cc_margin` (not `terminal_width`).
+    let lines = vec!["line-a".to_string(), "line-b".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let mut cfg = base_config(PaneStyle::Box);
+    cfg.width_mode = PaneWidth::Terminal;
+    cfg.terminal_width = Some(149);
+    cfg.cc_margin = 4;
+    cfg.min_width = 20;
+    cfg.max_width = 300;
+
+    let out = apply_pane(lines, &groups, &cfg);
+    let divider_widths: Vec<usize> = out
+        .iter()
+        .filter(|l| l.starts_with("───"))
+        .map(|l| visible_width(l))
+        .collect();
+
+    assert!(!divider_widths.is_empty());
+    assert_eq!(
+        divider_widths[0],
+        145,
+        "divider must be terminal_width (149) minus cc_margin (4) = 145, not the raw {}",
+        cfg.terminal_width.unwrap()
+    );
+}
+
+#[test]
+fn terminal_mode_cc_margin_zero_uses_raw_width() {
+    // Escape hatch: `cc_margin = 0` → divider == detected terminal width.
+    // The margin is tunable, not a hard law — future CC versions or other
+    // hosts may not need it.
+    let lines = vec!["x".to_string(), "y".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let mut cfg = base_config(PaneStyle::Box);
+    cfg.width_mode = PaneWidth::Terminal;
+    cfg.terminal_width = Some(149);
+    cfg.cc_margin = 0;
+    cfg.min_width = 20;
+    cfg.max_width = 300;
+
+    let out = apply_pane(lines, &groups, &cfg);
+    let divider = out.iter().find(|l| l.starts_with("───")).unwrap();
+    assert_eq!(visible_width(divider), 149);
+}
+
+#[test]
+fn terminal_mode_with_unknown_width_fits_to_content_not_max_width() {
+    // Scenario: width_mode = "terminal" but detection failed (terminal_width = None).
+    // This happens in Claude Code hook contexts where the spawned statusline
+    // process inherits no TTY and CC doesn't pass COLUMNS — terminal_size()
+    // returns None and /dev/tty is unreachable. The frame must fall back to
+    // content-fit (Auto behavior), NOT blow out to max_width and wrap in the
+    // real terminal.
+    let lines = vec!["short-L1".to_string(), "short-L2".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
+    let mut cfg = base_config(PaneStyle::Box);
+    cfg.width_mode = PaneWidth::Terminal;
+    cfg.terminal_width = None;
+    cfg.min_width = 20;
+    cfg.max_width = 300;
+
+    let out = apply_pane(lines, &groups, &cfg);
+    let divider_widths: Vec<usize> = out
+        .iter()
+        .filter(|l| l.starts_with("───"))
+        .map(|l| visible_width(l))
+        .collect();
+
+    assert!(!divider_widths.is_empty(), "expected at least one divider");
+    let max_divider = *divider_widths.iter().max().unwrap();
+    assert!(
+        max_divider < cfg.max_width,
+        "divider width {} should not inflate to max_width {} when terminal_width is None — \
+         frame would overflow the real terminal",
+        max_divider,
+        cfg.max_width
+    );
+    assert!(
+        max_divider <= 50,
+        "divider should fit short content (got {}), not blow up",
+        max_divider
     );
 }

@@ -45,6 +45,9 @@ fn default_pane_min_width() -> usize {
 fn default_pane_max_width() -> usize {
     140
 }
+fn default_pane_cc_margin() -> usize {
+    crate::render::pane::DEFAULT_PANE_CC_MARGIN
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaneSection {
@@ -58,6 +61,8 @@ pub struct PaneSection {
     pub min_width: usize,
     #[serde(default = "default_pane_max_width")]
     pub max_width: usize,
+    #[serde(default = "default_pane_cc_margin")]
+    pub cc_margin: usize,
 }
 
 impl Default for PaneSection {
@@ -68,6 +73,7 @@ impl Default for PaneSection {
             fixed_width: None,
             min_width: default_pane_min_width(),
             max_width: default_pane_max_width(),
+            cc_margin: default_pane_cc_margin(),
         }
     }
 }
@@ -423,10 +429,15 @@ max_lines = 2
 
 [pane]
 style = "none"          # "none" | "rail" | "box" — wrap output in a Unicode frame
+# "terminal" mode works under Claude Code when cc_margin is set (default 4).
+# Without the margin, lines at the raw terminal width trigger wrap and break
+# multi-line statusline rendering.
 width_mode = "auto"     # "auto" | "terminal" | "fixed"
 # fixed_width = 100     # only used when width_mode = "fixed"
-min_width = 60          # skip framing when terminal can't fit this many cols + 4
-max_width = 140         # clamp auto-sized frames to this many cols
+min_width = 60          # skip framing when terminal can't fit this many cols
+max_width = 160         # clamp auto-sized frames to this many cols
+# cc_margin = 4         # cols subtracted from detected width in "terminal" mode
+                        # to stay below CC's statusline slot (tune up if still wraps)
 "#
 }
 
@@ -447,6 +458,7 @@ pub struct ProjectPaneOverride {
     pub fixed_width: Option<usize>,
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
+    pub cc_margin: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -732,6 +744,9 @@ pub fn merge_configs(
         if let Some(v) = pane.max_width {
             user.pane.max_width = v;
         }
+        if let Some(v) = pane.cc_margin {
+            user.pane.cc_margin = v;
+        }
     }
 
     user
@@ -886,6 +901,7 @@ pub fn default_project_config_toml() -> &'static str {
 # fixed_width = 100
 # min_width = 60
 # max_width = 140
+# cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
 "#
 }
 
@@ -962,6 +978,7 @@ pub struct RenderConfig {
     pub pane_width_mode: PaneWidth,
     pub pane_min_width: usize,
     pub pane_max_width: usize,
+    pub pane_cc_margin: usize,
 }
 
 impl Default for RenderConfig {
@@ -1015,6 +1032,7 @@ impl Default for RenderConfig {
             pane_width_mode: PaneWidth::Auto,
             pane_min_width: 60,
             pane_max_width: 140,
+            pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
         }
     }
 }
@@ -1035,6 +1053,46 @@ fn parse_pane_width_mode(value: &str, fixed_width: Option<usize>) -> PaneWidth {
     }
 }
 
+/// Resolve the terminal width from (in priority order): the `COLUMNS` env var,
+/// then an `ioctl(TIOCGWINSZ)` probe. Returns `None` only when the process
+/// has no controlling terminal at all — e.g. a daemon or systemd unit.
+fn resolve_terminal_width(columns_env: Option<&str>, ioctl_probe: Option<u16>) -> Option<usize> {
+    if let Some(raw) = columns_env {
+        if let Ok(w) = raw.parse::<usize>() {
+            return Some(w);
+        }
+    }
+    ioctl_probe.map(|w| w as usize)
+}
+
+/// Two-stage ioctl probe: first try the inherited stdio fds via
+/// `terminal_size::terminal_size()` (checks stdout → stderr → stdin), then on
+/// Unix fall back to opening `/dev/tty` directly. The fallback is critical for
+/// the Claude Code statusline hook context, where stdin, stdout, and stderr
+/// are all pipes — in that case the inherited-fd probe returns `None`, but the
+/// process is still attached to a controlling terminal reachable via
+/// `/dev/tty`.
+fn probe_ioctl_width() -> Option<u16> {
+    if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
+        return Some(w);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        if let Ok(f) = std::fs::File::open("/dev/tty") {
+            if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size_of(f.as_fd()) {
+                return Some(w);
+            }
+        }
+    }
+    None
+}
+
+fn detect_terminal_width() -> Option<usize> {
+    let env_columns = std::env::var("COLUMNS").ok();
+    resolve_terminal_width(env_columns.as_deref(), probe_ioctl_width())
+}
+
 /// Build a RenderConfig from PulselineConfig + environment overrides.
 pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
     let color_enabled = std::env::var("NO_COLOR").is_err();
@@ -1051,7 +1109,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         &pulseline.colors,
     );
 
-    let terminal_width = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok());
+    let terminal_width = detect_terminal_width();
 
     RenderConfig {
         color_enabled,
@@ -1103,6 +1161,36 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         ),
         pane_min_width: pulseline.pane.min_width,
         pane_max_width: pulseline.pane.max_width,
+        pane_cc_margin: pulseline.pane.cc_margin,
         ..RenderConfig::default()
+    }
+}
+
+#[cfg(test)]
+mod terminal_width_tests {
+    use super::resolve_terminal_width;
+
+    #[test]
+    fn columns_env_wins_over_ioctl() {
+        assert_eq!(resolve_terminal_width(Some("120"), Some(80)), Some(120));
+    }
+
+    #[test]
+    fn falls_back_to_ioctl_when_env_absent() {
+        assert_eq!(resolve_terminal_width(None, Some(180)), Some(180));
+    }
+
+    #[test]
+    fn falls_back_to_ioctl_when_env_unparseable() {
+        assert_eq!(
+            resolve_terminal_width(Some("not-a-number"), Some(160)),
+            Some(160)
+        );
+    }
+
+    #[test]
+    fn returns_none_when_both_sources_fail() {
+        assert_eq!(resolve_terminal_width(None, None), None);
+        assert_eq!(resolve_terminal_width(Some("bogus"), None), None);
     }
 }

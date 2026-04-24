@@ -64,13 +64,16 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         groups.push((LineKind::Activity, activity_start..lines.len()));
     }
 
-    // Deduct border cost from the degradation budget so framing + content
-    // together fit within the real terminal width.
+    // Box mode has no side borders; rail prefixes 2 cols. Deduct only what the
+    // active style consumes so width degradation sizes content correctly.
     let pane_active = !matches!(config.pane_style, PaneStyle::None);
-    let effective_width = match (config.terminal_width, pane_active) {
-        (Some(w), true) if w >= config.pane_min_width + 4 => Some(w - 4),
-        (w, _) => w,
+    let style_overhead = match config.pane_style {
+        PaneStyle::Rail => 2,
+        PaneStyle::Box | PaneStyle::None => 0,
     };
+    let effective_width = config
+        .terminal_width
+        .map(|w| w.saturating_sub(style_overhead));
 
     if let Some(width) = effective_width {
         let compressed_line2 = format_line2(frame, config, " ", p);
@@ -112,6 +115,7 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
         groups: default_groups,
         glyph_mode: config.glyph_mode,
         terminal_width: config.terminal_width,
+        cc_margin: config.pane_cc_margin,
     }
 }
 
