@@ -2,7 +2,7 @@
 name = "cc-pulseline"
 version = "1.0.6"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.85"
 description = "High-performance multi-line statusline for Claude Code with deep observability"
 license = "MIT"
 authors = ["GregoryHo"]

@@ -206,7 +206,7 @@ THEMES:
 | Requirement       | Minimum           |
 | ----------------- | ----------------- |
 | Terminal          | 256-color ANSI    |
-| Rust (build)      | 1.74+             |
+| Rust (build)      | 1.85+             |
 | Node.js (npm)     | 14+               |
 
 ### Platform Support

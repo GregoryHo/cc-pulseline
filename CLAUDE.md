@@ -18,7 +18,7 @@ cargo fmt --check             # Format check (CI-enforced)
 cargo bench          # Run benchmarks (benches/render_pipeline.rs)
 ```
 
-The project uses Rust 2021 edition (MSRV 1.74) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
+The project uses Rust 2021 edition (MSRV 1.85) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
 
 ### CLI Flags
 
