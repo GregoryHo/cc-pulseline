@@ -104,6 +104,27 @@ Provides unique icon colors for each L2 metric, enabling fast visual scanning. C
 | `COST_MED_RATE` | 221 | Burn rate $10-50/h |
 | `COST_HIGH_RATE` | 201 | Burn rate >$50/h |
 
+### Strata Tier -- Two-Tier Chrome Split (state vs activity)
+
+The strata tier tints the `|` separator on a per-row basis when
+`pane.tonal_strata = true` (default). Two values per theme variant:
+
+| Field | Tokyo Night Dark | Tokyo Night Light | Use |
+|-------|------------------|-------------------|-----|
+| `strata_state` | 238 | 253 | Identity / Config / Budget / Quota rows |
+| `strata_activity` | 103 | 246 | Tools / Agents / Todos rows |
+
+Strata is **chrome, not value** — these colors live below the emphasis
+tiers and never render data. Theme authors hand-pick both values per
+variant; a CI lint enforces `|state − activity| ≥ 3` on the ansi256
+scale so no shipped theme can collapse the contract. See
+`designs/tonal-strata-redesign.md` for the full spec and per-theme
+rationale.
+
+**Custom themes that omit the fields** fall back to `separator` /
+`structural` and emit a one-time warning pointing at the missing field
+names — existing customizations keep rendering.
+
 ### Legacy Aliases
 
 For backward compatibility, old names map to the new tier system:
@@ -124,7 +145,7 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) -- replaced by emphasis tiers and rate-based cost coloring.
 
-## Tier Summary (6 types, ~25 unique colors)
+## Tier Summary (7 types, ~28 unique fields)
 
 | Tier | Colors | Purpose | Status |
 |------|--------|---------|--------|
@@ -134,6 +155,7 @@ For backward compatibility, old names map to the new tier system:
 | INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Added |
 | Emphasis | 4x2 themes | Gray hierarchy | Light values revised |
 | Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
+| Strata | 2x2 themes (state/activity) | Per-row separator chrome | **Added (28-field palette)** |
 
 ## Element Mapping
 
@@ -329,7 +351,7 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    cp src/themes/echo-sub-zero.json ~/.claude/pulseline/themes/my-theme.json
    ```
 
-2. Edit `palette_mapping` — these are the 26 ANSI 256-color codes that control rendering:
+2. Edit `palette_mapping` — these are the 28 ANSI 256-color codes that control rendering:
 
    | Field | Purpose |
    |-------|---------|
@@ -359,6 +381,13 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    | `cost_low_rate` | Burn rate <$10/h |
    | `cost_med_rate` | Burn rate $10-50/h |
    | `cost_high_rate` | Burn rate >$50/h |
+   | `strata_state` | Chrome on the `\|` for state rows (L1/L2/L3/Quota) |
+   | `strata_activity` | Chrome on the `\|` for activity rows (Tools/Agents/Todos) |
+
+   The strata pair must satisfy `\|state − activity\| ≥ 3` on the ansi256
+   scale; the `theme_strata_contrast` test fails CI otherwise. Authors should
+   pick chrome that reads quieter than the theme's `emphasis_primary` /
+   `emphasis_secondary` so the separator never competes with values.
 
 ### Palette → UI Mapping
 
@@ -373,7 +402,8 @@ How each `palette_mapping` field connects to the rendered statusline:
  stable_green ────────────────────────────────→ G:main (clean branch)
  alert_orange ────────────────────────────────→ G:main* (dirty asterisk)
  active_coral ────────────────────────────────→ ↑2 ↓1 (ahead/behind)
- emphasis_separator ──────────────────────────→ | (pipes between segments)
+ emphasis_separator ──────────────────────────→ | (default pipe color when tonal_strata = false)
+ strata_state ────────────────────────────────→ | (pipes on L1/L2/L3/Quota when tonal_strata = true)
 
                                                L2: Config Counts
  indicator_claude_md ─┐                        ┌→ 󰈙 (CLAUDE.md icon)
@@ -410,6 +440,7 @@ How each `palette_mapping` field connects to the rendered statusline:
  active_purple ───────────────────────────────→ A:Explore [haiku]: ...
  active_teal ─────────────────────────────────→ TODO:Fixing auth bug
  completed_check ─────────────────────────────→ ✓ All todos complete
+ strata_activity ─────────────────────────────→ | (pipes on activity rows when tonal_strata = true)
 ```
 
 ### JSON File Structure
@@ -421,7 +452,7 @@ theme.json
 ├── "author"               (string, optional)
 ├── "description"          (string, optional)
 │
-├── "palette_mapping"      ★ REQUIRED — the 26 ANSI color codes that control rendering
+├── "palette_mapping"      ★ REQUIRED — the 28 ANSI color codes that control rendering
 │   ├── emphasis_primary        (u8) ─── brightest text: token values, counts
 │   ├── emphasis_secondary      (u8) ─── supporting: style, version, project, targets
 │   ├── emphasis_structural     (u8) ─── labels, icons, metadata text
@@ -447,13 +478,17 @@ theme.json
 │   ├── cost_base               (u8) ─── total cost display
 │   ├── cost_low_rate           (u8) ─── burn <$10/h
 │   ├── cost_med_rate           (u8) ─── burn $10-50/h
-│   └── cost_high_rate          (u8) ─── burn >$50/h
+│   ├── cost_high_rate          (u8) ─── burn >$50/h
+│   ├── strata_state            (u8) ─── chrome on `|` for state rows
+│   └── strata_activity         (u8) ─── chrome on `|` for activity rows
 │
 ├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
 │   ├── primary            (u8)
 │   ├── secondary          (u8)
 │   ├── structural         (u8)
-│   └── separator          (u8)
+│   ├── separator          (u8)
+│   ├── strata_state       (u8, optional — falls back to dark variant if absent)
+│   └── strata_activity    (u8, optional — falls back to dark variant if absent)
 │
 ├── "colors"               (optional — design documentation, not consumed by code)
 ├── "element_mapping"      (optional — documents which UI element uses which color)

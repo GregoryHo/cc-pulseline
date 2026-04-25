@@ -763,6 +763,18 @@ fn print_palette_map(theme_arg: Option<&str>) {
         ],
         color_on,
     );
+    print_field_section(
+        "Strata",
+        &[
+            (code(&p.strata_state), "strata_state", &p.strata_state),
+            (
+                code(&p.strata_activity),
+                "strata_activity",
+                &p.strata_activity,
+            ),
+        ],
+        color_on,
+    );
 
     // ── Helper functions ──
 

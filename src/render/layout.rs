@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::Range;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,25 +19,47 @@ use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
 /// Used in width degradation to determine what counts as "activity" lines.
 const CORE_LINE_COUNT: usize = 3;
 
+/// Borrow `base` or yield an owned variant whose `separator` is overridden with
+/// the row-appropriate strata tier. See `designs/tonal-strata-redesign.md`:
+/// `is_activity = true` → `strata_activity`, otherwise → `strata_state`.
+fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_, ThemePalette> {
+    if !tonal {
+        return Cow::Borrowed(base);
+    }
+    let mut out = base.clone();
+    out.separator = if is_activity {
+        base.strata_activity.clone()
+    } else {
+        base.strata_state.clone()
+    };
+    Cow::Owned(out)
+}
+
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let color = config.color_enabled;
-    let p = &config.palette;
+    let base_palette = &config.palette;
+    let tonal = config.pane_tonal_strata;
+
+    // Two strata tiers, not four: state rows (Identity/Config/Budget/Quota)
+    // share `p_state`; activity rows (Tools/Agents/Todos) get `p_activity`.
+    let p_state = tinted_palette(base_palette, false, tonal);
+    let p_activity = tinted_palette(base_palette, true, tonal);
 
     let mut lines: Vec<String> = Vec::new();
     let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
 
     let start = lines.len();
-    lines.push(format_line1(frame, config, p));
+    lines.push(format_line1(frame, config, &p_state));
     groups.push((LineKind::Identity, start..lines.len()));
 
     let start = lines.len();
-    lines.push(format_line2(frame, config, " | ", p));
+    lines.push(format_line2(frame, config, " | ", &p_state));
     groups.push((LineKind::Config, start..lines.len()));
 
     let start = lines.len();
-    lines.push(format_line3(frame, config, p));
+    lines.push(format_line3(frame, config, &p_state));
     if config.show_quota {
-        if let Some(line) = format_quota_line(&frame.quota, config, p) {
+        if let Some(line) = format_quota_line(&frame.quota, config, &p_state) {
             lines.push(line);
         }
     }
@@ -45,20 +68,20 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let activity_start = lines.len();
     if config.show_tools {
         if !frame.completed_tools.is_empty() {
-            lines.extend(format_completed_tool_lines(frame, config, p));
+            lines.extend(format_completed_tool_lines(frame, config, &p_activity));
         }
         if !frame.tools.is_empty() {
-            lines.push(format_recent_tool_line(frame, config, p));
+            lines.push(format_recent_tool_line(frame, config, &p_activity));
         }
     }
     if config.show_agents {
         for agent in frame.agents.iter().take(config.max_agent_lines) {
-            lines.push(format_agent_line(agent, config, p));
+            lines.push(format_agent_line(agent, config, &p_activity));
         }
     }
     if config.show_todo {
         if let Some(todo) = &frame.todo {
-            lines.extend(format_todo_lines(todo, config, p));
+            lines.extend(format_todo_lines(todo, config, &p_activity));
         }
     }
     if lines.len() > activity_start {
@@ -83,7 +106,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         .map(|w| w.saturating_sub(style_overhead));
 
     if let Some(width) = effective_width {
-        let compressed_line2 = format_line2(frame, config, " ", p);
+        let compressed_line2 = format_line2(frame, config, " ", &p_state);
         lines =
             apply_width_degradation(lines, width, &config.degrade_order, compressed_line2, color);
     }

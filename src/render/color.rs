@@ -40,6 +40,9 @@ pub struct ThemePalette {
     pub cost_low_rate: String,
     pub cost_med_rate: String,
     pub cost_high_rate: String,
+    // Tonal strata — chrome tier for the `|` separator (state vs activity rows).
+    pub strata_state: String,
+    pub strata_activity: String,
 }
 
 /// Legacy percentage thresholds — used only when `window_size` is unknown (e.g.
@@ -193,15 +196,26 @@ struct PresetColors {
     cost_low_rate: u8,
     cost_med_rate: u8,
     cost_high_rate: u8,
+    /// Optional in JSON — built-in themes set both, custom themes may omit.
+    /// Missing fields fall back to `separator` / `structural` in `build_palette`.
+    #[serde(default)]
+    strata_state: Option<u8>,
+    #[serde(default)]
+    strata_activity: Option<u8>,
 }
 
-/// Light variant emphasis overrides (only 4 fields differ from dark).
+/// Light variant emphasis overrides (only 4 fields differ from dark, plus
+/// optional strata pair when the light variant should diverge from dark).
 #[derive(Deserialize)]
 struct LightEmphasis {
     primary: u8,
     secondary: u8,
     structural: u8,
     separator: u8,
+    #[serde(default)]
+    strata_state: Option<u8>,
+    #[serde(default)]
+    strata_activity: Option<u8>,
 }
 
 /// Top-level theme JSON file structure.
@@ -230,6 +244,8 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             secondary: le.secondary,
             structural: le.structural,
             separator: le.separator,
+            strata_state: le.strata_state.or(dark.strata_state),
+            strata_activity: le.strata_activity.or(dark.strata_activity),
             ..dark
         },
         None => dark,
@@ -366,6 +382,9 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         cost_low_rate: ansi256(preset.cost_low_rate),
         cost_med_rate: ansi256(preset.cost_med_rate),
         cost_high_rate: ansi256(preset.cost_high_rate),
+        // Custom themes may omit strata fields → fall back to baseline chrome.
+        strata_state: ansi256(preset.strata_state.unwrap_or(preset.separator)),
+        strata_activity: ansi256(preset.strata_activity.unwrap_or(preset.structural)),
     }
 }
 
@@ -404,6 +423,26 @@ pub fn apply_color_overrides(palette: &mut ThemePalette, overrides: &ColorsConfi
     apply!(cost_low_rate);
     apply!(cost_med_rate);
     apply!(cost_high_rate);
+    apply!(strata_state);
+    apply!(strata_activity);
+}
+
+/// Emit one warning per custom theme name that omits the strata fields.
+/// Authors need the signal once; users don't need it on every render tick.
+fn warn_strata_fallback_once(theme_name: &str) {
+    type Seen = std::sync::Mutex<Vec<String>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut list) = seen.lock() {
+        if list.iter().any(|n| n == theme_name) {
+            return;
+        }
+        list.push(theme_name.to_string());
+    }
+    eprintln!(
+        "warning: custom theme \"{theme_name}\" is missing strata_state / strata_activity; \
+         falling back to separator/structural. See docs/theme-palette.md for the strata tier."
+    );
 }
 
 /// Resolve theme name + variant to a ThemePalette, with TOML overrides applied.
@@ -433,12 +472,17 @@ pub fn resolve_palette(
         other => other,
     };
 
-    let preset = load_builtin_theme(resolved_name)
-        .or_else(|| load_custom_theme(resolved_name))
-        .unwrap_or_else(|| {
-            eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
-            load_builtin_theme("tokyo-night").expect("built-in tokyo-night must exist")
-        });
+    let preset = if let Some(p) = load_builtin_theme(resolved_name) {
+        p
+    } else if let Some(p) = load_custom_theme(resolved_name) {
+        if p.dark.strata_state.is_none() || p.dark.strata_activity.is_none() {
+            warn_strata_fallback_once(resolved_name);
+        }
+        p
+    } else {
+        eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
+        load_builtin_theme("tokyo-night").expect("built-in tokyo-night must exist")
+    };
 
     let preset_colors = match resolved_variant {
         ColorTheme::Dark => &preset.dark,
@@ -447,6 +491,24 @@ pub fn resolve_palette(
     let mut palette = build_palette(preset_colors);
     apply_color_overrides(&mut palette, overrides);
     palette
+}
+
+/// Strata pair for a built-in theme variant, as authored in the JSON (no
+/// fallback substitution). Either field may be `None` if the theme JSON omits
+/// it — used by the contrast-floor lint to fail loudly on un-authored built-ins.
+/// Returns `None` for the whole pair when the name is not a built-in.
+pub fn builtin_strata_pair(name: &str, variant: ColorTheme) -> Option<(Option<u8>, Option<u8>)> {
+    let preset = load_builtin_theme(name)?;
+    let pc = match variant {
+        ColorTheme::Dark => &preset.dark,
+        ColorTheme::Light => &preset.light,
+    };
+    Some((pc.strata_state, pc.strata_activity))
+}
+
+/// All built-in theme names. Stable order matches `BUILTIN_THEMES`.
+pub fn builtin_theme_names() -> impl Iterator<Item = &'static str> {
+    BUILTIN_THEMES.iter().map(|(n, _)| *n)
 }
 
 /// Returns built-in preset names + any custom themes found in `~/.claude/pulseline/themes/`.

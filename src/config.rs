@@ -48,6 +48,9 @@ fn default_pane_max_width() -> usize {
 fn default_pane_cc_margin() -> usize {
     crate::render::pane::DEFAULT_PANE_CC_MARGIN
 }
+fn default_pane_tonal_strata() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaneSection {
@@ -63,6 +66,10 @@ pub struct PaneSection {
     pub max_width: usize,
     #[serde(default = "default_pane_cc_margin")]
     pub cc_margin: usize,
+    /// Two-tier separator tint: state rows use `strata_state`, activity rows
+    /// use `strata_activity`. See `designs/tonal-strata-redesign.md`.
+    #[serde(default = "default_pane_tonal_strata")]
+    pub tonal_strata: bool,
 }
 
 impl Default for PaneSection {
@@ -74,6 +81,7 @@ impl Default for PaneSection {
             min_width: default_pane_min_width(),
             max_width: default_pane_max_width(),
             cc_margin: default_pane_cc_margin(),
+            tonal_strata: default_pane_tonal_strata(),
         }
     }
 }
@@ -161,6 +169,11 @@ pub struct ColorsConfig {
     pub cost_med_rate: Option<u8>,
     #[serde(default)]
     pub cost_high_rate: Option<u8>,
+    // Tonal strata (chrome tier)
+    #[serde(default)]
+    pub strata_state: Option<u8>,
+    #[serde(default)]
+    pub strata_activity: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -378,7 +391,9 @@ icons = true            # nerd font icons vs ascii
 # [colors]              # Override individual ANSI 256-color codes (0-255)
 # primary = 251         # emphasis tiers
 # alert_red = 196       # alert/active/stable/indicator/cost tiers
-# See docs/theme-palette.md for all 26 field names
+# strata_state = 238    # chrome on state rows (L1/L2/L3/Quota)
+# strata_activity = 103 # chrome on activity rows (Tools/Agents/Todos)
+# See docs/theme-palette.md for all 28 field names
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -444,6 +459,12 @@ width_mode = "auto"     # "auto" | "terminal" | "fixed"
 min_width = 60          # skip framing when terminal can't fit this many cols
 max_width = 160         # clamp auto-sized frames to this many cols
 # cc_margin = 4         # cols subtracted from detected width in "terminal" mode
+
+# Per-line separator tint. When true, the `|` between segments uses a
+# theme-authored chrome pair: state rows (Identity/Config/Budget/Quota) get
+# `strata_state`, activity rows (Tools/Agents/Todos) get `strata_activity`.
+# Set to false for a fully flat baseline.
+tonal_strata = true
 "#
 }
 
@@ -465,6 +486,7 @@ pub struct ProjectPaneOverride {
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub cc_margin: Option<usize>,
+    pub tonal_strata: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -615,6 +637,8 @@ pub fn merge_configs(
         merge_color!(cost_low_rate);
         merge_color!(cost_med_rate);
         merge_color!(cost_high_rate);
+        merge_color!(strata_state);
+        merge_color!(strata_activity);
     }
 
     // Segment overrides
@@ -752,6 +776,9 @@ pub fn merge_configs(
         }
         if let Some(v) = pane.cc_margin {
             user.pane.cc_margin = v;
+        }
+        if let Some(v) = pane.tonal_strata {
+            user.pane.tonal_strata = v;
         }
     }
 
@@ -908,6 +935,7 @@ pub fn default_project_config_toml() -> &'static str {
 # min_width = 60
 # max_width = 140
 # cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
+# tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 "#
 }
 
@@ -985,6 +1013,7 @@ pub struct RenderConfig {
     pub pane_min_width: usize,
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
+    pub pane_tonal_strata: bool,
 }
 
 impl Default for RenderConfig {
@@ -1039,6 +1068,7 @@ impl Default for RenderConfig {
             pane_min_width: 60,
             pane_max_width: 140,
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
+            pane_tonal_strata: true,
         }
     }
 }
@@ -1177,6 +1207,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_min_width: pulseline.pane.min_width,
         pane_max_width: pulseline.pane.max_width,
         pane_cc_margin: pulseline.pane.cc_margin,
+        pane_tonal_strata: pulseline.pane.tonal_strata,
         ..RenderConfig::default()
     }
 }

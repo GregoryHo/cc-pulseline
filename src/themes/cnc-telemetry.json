@@ -56,14 +56,19 @@
     "cost_base":           66,
     "cost_low_rate":       238,
     "cost_med_rate":       130,
-    "cost_high_rate":      124
+    "cost_high_rate":      124,
+
+    "strata_state":        235,
+    "strata_activity":     66
   },
 
   "light_emphasis": {
     "primary": 234,
     "secondary": 241,
     "structural": 245,
-    "separator": 250
+    "separator": 250,
+    "strata_state": 250,
+    "strata_activity": 245
   },
 
   "usage_logic": {

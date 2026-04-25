@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Tonal strata — palette-native 2-tier chrome** — `ThemePalette` gains two hand-authored fields, `strata_state` and `strata_activity`, that tint the `|` separator differently on state rows (Identity / Config / Budget / Quota) versus activity rows (Tools / Agents / Todos). All 9 built-in themes now ship a chrome pair for both dark and light variants. A new `tests/theme_strata_contrast.rs` lint enforces `|state − activity| ≥ 3` on the ansi256 scale so no shipped theme can collapse the contract. See `designs/tonal-strata-redesign.md` for the design record and per-theme rationale
+- **`pane.tonal_strata` ships on by default** — Replaces the prior opt-in 4-way `LineKind→palette` mapping (audited as collapsing to 2–3 visually distinct tiers on every theme; see design doc) with the palette-native 2-tier split. The `pane.tonal_strata` config flag is preserved (`true` = the new behavior, `false` = a flat baseline using `emphasis_separator` on every row)
+- **Per-color overrides for strata** — `[colors]` TOML section accepts `strata_state` and `strata_activity` for fine-tuning on top of any theme preset
+- **`--palette-map` shows the Strata tier** — Field reference output ends with a `Strata` row listing both new fields and their ansi256 codes
+
+### Changed
+
+- **Theme palette grows to 28 fields** — `palette_mapping` adds `strata_state` and `strata_activity`. Custom themes that omit the fields fall back to `emphasis_separator` and `emphasis_structural` and emit a one-time warning
+
 ## [1.0.6] - 2026-03-24
 
 ### Added
