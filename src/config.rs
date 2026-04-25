@@ -1092,16 +1092,22 @@ impl Default for RenderConfig {
 
 fn parse_pane_style(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
-        "none" => PaneStyle::V1None,
+        // v1 frame styles
+        "none" | "v1-classic" => PaneStyle::V1None,
         "zones" => PaneStyle::V1Zones,
         "grid" => PaneStyle::V1Grid,
         "cards" => PaneStyle::V1Cards,
         "sections" => PaneStyle::V1Sections,
+        // v2 layout styles
+        "cockpit" => PaneStyle::V2Cockpit,
+        "console" => PaneStyle::V2Console,
+        "flightstrip" => PaneStyle::V2Flightstrip,
+        "auto" | "v2" => PaneStyle::V2Auto,
         unknown => {
             eprintln!(
                 "warning: unknown pane.style {unknown:?}; falling back to \"none\" \
-                 (valid v1 frame styles: none | zones | grid | cards | sections; \
-                 v2 layout styles arrive in the next release)"
+                 (valid styles: v1 → none | zones | grid | cards | sections; \
+                 v2 → cockpit | console | flightstrip | auto)"
             );
             PaneStyle::V1None
         }

@@ -145,6 +145,18 @@ impl ThemePalette {
     pub fn ctx_critical(&self) -> &str {
         &self.alert_red
     }
+    /// Quota threshold ladder — `≥85% → critical`, `≥50% → warn`, else good.
+    /// Used by both v1 `format_quota_period` and v2 quota cells so the colors
+    /// stay consistent across layouts.
+    pub fn color_for_quota_pct(&self, pct: f64) -> &str {
+        if pct >= 85.0 {
+            self.ctx_critical()
+        } else if pct >= 50.0 {
+            self.ctx_warn()
+        } else {
+            self.ctx_good()
+        }
+    }
     pub fn tool_blue(&self) -> &str {
         &self.active_cyan
     }

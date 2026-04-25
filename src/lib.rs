@@ -86,6 +86,19 @@ impl PulseLineRunner {
             frame.line3.output_speed_toks_per_sec = state.update_output_speed(output_tokens);
         }
 
+        // Sparkline source. Dedup consecutive identical samples so an idle
+        // statusline doesn't flatten the trail with one repeated value.
+        if let Some(pct) = frame.line3.context_used_percentage {
+            let sample = pct.min(100) as u8;
+            if state.ctx_history.back() != Some(&sample) {
+                state.push_ctx_sample(sample);
+            }
+        }
+        // Only v2 layouts read `frame.ctx_history`; skip the copy for v1.
+        if config.pane_style.is_v2() {
+            frame.ctx_history = state.ctx_history.iter().copied().collect();
+        }
+
         let lines = render::layout::render_frame(&frame, &config);
 
         // Save cache to disk

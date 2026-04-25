@@ -1,7 +1,7 @@
 pub mod cache;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -15,6 +15,11 @@ use crate::{
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
 
 const MAX_RECENT_TOOLS_CAP: usize = 10;
+
+/// Maximum number of CTX% samples retained for the v2 sparkline. The widget
+/// draws the most-recent 12 (6 cells × 2 samples), but we keep a few extra so
+/// brief stale-cache windows don't blank the trail.
+pub const MAX_CTX_HISTORY: usize = 30;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionState {
@@ -40,6 +45,8 @@ pub struct SessionState {
     pub last_output_tokens: Option<u64>,
     pub last_output_token_time_ms: Option<u64>,
     pub output_speed_toks_per_sec: Option<f64>,
+    // v2 sparkline source: rolling window of CTX% samples.
+    pub ctx_history: VecDeque<u8>,
 }
 
 impl SessionState {
@@ -62,7 +69,16 @@ impl SessionState {
             self.last_output_tokens = None;
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
+            self.ctx_history.clear();
         }
+    }
+
+    /// Push a fresh CTX% sample, discarding the oldest when at capacity.
+    pub fn push_ctx_sample(&mut self, pct: u8) {
+        if self.ctx_history.len() == MAX_CTX_HISTORY {
+            self.ctx_history.pop_front();
+        }
+        self.ctx_history.push_back(pct.min(100));
     }
 
     /// Compute output token speed from successive payload snapshots.
@@ -420,6 +436,12 @@ impl SessionState {
         self.last_output_tokens = cache.last_output_tokens;
         self.last_output_token_time_ms = cache.last_output_token_time_ms;
         self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
+        // Defensive trim: a future cap reduction must not over-restore here.
+        let mut history = cache.ctx_history;
+        while history.len() > MAX_CTX_HISTORY {
+            history.pop_front();
+        }
+        self.ctx_history = history;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -454,6 +476,7 @@ impl SessionState {
             last_output_tokens: self.last_output_tokens,
             last_output_token_time_ms: self.last_output_token_time_ms,
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
+            ctx_history: self.ctx_history.clone(),
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),
@@ -482,12 +505,13 @@ mod tests {
 
     #[test]
     fn update_output_speed_computes_rate_within_window() {
-        let mut state = SessionState::default();
         let now = cache::now_epoch_ms();
-
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(now.saturating_sub(500));
-        state.output_speed_toks_per_sec = None;
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(now.saturating_sub(500)),
+            output_speed_toks_per_sec: None,
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(Some(150));
         assert!(result.is_some(), "should compute speed");
@@ -500,12 +524,13 @@ mod tests {
 
     #[test]
     fn update_output_speed_keeps_last_beyond_2s() {
-        let mut state = SessionState::default();
         let now = cache::now_epoch_ms();
-
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(now.saturating_sub(3000));
-        state.output_speed_toks_per_sec = Some(42.0);
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(now.saturating_sub(3000)),
+            output_speed_toks_per_sec: Some(42.0),
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(Some(200));
         assert_eq!(result, Some(42.0), "should keep last known speed");
@@ -513,11 +538,13 @@ mod tests {
 
     #[test]
     fn update_speed_resets_on_transcript_change() {
-        let mut state = SessionState::default();
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(1000);
-        state.output_speed_toks_per_sec = Some(50.0);
-        state.last_transcript_path = Some("/old/path".to_string());
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(1000),
+            output_speed_toks_per_sec: Some(50.0),
+            last_transcript_path: Some("/old/path".to_string()),
+            ..SessionState::default()
+        };
 
         state.reset_transcript_if_path_changed("/new/path");
 
@@ -528,10 +555,12 @@ mod tests {
 
     #[test]
     fn update_output_speed_none_tokens_preserves_state() {
-        let mut state = SessionState::default();
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(1000);
-        state.output_speed_toks_per_sec = Some(50.0);
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(1000),
+            output_speed_toks_per_sec: Some(50.0),
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(None);
         // Bug #2 fix: None tokens should NOT corrupt state

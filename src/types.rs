@@ -352,6 +352,10 @@ pub struct RenderFrame {
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
     pub quota: QuotaMetrics,
+    /// Rolling CTX% history (oldest → newest). v2 widgets read this for the
+    /// sparkline; v1 layouts ignore it. Populated by `PulseLineRunner` from
+    /// `SessionState.ctx_history`.
+    pub ctx_history: Vec<u8>,
 }
 
 impl RenderFrame {
@@ -443,6 +447,7 @@ impl RenderFrame {
                     QuotaMetrics::from_rate_limits(rl, now_secs)
                 })
                 .unwrap_or_default(),
+            ctx_history: Vec::new(),
         }
     }
 }

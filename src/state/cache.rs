@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fs,
     hash::{DefaultHasher, Hash, Hasher},
     path::PathBuf,
@@ -53,6 +53,10 @@ pub struct SessionCache {
     pub last_output_token_time_ms: Option<u64>,
     #[serde(default)]
     pub output_speed_toks_per_sec: Option<f64>,
+    // v2 cockpit/console widgets — last N CTX% samples for the sparkline.
+    // Older caches lack this field; serde default makes it backward-compatible.
+    #[serde(default)]
+    pub ctx_history: VecDeque<u8>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

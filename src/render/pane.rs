@@ -28,6 +28,33 @@ pub enum PaneStyle {
     /// container with explicit internal dividers — cheaper than Cards
     /// (no double-border gaps).
     V1Sections,
+    /// v2: 3-row instrument cluster (default after the v2 flip).
+    /// Identity headline + cluster (gauge, sparkline, rate, cost, quota)
+    /// + activity ticker.
+    V2Cockpit,
+    /// v2: 4-5 row framed dashboard (highest "quality feel"). Best when
+    /// statusline is ≥130 cols. Wraps content in `╭─╮ │ ╰─╯`.
+    V2Console,
+    /// v2: dense 2-row strip for narrow IDE statuslines.
+    V2Flightstrip,
+    /// v2: width-bracket resolver — picks console/cockpit/flightstrip per
+    /// terminal width on every render tick.
+    V2Auto,
+}
+
+impl PaneStyle {
+    /// Returns true for the v2 instrument-cluster layouts (cockpit, console,
+    /// flightstrip, auto). v2 layouts own the entire rendering pipeline and
+    /// bypass `apply_pane`.
+    pub fn is_v2(self) -> bool {
+        matches!(
+            self,
+            PaneStyle::V2Cockpit
+                | PaneStyle::V2Console
+                | PaneStyle::V2Flightstrip
+                | PaneStyle::V2Auto
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +106,7 @@ pub fn apply_pane(
     groups: &[(LineKind, Range<usize>)],
     cfg: &PaneConfig,
 ) -> Vec<String> {
-    if matches!(cfg.style, PaneStyle::V1None) {
+    if matches!(cfg.style, PaneStyle::V1None) || cfg.style.is_v2() {
         return lines;
     }
     if lines.is_empty() || cfg.groups.is_empty() {
@@ -103,7 +130,13 @@ pub fn apply_pane(
         PaneStyle::V1Grid => frames::v1::grid::render(&lines, groups, cfg, g),
         PaneStyle::V1Cards => frames::v1::cards::render(&lines, groups, cfg, g),
         PaneStyle::V1Sections => frames::v1::sections::render(&lines, groups, cfg, g),
-        PaneStyle::V1None => lines,
+        // v2 styles bypass apply_pane (handled at the top of this fn) and
+        // V1None means "no decoration" — both paths return raw lines.
+        PaneStyle::V1None
+        | PaneStyle::V2Cockpit
+        | PaneStyle::V2Console
+        | PaneStyle::V2Flightstrip
+        | PaneStyle::V2Auto => lines,
     }
 }
 

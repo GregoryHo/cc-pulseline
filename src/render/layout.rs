@@ -12,6 +12,7 @@ use super::fmt::{
     format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
     sanitize_single_line,
 };
+use super::frames::v2;
 use super::icons::*;
 use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
 
@@ -36,6 +37,25 @@ fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_
 }
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
+    // v2 layouts own the entire pipeline — they never go through the v1
+    // line-builder + pane-frame chain.
+    if config.pane_style.is_v2() {
+        let palette = &config.palette;
+        return match config.pane_style {
+            PaneStyle::V2Cockpit => v2::cockpit::render(frame, config, palette),
+            PaneStyle::V2Console => v2::console::render(frame, config, palette),
+            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, config, palette),
+            PaneStyle::V2Auto => v2::auto::render(frame, config, palette),
+            // Exhaustive enumeration: adding a new V2 variant must update this
+            // match (compile error) instead of silently rendering blank.
+            PaneStyle::V1None
+            | PaneStyle::V1Zones
+            | PaneStyle::V1Grid
+            | PaneStyle::V1Cards
+            | PaneStyle::V1Sections => unreachable!("is_v2() gates this branch"),
+        };
+    }
+
     let color = config.color_enabled;
     let base_palette = &config.palette;
     let tonal = config.pane_tonal_strata;
@@ -100,6 +120,11 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
         // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
         PaneStyle::V1Cards | PaneStyle::V1Sections => 16,
+        // v2 styles never reach this branch — they returned above.
+        PaneStyle::V2Cockpit
+        | PaneStyle::V2Console
+        | PaneStyle::V2Flightstrip
+        | PaneStyle::V2Auto => 0,
     };
     let effective_width = config
         .terminal_width
@@ -468,7 +493,7 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     parts.join(&sep)
 }
 
-fn format_line2(
+pub(crate) fn format_line2(
     frame: &RenderFrame,
     config: &RenderConfig,
     separator: &str,
@@ -822,13 +847,7 @@ fn format_quota_period(
 
     match pct {
         Some(pct_val) => {
-            let pct_color = if pct_val >= 85.0 {
-                p.ctx_critical()
-            } else if pct_val >= 50.0 {
-                p.ctx_warn()
-            } else {
-                p.ctx_good()
-            };
+            let pct_color = p.color_for_quota_pct(pct_val);
 
             let pct_str = colorize(&format!("{pct_val:.0}%"), pct_color, color);
             let label_str = colorize(&format!("{label}:"), &p.secondary, color);
