@@ -9,6 +9,7 @@ use crate::{
 use super::color::{colorize, take_visible_chars, visible_width, ThemePalette, RESET};
 use super::fmt::{
     format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
+    sanitize_single_line,
 };
 use super::icons::*;
 use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
@@ -64,9 +65,8 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         groups.push((LineKind::Activity, activity_start..lines.len()));
     }
 
-    // Deduct the active style's left overhead from the degradation budget so
-    // content + prefix together fit the terminal. Box/None add no prefix;
-    // rail/bullet/gutter add ~2-3 cols; labeled/pill consume 5-6 cols.
+    // Deduct the active style's horizontal overhead from the degradation
+    // budget so content + decoration together fit the terminal.
     let pane_active = !matches!(config.pane_style, PaneStyle::None);
     let style_overhead = match config.pane_style {
         PaneStyle::None | PaneStyle::Zones => 0,
@@ -74,6 +74,9 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
         PaneStyle::Grid => 12,
+        // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
+        // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
+        PaneStyle::Cards | PaneStyle::Sections => 16,
     };
     let effective_width = config
         .terminal_width
@@ -166,7 +169,11 @@ fn format_recent_tool_line(frame: &RenderFrame, config: &RenderConfig, p: &Theme
             let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), p.tool_blue(), color);
             let name_str = colorize(&tool.name, p.tool_blue(), color);
             if let Some(target) = &tool.target {
-                let target_str = colorize(&format!(": {target}"), &p.secondary, color);
+                // Tool targets MUST be single-line (pane styles render one string
+                // per terminal row). Ingestion sanitizes fresh targets; this guard
+                // also cleans stale cache entries written by older binaries.
+                let safe_target = sanitize_single_line(target);
+                let target_str = colorize(&format!(": {safe_target}"), &p.secondary, color);
                 format!("{prefix}{name_str}{target_str}")
             } else {
                 format!("{prefix}{name_str}")

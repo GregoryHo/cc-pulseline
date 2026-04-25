@@ -106,6 +106,194 @@ fn grid_continuation_rows_blank_the_label() {
 }
 
 #[test]
+fn sections_ascii_fallback_uses_plus_and_dash() {
+    let lines = vec!["alpha".to_string(), "act".to_string()];
+    let groups = vec![(LineKind::Identity, 0..1), (LineKind::Activity, 1..2)];
+    let mut cfg = base_config(PaneStyle::Sections);
+    cfg.glyph_mode = GlyphMode::Ascii;
+    let out = apply_pane(lines, &groups, &cfg);
+
+    let joined = out.join("\n");
+    for glyph in ["╭", "╮", "╰", "╯", "─", "│", "├", "┤", "┬", "┴", "┼"] {
+        assert!(
+            !joined.contains(glyph),
+            "ASCII mode must not emit Unicode glyph {:?}; got:\n{}",
+            glyph,
+            joined
+        );
+    }
+    assert!(joined.contains('+') && joined.contains('-') && joined.contains('|'));
+}
+
+#[test]
+fn cards_emits_one_frame_per_group() {
+    let lines = vec![
+        "alpha".to_string(),
+        "longer beta".to_string(),
+        "gamma".to_string(),
+        "act-1".to_string(),
+        "act-2".to_string(),
+    ];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..3),
+        (LineKind::Activity, 3..5),
+    ];
+    let cfg = base_config(PaneStyle::Cards);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    // 4 non-empty groups × (top + bottom) = 8 decoration rows + 5 content rows = 13.
+    assert_eq!(out.len(), 13, "cards count; got {:#?}", out);
+
+    // Every card opens with ╭ and closes with ╰ — never the frame's ├ middle.
+    let tops: Vec<_> = out.iter().filter(|l| l.starts_with('╭')).collect();
+    let bottoms: Vec<_> = out.iter().filter(|l| l.starts_with('╰')).collect();
+    let mids: Vec<_> = out.iter().filter(|l| l.starts_with('├')).collect();
+    assert_eq!(tops.len(), 4, "one ╭ top per group");
+    assert_eq!(bottoms.len(), 4, "one ╰ bottom per group");
+    assert!(mids.is_empty(), "cards must not emit ├─┼─┤ mid-separators");
+
+    // All tops are the same width — shared global label_width + content_width.
+    let top_widths: Vec<usize> = tops.iter().map(|s| visible_width(s)).collect();
+    assert!(
+        top_widths.iter().all(|&w| w == top_widths[0]),
+        "all card tops must share visible width (aligned columns); got {:?}",
+        top_widths
+    );
+
+    // The first card contains Identity with its content, flanked by ╭ / ╰.
+    assert!(out[0].starts_with('╭'), "first row = Identity top");
+    assert!(
+        out[1].starts_with("│ Identity"),
+        "Identity content row: {:?}",
+        out[1]
+    );
+    assert!(out[2].starts_with('╰'), "Identity bottom");
+    assert!(out[3].starts_with('╭'), "Config top immediately after");
+}
+
+#[test]
+fn cards_skips_empty_groups() {
+    let lines = vec!["alpha".to_string(), "beta".to_string()];
+    // Budget group range is empty (2..2); should NOT emit a card for it.
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..2),
+    ];
+    let cfg = base_config(PaneStyle::Cards);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    // 2 non-empty groups × 2 decoration + 2 content = 6 rows.
+    assert_eq!(out.len(), 6);
+    let tops = out.iter().filter(|l| l.starts_with('╭')).count();
+    assert_eq!(tops, 2, "empty group must not get its own card");
+}
+
+#[test]
+fn sections_wraps_once_with_separator_between_every_group() {
+    let lines = vec![
+        "alpha".to_string(),
+        "beta".to_string(),
+        "gamma".to_string(),
+        "act-1".to_string(),
+        "act-2".to_string(),
+    ];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..3),
+        (LineKind::Activity, 3..5),
+    ];
+    let cfg = base_config(PaneStyle::Sections);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    // 5 content rows + 1 top + 3 internal separators (between 4 groups) + 1 bottom = 10 rows.
+    assert_eq!(out.len(), 10, "sections row count; got {:#?}", out);
+
+    // Exactly one ╭ top and one ╰ bottom — single outer frame.
+    let tops = out.iter().filter(|l| l.starts_with('╭')).count();
+    let bottoms = out.iter().filter(|l| l.starts_with('╰')).count();
+    assert_eq!(tops, 1, "single outer top");
+    assert_eq!(bottoms, 1, "single outer bottom");
+
+    // 3 mid-separators (between 4 groups).
+    let mids: Vec<_> = out.iter().filter(|l| l.starts_with('├')).collect();
+    assert_eq!(mids.len(), 3, "separator between every group pair");
+
+    // All outer/separator rows share visible width.
+    let frame_widths: Vec<usize> = out
+        .iter()
+        .filter(|l| l.starts_with('╭') || l.starts_with('├') || l.starts_with('╰'))
+        .map(|s| visible_width(s))
+        .collect();
+    assert!(
+        frame_widths.iter().all(|&w| w == frame_widths[0]),
+        "all frame lines share width; got {:?}",
+        frame_widths
+    );
+
+    // Layout: top / Identity / sep / Config / sep / Budget / sep / Activity×2 / bottom
+    assert!(out[0].starts_with('╭'));
+    assert!(out[1].starts_with("│ Identity"));
+    assert!(out[2].starts_with('├'));
+    assert!(out[3].starts_with("│ Config"));
+    assert!(out[4].starts_with('├'));
+    assert!(out[5].starts_with("│ Budget"));
+    assert!(out[6].starts_with('├'));
+    assert!(out[7].starts_with("│ Activity"));
+    assert!(out[8].starts_with("│          "));
+    assert!(out[9].starts_with('╰'));
+}
+
+#[test]
+fn sections_skips_empty_groups_for_separator_count() {
+    let lines = vec!["a".to_string(), "b".to_string()];
+    let groups = vec![
+        (LineKind::Identity, 0..1),
+        (LineKind::Config, 1..2),
+        (LineKind::Budget, 2..2),   // empty
+        (LineKind::Activity, 2..2), // empty
+    ];
+    let cfg = base_config(PaneStyle::Sections);
+    let out = apply_pane(lines, &groups, &cfg);
+
+    // 2 content + top + 1 sep (between 2 non-empty groups) + bottom = 5 rows.
+    assert_eq!(out.len(), 5);
+    let mids = out.iter().filter(|l| l.starts_with('├')).count();
+    assert_eq!(mids, 1, "empty groups must not trigger separators");
+}
+
+#[test]
+fn sections_parser_accepts_sections_keyword() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"[pane]
+style = "sections"
+"#,
+    )
+    .expect("toml parse");
+    let merged = merge_configs(user, &project);
+    let render_cfg = build_render_config(&merged);
+    assert_eq!(render_cfg.pane_style, PaneStyle::Sections);
+}
+
+#[test]
+fn cards_parser_accepts_cards_keyword() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"[pane]
+style = "cards"
+"#,
+    )
+    .expect("toml parse");
+    let merged = merge_configs(user, &project);
+    let render_cfg = build_render_config(&merged);
+    assert_eq!(render_cfg.pane_style, PaneStyle::Cards);
+}
+
+#[test]
 fn zones_inserts_single_rule_before_activity() {
     let lines = vec![
         "identity-line".to_string(),

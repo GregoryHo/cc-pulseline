@@ -1,3 +1,26 @@
+/// Replace control whitespace (`\n`/`\r`/`\t`) with a single space. Enforces
+/// the "one logical line = one terminal row" invariant that every pane style
+/// depends on: user-authored strings (tool targets, agent descriptions) can
+/// contain newlines, and a raw `\n` reaching stdout shatters pane alignment.
+///
+/// Returns `Cow::Borrowed` on the common path where the string already
+/// satisfies the invariant, skipping the allocation — `format_recent_tool_line`
+/// runs this on every tool every render tick, and the vast majority of targets
+/// are already clean.
+pub fn sanitize_single_line(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.bytes().any(|b| matches!(b, b'\n' | b'\r' | b'\t')) {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(
+        s.chars()
+            .map(|c| match c {
+                '\n' | '\r' | '\t' => ' ',
+                _ => c,
+            })
+            .collect(),
+    )
+}
+
 pub fn format_number(n: u64) -> String {
     if n >= 1_000_000 {
         format!("{:.1}M", n as f64 / 1_000_000.0)

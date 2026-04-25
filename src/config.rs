@@ -432,6 +432,10 @@ max_lines = 2
 #   "none"  — flat output, no grouping markers
 #   "zones" — one `─── activity ───` rule between state and live activity (+1 row)
 #   "grid"  — fixed label column + │ + right-padded content (table layout, 0 rows)
+#   "cards" — each group is its own ╭─┬─╮ card, stacked vertically (+2 rows
+#             per non-empty group, strong separation between groups)
+#   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between every group
+#             (+2 rows + 1 per gap; cheaper than cards, same per-group separation)
 style = "none"
 #
 # Width only applies to "zones" (which draws a horizontal rule).
@@ -898,7 +902,7 @@ pub fn default_project_config_toml() -> &'static str {
 # max_lines = 2
 
 # [pane]
-# style = "grid"            # "none" | "zones" | "grid"
+# style = "grid"            # "none" | "zones" | "grid" | "cards" | "sections"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100
 # min_width = 60
@@ -1041,9 +1045,18 @@ impl Default for RenderConfig {
 
 fn parse_pane_style(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
+        "none" => PaneStyle::None,
         "zones" => PaneStyle::Zones,
         "grid" => PaneStyle::Grid,
-        _ => PaneStyle::None,
+        "cards" => PaneStyle::Cards,
+        "sections" => PaneStyle::Sections,
+        unknown => {
+            eprintln!(
+                "warning: unknown pane.style {unknown:?}; falling back to \"none\" \
+                 (valid: none | zones | grid | cards | sections)"
+            );
+            PaneStyle::None
+        }
     }
 }
 

@@ -615,15 +615,15 @@ fn truncate_path(path: &str, max_chars: usize) -> String {
 
 /// Truncate a string with ellipsis if too long (char-safe).
 fn truncate_str(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
+    let sanitized = crate::render::fmt::sanitize_single_line(s);
+    let char_count = sanitized.chars().count();
     if char_count <= max_chars {
-        return s.to_string();
+        return sanitized.into_owned();
     }
     if max_chars <= 3 {
-        let truncated: String = s.chars().take(max_chars).collect();
-        return truncated;
+        return sanitized.chars().take(max_chars).collect();
     }
-    let truncated: String = s.chars().take(max_chars - 3).collect();
+    let truncated: String = sanitized.chars().take(max_chars - 3).collect();
     format!("{truncated}...")
 }
 
@@ -895,5 +895,19 @@ mod tests {
         let result = truncate_path(path, 15);
         assert!(!result.is_empty());
         assert!(result.chars().count() <= 15);
+    }
+
+    #[test]
+    fn truncate_str_strips_newlines_tabs_carriage_returns() {
+        // Regression: a Bash command like `python3 -c "\nimport sys\n..."` used
+        // to flow through into the statusline unchanged, so the real `\n` chars
+        // broke every pane style's 1-logical-line-per-row contract.
+        let multiline = "python3 -c \"\nimport sys\nfor i in range(10):\n    print(i)\"";
+        let out = truncate_str(multiline, 40);
+        assert!(!out.contains('\n'), "no raw newline: {:?}", out);
+        assert!(!out.contains('\r'));
+        assert!(!out.contains('\t'));
+        // Tab + carriage return also get folded to spaces.
+        assert_eq!(truncate_str("a\tb\rc\nd", 20), "a b c d");
     }
 }
