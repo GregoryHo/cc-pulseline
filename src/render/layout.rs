@@ -90,16 +90,16 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
 
     // Deduct the active style's horizontal overhead from the degradation
     // budget so content + decoration together fit the terminal.
-    let pane_active = !matches!(config.pane_style, PaneStyle::None);
+    let pane_active = !matches!(config.pane_style, PaneStyle::V1None);
     let style_overhead = match config.pane_style {
-        PaneStyle::None | PaneStyle::Zones => 0,
+        PaneStyle::V1None | PaneStyle::V1Zones => 0,
         // Grid consumes `label_width + 2` cols on the left. The default group
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
-        PaneStyle::Grid => 12,
+        PaneStyle::V1Grid => 12,
         // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
         // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
-        PaneStyle::Cards | PaneStyle::Sections => 16,
+        PaneStyle::V1Cards | PaneStyle::V1Sections => 16,
     };
     let effective_width = config
         .terminal_width

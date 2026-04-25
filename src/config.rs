@@ -450,14 +450,19 @@ enabled = true
 max_lines = 2
 
 [pane]
-# Group marker style:
-#   "none"  — flat output, no grouping markers
-#   "zones" — one `─── activity ───` rule between state and live activity (+1 row)
-#   "grid"  — fixed label column + │ + right-padded content (table layout, 0 rows)
-#   "cards" — each group is its own ╭─┬─╮ card, stacked vertically (+2 rows
-#             per non-empty group, strong separation between groups)
+# Group marker style.
+#
+# v1 frame styles (stable, backward-compatible):
+#   "none"     — flat output, no grouping markers
+#   "zones"    — one `─── activity ───` rule between state and activity (+1 row)
+#   "grid"     — fixed label column + │ + right-padded content (table layout, 0 rows)
+#   "cards"    — each group is its own ╭─┬─╮ card, stacked vertically
+#                (+2 rows per non-empty group; strong separation)
 #   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between every group
-#             (+2 rows + 1 per gap; cheaper than cards, same per-group separation)
+#                (+2 rows + 1 per gap; cheaper than cards, same separation)
+#
+# v2 layout styles (new, recommended) — coming next release:
+#   "cockpit" | "console" | "flightstrip" | "auto"
 style = "none"
 #
 # Width only applies to "zones" (which draws a horizontal rule).
@@ -939,7 +944,9 @@ pub fn default_project_config_toml() -> &'static str {
 # max_lines = 2
 
 # [pane]
-# style = "grid"            # "none" | "zones" | "grid" | "cards" | "sections"
+# # v1 frame styles (stable):       "none" | "zones" | "grid" | "cards" | "sections"
+# # v2 layout styles (next release): "cockpit" | "console" | "flightstrip" | "auto"
+# style = "grid"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100
 # min_width = 60
@@ -1073,7 +1080,7 @@ impl Default for RenderConfig {
                 WidthDegradeStrategy::CompressLine2,
                 WidthDegradeStrategy::CompressCoreLines,
             ],
-            pane_style: PaneStyle::None,
+            pane_style: PaneStyle::V1None,
             pane_width_mode: PaneWidth::Auto,
             pane_min_width: 60,
             pane_max_width: 140,
@@ -1085,17 +1092,18 @@ impl Default for RenderConfig {
 
 fn parse_pane_style(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
-        "none" => PaneStyle::None,
-        "zones" => PaneStyle::Zones,
-        "grid" => PaneStyle::Grid,
-        "cards" => PaneStyle::Cards,
-        "sections" => PaneStyle::Sections,
+        "none" => PaneStyle::V1None,
+        "zones" => PaneStyle::V1Zones,
+        "grid" => PaneStyle::V1Grid,
+        "cards" => PaneStyle::V1Cards,
+        "sections" => PaneStyle::V1Sections,
         unknown => {
             eprintln!(
                 "warning: unknown pane.style {unknown:?}; falling back to \"none\" \
-                 (valid: none | zones | grid | cards | sections)"
+                 (valid v1 frame styles: none | zones | grid | cards | sections; \
+                 v2 layout styles arrive in the next release)"
             );
-            PaneStyle::None
+            PaneStyle::V1None
         }
     }
 }

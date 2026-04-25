@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Per-frame pane impls split into `src/render/frames/v1/`; `PaneStyle` enum variants gain `V1` prefix. TOML strings unchanged, no behavior change. New `docs/pane-styles.md` documents the v1 frame styles
+
 ### Added
 
 - **Tonal strata — palette-native 2-tier chrome** — `ThemePalette` gains two hand-authored fields, `strata_state` and `strata_activity`, that tint the `|` separator differently on state rows (Identity / Config / Budget / Quota) versus activity rows (Tools / Agents / Todos). All 9 built-in themes now ship a chrome pair for both dark and light variants. A new `tests/theme_strata_contrast.rs` lint enforces `|state − activity| ≥ 3` on the ansi256 scale so no shipped theme can collapse the contract. See `designs/tonal-strata-redesign.md` for the design record and per-theme rationale

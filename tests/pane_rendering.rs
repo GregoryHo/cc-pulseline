@@ -48,7 +48,7 @@ fn grid_adds_label_column_with_divider_and_aligned_content() {
         (LineKind::Config, 1..2),
         (LineKind::Budget, 2..3),
     ];
-    let cfg = base_config(PaneStyle::Grid);
+    let cfg = base_config(PaneStyle::V1Grid);
     let out = apply_pane(lines, &groups, &cfg);
 
     assert_eq!(out.len(), 3, "grid adds zero rows");
@@ -84,7 +84,7 @@ fn grid_continuation_rows_blank_the_label() {
     ];
     // Single group spanning all three lines — continuations should blank the label.
     let groups = vec![(LineKind::Activity, 0..3)];
-    let mut cfg = base_config(PaneStyle::Grid);
+    let mut cfg = base_config(PaneStyle::V1Grid);
     cfg.groups = vec![PaneGroup {
         label: "Activity".into(),
         kinds: vec![LineKind::Activity],
@@ -109,7 +109,7 @@ fn grid_continuation_rows_blank_the_label() {
 fn sections_ascii_fallback_uses_plus_and_dash() {
     let lines = vec!["alpha".to_string(), "act".to_string()];
     let groups = vec![(LineKind::Identity, 0..1), (LineKind::Activity, 1..2)];
-    let mut cfg = base_config(PaneStyle::Sections);
+    let mut cfg = base_config(PaneStyle::V1Sections);
     cfg.glyph_mode = GlyphMode::Ascii;
     let out = apply_pane(lines, &groups, &cfg);
 
@@ -140,7 +140,7 @@ fn cards_emits_one_frame_per_group() {
         (LineKind::Budget, 2..3),
         (LineKind::Activity, 3..5),
     ];
-    let cfg = base_config(PaneStyle::Cards);
+    let cfg = base_config(PaneStyle::V1Cards);
     let out = apply_pane(lines, &groups, &cfg);
 
     // 4 non-empty groups × (top + bottom) = 8 decoration rows + 5 content rows = 13.
@@ -182,7 +182,7 @@ fn cards_skips_empty_groups() {
         (LineKind::Config, 1..2),
         (LineKind::Budget, 2..2),
     ];
-    let cfg = base_config(PaneStyle::Cards);
+    let cfg = base_config(PaneStyle::V1Cards);
     let out = apply_pane(lines, &groups, &cfg);
 
     // 2 non-empty groups × 2 decoration + 2 content = 6 rows.
@@ -206,7 +206,7 @@ fn sections_wraps_once_with_separator_between_every_group() {
         (LineKind::Budget, 2..3),
         (LineKind::Activity, 3..5),
     ];
-    let cfg = base_config(PaneStyle::Sections);
+    let cfg = base_config(PaneStyle::V1Sections);
     let out = apply_pane(lines, &groups, &cfg);
 
     // 5 content rows + 1 top + 3 internal separators (between 4 groups) + 1 bottom = 10 rows.
@@ -256,7 +256,7 @@ fn sections_skips_empty_groups_for_separator_count() {
         (LineKind::Budget, 2..2),   // empty
         (LineKind::Activity, 2..2), // empty
     ];
-    let cfg = base_config(PaneStyle::Sections);
+    let cfg = base_config(PaneStyle::V1Sections);
     let out = apply_pane(lines, &groups, &cfg);
 
     // 2 content + top + 1 sep (between 2 non-empty groups) + bottom = 5 rows.
@@ -276,7 +276,7 @@ style = "sections"
     .expect("toml parse");
     let merged = merge_configs(user, &project);
     let render_cfg = build_render_config(&merged);
-    assert_eq!(render_cfg.pane_style, PaneStyle::Sections);
+    assert_eq!(render_cfg.pane_style, PaneStyle::V1Sections);
 }
 
 #[test]
@@ -290,7 +290,7 @@ style = "cards"
     .expect("toml parse");
     let merged = merge_configs(user, &project);
     let render_cfg = build_render_config(&merged);
-    assert_eq!(render_cfg.pane_style, PaneStyle::Cards);
+    assert_eq!(render_cfg.pane_style, PaneStyle::V1Cards);
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn zones_inserts_single_rule_before_activity() {
         (LineKind::Budget, 2..3),
         (LineKind::Activity, 3..5),
     ];
-    let cfg = base_config(PaneStyle::Zones);
+    let cfg = base_config(PaneStyle::V1Zones);
     let out = apply_pane(lines, &groups, &cfg);
 
     // 5 content lines + 1 rule = 6 rows.
@@ -332,7 +332,7 @@ fn zones_inserts_single_rule_before_activity() {
 fn zones_omits_rule_when_no_activity() {
     let lines = vec!["identity-line".to_string(), "config-line".to_string()];
     let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
-    let cfg = base_config(PaneStyle::Zones);
+    let cfg = base_config(PaneStyle::V1Zones);
     let out = apply_pane(lines.clone(), &groups, &cfg);
     assert_eq!(
         out, lines,
@@ -344,7 +344,7 @@ fn zones_omits_rule_when_no_activity() {
 fn none_style_returns_lines_unchanged() {
     let lines = vec!["a".to_string(), "b".to_string()];
     let groups = vec![(LineKind::Identity, 0..1), (LineKind::Config, 1..2)];
-    let cfg = base_config(PaneStyle::None);
+    let cfg = base_config(PaneStyle::V1None);
     let out = apply_pane(lines.clone(), &groups, &cfg);
     assert_eq!(out, lines, "None style must be a strict passthrough");
 }
@@ -355,7 +355,7 @@ fn config_defaults_pane_style_to_none() {
     let render_cfg = build_render_config(&cfg);
     assert_eq!(
         render_cfg.pane_style,
-        PaneStyle::None,
+        PaneStyle::V1None,
         "default pane style must be None so existing users see no change"
     );
     assert_eq!(render_cfg.pane_min_width, 60);
@@ -375,7 +375,7 @@ min_width = 80
     .expect("toml parse");
     let merged = merge_configs(user, &project);
     let render_cfg = build_render_config(&merged);
-    assert_eq!(render_cfg.pane_style, PaneStyle::Grid);
+    assert_eq!(render_cfg.pane_style, PaneStyle::V1Grid);
     assert_eq!(render_cfg.pane_min_width, 80);
     assert_eq!(
         render_cfg.pane_max_width, 140,
@@ -402,7 +402,7 @@ fn terminal_mode_subtracts_cc_margin_from_detected_width() {
         (LineKind::Config, 1..2),
         (LineKind::Activity, 2..3),
     ];
-    let mut cfg = base_config(PaneStyle::Zones);
+    let mut cfg = base_config(PaneStyle::V1Zones);
     cfg.width_mode = PaneWidth::Terminal;
     cfg.terminal_width = Some(149);
     cfg.cc_margin = 4;
@@ -436,7 +436,7 @@ fn terminal_mode_cc_margin_zero_uses_raw_width() {
         (LineKind::Config, 1..2),
         (LineKind::Activity, 2..3),
     ];
-    let mut cfg = base_config(PaneStyle::Zones);
+    let mut cfg = base_config(PaneStyle::V1Zones);
     cfg.width_mode = PaneWidth::Terminal;
     cfg.terminal_width = Some(149);
     cfg.cc_margin = 0;
@@ -466,7 +466,7 @@ fn terminal_mode_with_unknown_width_fits_to_content_not_max_width() {
         (LineKind::Config, 1..2),
         (LineKind::Activity, 2..3),
     ];
-    let mut cfg = base_config(PaneStyle::Zones);
+    let mut cfg = base_config(PaneStyle::V1Zones);
     cfg.width_mode = PaneWidth::Terminal;
     cfg.terminal_width = None;
     cfg.min_width = 20;
