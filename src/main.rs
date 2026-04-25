@@ -775,6 +775,15 @@ fn print_palette_map(theme_arg: Option<&str>) {
         ],
         color_on,
     );
+    print_field_section(
+        "Aurora",
+        &[
+            (code(&p.aurora_low), "aurora_low", &p.aurora_low),
+            (code(&p.aurora_mid), "aurora_mid", &p.aurora_mid),
+            (code(&p.aurora_high), "aurora_high", &p.aurora_high),
+        ],
+        color_on,
+    );
 
     // ── Helper functions ──
 

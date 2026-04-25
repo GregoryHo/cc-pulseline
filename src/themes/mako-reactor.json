@@ -59,7 +59,11 @@
     "cost_high_rate": 196,
 
     "strata_state": 239,
-    "strata_activity": 60
+    "strata_activity": 60,
+
+    "aurora_low": 60,
+    "aurora_mid": 43,
+    "aurora_high": 220
   },
 
   "light_emphasis": {
@@ -68,7 +72,10 @@
     "structural": 245,
     "separator": 252,
     "strata_state": 252,
-    "strata_activity": 245
+    "strata_activity": 245,
+    "aurora_low": 60,
+    "aurora_mid": 43,
+    "aurora_high": 220
   },
 
   "design_notes": {

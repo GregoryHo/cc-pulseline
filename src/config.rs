@@ -174,6 +174,13 @@ pub struct ColorsConfig {
     pub strata_state: Option<u8>,
     #[serde(default)]
     pub strata_activity: Option<u8>,
+    // Aurora pulse (3-stop gradient for v2 widgets)
+    #[serde(default)]
+    pub aurora_low: Option<u8>,
+    #[serde(default)]
+    pub aurora_mid: Option<u8>,
+    #[serde(default)]
+    pub aurora_high: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -639,6 +646,9 @@ pub fn merge_configs(
         merge_color!(cost_high_rate);
         merge_color!(strata_state);
         merge_color!(strata_activity);
+        merge_color!(aurora_low);
+        merge_color!(aurora_mid);
+        merge_color!(aurora_high);
     }
 
     // Segment overrides

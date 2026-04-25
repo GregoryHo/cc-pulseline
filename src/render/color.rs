@@ -43,6 +43,10 @@ pub struct ThemePalette {
     // Tonal strata — chrome tier for the `|` separator (state vs activity rows).
     pub strata_state: String,
     pub strata_activity: String,
+    // Aurora pulse — 3-stop gradient for v2 widgets (sparklines, gauges, arcs).
+    pub aurora_low: String,
+    pub aurora_mid: String,
+    pub aurora_high: String,
 }
 
 /// Legacy percentage thresholds — used only when `window_size` is unknown (e.g.
@@ -202,10 +206,19 @@ struct PresetColors {
     strata_state: Option<u8>,
     #[serde(default)]
     strata_activity: Option<u8>,
+    /// v2 aurora pulse — 3-stop gradient. Built-in themes set all three;
+    /// custom themes may omit (fall back to `completed_check` / `active_cyan`
+    /// / `active_coral` in `build_palette`).
+    #[serde(default)]
+    aurora_low: Option<u8>,
+    #[serde(default)]
+    aurora_mid: Option<u8>,
+    #[serde(default)]
+    aurora_high: Option<u8>,
 }
 
 /// Light variant emphasis overrides (only 4 fields differ from dark, plus
-/// optional strata pair when the light variant should diverge from dark).
+/// optional strata pair and aurora triple when light should diverge from dark).
 #[derive(Deserialize)]
 struct LightEmphasis {
     primary: u8,
@@ -216,6 +229,12 @@ struct LightEmphasis {
     strata_state: Option<u8>,
     #[serde(default)]
     strata_activity: Option<u8>,
+    #[serde(default)]
+    aurora_low: Option<u8>,
+    #[serde(default)]
+    aurora_mid: Option<u8>,
+    #[serde(default)]
+    aurora_high: Option<u8>,
 }
 
 /// Top-level theme JSON file structure.
@@ -246,6 +265,9 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             separator: le.separator,
             strata_state: le.strata_state.or(dark.strata_state),
             strata_activity: le.strata_activity.or(dark.strata_activity),
+            aurora_low: le.aurora_low.or(dark.aurora_low),
+            aurora_mid: le.aurora_mid.or(dark.aurora_mid),
+            aurora_high: le.aurora_high.or(dark.aurora_high),
             ..dark
         },
         None => dark,
@@ -282,6 +304,10 @@ static BUILTIN_THEMES: &[(&str, &str)] = &[
     (
         "matte-carbon-neon",
         include_str!("../themes/matte-carbon-neon.json"),
+    ),
+    (
+        "pulseline-aurora",
+        include_str!("../themes/pulseline-aurora.json"),
     ),
 ];
 
@@ -385,6 +411,11 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         // Custom themes may omit strata fields → fall back to baseline chrome.
         strata_state: ansi256(preset.strata_state.unwrap_or(preset.separator)),
         strata_activity: ansi256(preset.strata_activity.unwrap_or(preset.structural)),
+        // Custom themes may omit aurora fields → fall back to existing semantic
+        // colours that approximate the calm → present → warming gradient.
+        aurora_low: ansi256(preset.aurora_low.unwrap_or(preset.completed_check)),
+        aurora_mid: ansi256(preset.aurora_mid.unwrap_or(preset.active_cyan)),
+        aurora_high: ansi256(preset.aurora_high.unwrap_or(preset.active_coral)),
     }
 }
 
@@ -425,6 +456,9 @@ pub fn apply_color_overrides(palette: &mut ThemePalette, overrides: &ColorsConfi
     apply!(cost_high_rate);
     apply!(strata_state);
     apply!(strata_activity);
+    apply!(aurora_low);
+    apply!(aurora_mid);
+    apply!(aurora_high);
 }
 
 /// Emit one warning per custom theme name that omits the strata fields.
@@ -442,6 +476,23 @@ fn warn_strata_fallback_once(theme_name: &str) {
     eprintln!(
         "warning: custom theme \"{theme_name}\" is missing strata_state / strata_activity; \
          falling back to separator/structural. See docs/theme-palette.md for the strata tier."
+    );
+}
+
+/// Emit one warning per custom theme name that omits aurora pulse fields.
+fn warn_aurora_fallback_once(theme_name: &str) {
+    type Seen = std::sync::Mutex<Vec<String>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut list) = seen.lock() {
+        if list.iter().any(|n| n == theme_name) {
+            return;
+        }
+        list.push(theme_name.to_string());
+    }
+    eprintln!(
+        "warning: custom theme \"{theme_name}\" is missing aurora_low / aurora_mid / aurora_high; \
+         falling back to completed_check/active_cyan/active_coral. See docs/theme-palette.md for the aurora tier."
     );
 }
 
@@ -478,6 +529,12 @@ pub fn resolve_palette(
         if p.dark.strata_state.is_none() || p.dark.strata_activity.is_none() {
             warn_strata_fallback_once(resolved_name);
         }
+        if p.dark.aurora_low.is_none()
+            || p.dark.aurora_mid.is_none()
+            || p.dark.aurora_high.is_none()
+        {
+            warn_aurora_fallback_once(resolved_name);
+        }
         p
     } else {
         eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
@@ -504,6 +561,23 @@ pub fn builtin_strata_pair(name: &str, variant: ColorTheme) -> Option<(Option<u8
         ColorTheme::Light => &preset.light,
     };
     Some((pc.strata_state, pc.strata_activity))
+}
+
+/// Aurora triple (low, mid, high) for a built-in theme variant, as authored
+/// in JSON (no fallback substitution). Any field may be `None` if the theme
+/// omits it — used by the contrast-floor lint to fail loudly on un-authored
+/// built-ins. Returns `None` for the whole triple when the name is not a
+/// built-in.
+pub fn builtin_aurora_triple(
+    name: &str,
+    variant: ColorTheme,
+) -> Option<(Option<u8>, Option<u8>, Option<u8>)> {
+    let preset = load_builtin_theme(name)?;
+    let pc = match variant {
+        ColorTheme::Dark => &preset.dark,
+        ColorTheme::Light => &preset.light,
+    };
+    Some((pc.aurora_low, pc.aurora_mid, pc.aurora_high))
 }
 
 /// All built-in theme names. Stable order matches `BUILTIN_THEMES`.
