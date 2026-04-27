@@ -27,7 +27,9 @@ pub fn render(
     config: &RenderConfig,
     p: &ThemePalette,
 ) -> Vec<String> {
-    let width = config.terminal_width.unwrap_or(usize::MAX);
+    // Unknown width → assume 120 (the cockpit's design midpoint). usize::MAX
+    // here would blow up `" ".repeat(pad)` in headline_with_pill below.
+    let width = config.terminal_width.unwrap_or(120);
 
     if width < 80 {
         return vec![shared::degraded_single_row(frame, config, p)];
@@ -37,7 +39,7 @@ pub fn render(
     lines.push(headline_with_pill(frame, config, p, width));
 
     if shared::config_row_enabled(config) {
-        let row = shared::config_row(frame, config, p);
+        let row = shared::config_row(frame, config, p, width);
         if !row.is_empty() {
             lines.push(row);
         }
@@ -93,7 +95,7 @@ fn cluster_row(
     };
     cells.push(shared::ctx_gauge_cell(&frame.line3, gauge_w, p, color));
 
-    if width >= 100 {
+    if width >= 100 && shared::sparkline_enabled(config) {
         cells.push(shared::ctx_sparkline(&frame.ctx_history, p, color));
     }
 
@@ -108,16 +110,24 @@ fn cluster_row(
 
     if config.show_cost {
         if width >= 100 {
-            cells.push(shared::cost_cell(&frame.line3, p, color));
+            cells.push(shared::cost_cell(&frame.line3, config, p));
         } else {
             cells.push(shared::cost_text_only(&frame.line3, p, color));
         }
     }
 
-    if width >= 120 && config.show_quota && config.show_quota_five_hour {
-        let q = shared::quota_text_cell(&frame.quota, p, color);
-        if !q.is_empty() {
-            cells.push(q);
+    if width >= 120 && config.show_quota {
+        if config.show_quota_five_hour {
+            let q = shared::quota_text_cell(&frame.quota, p, color);
+            if !q.is_empty() {
+                cells.push(q);
+            }
+        }
+        if config.show_quota_seven_day {
+            let q = shared::quota_seven_day_cell(&frame.quota, p, color);
+            if !q.is_empty() {
+                cells.push(q);
+            }
         }
     }
 

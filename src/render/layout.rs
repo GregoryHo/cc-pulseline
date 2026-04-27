@@ -38,14 +38,25 @@ fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     // v2 layouts own the entire pipeline — they never go through the v1
-    // line-builder + pane-frame chain.
+    // line-builder + pane-frame chain. CC allocates the statusline a sub-region
+    // narrower than the raw terminal (see DEFAULT_PANE_CC_MARGIN); without this
+    // adjustment, v2 rows render at full COLUMNS and CC's overflow detection
+    // collapses the multi-line output to a single visible line.
     if config.pane_style.is_v2() {
-        let palette = &config.palette;
-        return match config.pane_style {
-            PaneStyle::V2Cockpit => v2::cockpit::render(frame, config, palette),
-            PaneStyle::V2Console => v2::console::render(frame, config, palette),
-            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, config, palette),
-            PaneStyle::V2Auto => v2::auto::render(frame, config, palette),
+        // Only clone when an adjustment is needed; the unknown-width path
+        // borrows the caller's config straight through.
+        let adjusted = config.terminal_width.map(|w| {
+            let mut c = config.clone();
+            c.terminal_width = Some(w.saturating_sub(config.pane_cc_margin));
+            c
+        });
+        let v2_config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
+        let palette = &v2_config.palette;
+        return match v2_config.pane_style {
+            PaneStyle::V2Cockpit => v2::cockpit::render(frame, v2_config, palette),
+            PaneStyle::V2Console => v2::console::render(frame, v2_config, palette),
+            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, v2_config, palette),
+            PaneStyle::V2Auto => v2::auto::render(frame, v2_config, palette),
             // Exhaustive enumeration: adding a new V2 variant must update this
             // match (compile error) instead of silently rendering blank.
             PaneStyle::V1None
@@ -603,7 +614,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        parts.push(format_context_segment(&frame.line3, config, p));
+        parts.push(format_context_segment(
+            &frame.line3,
+            config,
+            p,
+            &frame.ctx_history,
+        ));
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -676,7 +692,12 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
     status
 }
 
-fn format_context_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
+fn format_context_segment(
+    line3: &Line3Metrics,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    history: &[u8],
+) -> String {
     let color = config.color_enabled;
     let mode = config.glyph_mode;
 
@@ -694,7 +715,19 @@ fn format_context_segment(line3: &Line3Metrics, config: &RenderConfig, p: &Theme
             let total = colorize(&format_number(size), &p.primary, color);
             let close_paren = colorize(")", &p.separator, color);
 
-            format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}")
+            // Layout-agnostic sparkline opt-in: when `show_ctx_sparkline = true`
+            // and a Nerd Font is in use, append the braille trend after CTX. The
+            // same gate fires inside the v2 layouts via `shared::sparkline_enabled`.
+            let spark = if v2::shared::sparkline_enabled(config) && !history.is_empty() {
+                format!(
+                    " {}",
+                    crate::render::widgets::sparkline::render(history, p, color)
+                )
+            } else {
+                String::new()
+            };
+
+            format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}{spark}")
         }
         _ => {
             let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), &p.structural, color);

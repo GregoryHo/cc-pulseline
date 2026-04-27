@@ -30,58 +30,58 @@ pub struct PulselineConfig {
     #[serde(default)]
     pub segments: SegmentsConfig,
     #[serde(default)]
-    pub pane: PaneSection,
+    pub layout: LayoutSection,
 }
 
-fn default_pane_style() -> String {
+fn default_layout_name() -> String {
     "none".to_string()
 }
-fn default_pane_width_mode() -> String {
+fn default_layout_width_mode() -> String {
     "auto".to_string()
 }
-fn default_pane_min_width() -> usize {
+fn default_layout_min_width() -> usize {
     60
 }
-fn default_pane_max_width() -> usize {
+fn default_layout_max_width() -> usize {
     140
 }
-fn default_pane_cc_margin() -> usize {
+fn default_layout_cc_margin() -> usize {
     crate::render::pane::DEFAULT_PANE_CC_MARGIN
 }
-fn default_pane_tonal_strata() -> bool {
+fn default_layout_tonal_strata() -> bool {
     true
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct PaneSection {
-    #[serde(default = "default_pane_style")]
-    pub style: String,
-    #[serde(default = "default_pane_width_mode")]
+pub struct LayoutSection {
+    #[serde(default = "default_layout_name")]
+    pub name: String,
+    #[serde(default = "default_layout_width_mode")]
     pub width_mode: String,
     #[serde(default)]
     pub fixed_width: Option<usize>,
-    #[serde(default = "default_pane_min_width")]
+    #[serde(default = "default_layout_min_width")]
     pub min_width: usize,
-    #[serde(default = "default_pane_max_width")]
+    #[serde(default = "default_layout_max_width")]
     pub max_width: usize,
-    #[serde(default = "default_pane_cc_margin")]
+    #[serde(default = "default_layout_cc_margin")]
     pub cc_margin: usize,
     /// Two-tier separator tint: state rows use `strata_state`, activity rows
     /// use `strata_activity`. See `designs/tonal-strata-redesign.md`.
-    #[serde(default = "default_pane_tonal_strata")]
+    #[serde(default = "default_layout_tonal_strata")]
     pub tonal_strata: bool,
 }
 
-impl Default for PaneSection {
+impl Default for LayoutSection {
     fn default() -> Self {
         Self {
-            style: default_pane_style(),
-            width_mode: default_pane_width_mode(),
+            name: default_layout_name(),
+            width_mode: default_layout_width_mode(),
             fixed_width: None,
-            min_width: default_pane_min_width(),
-            max_width: default_pane_max_width(),
-            cc_margin: default_pane_cc_margin(),
-            tonal_strata: default_pane_tonal_strata(),
+            min_width: default_layout_min_width(),
+            max_width: default_layout_max_width(),
+            cc_margin: default_layout_cc_margin(),
+            tonal_strata: default_layout_tonal_strata(),
         }
     }
 }
@@ -287,6 +287,10 @@ pub struct BudgetSegmentConfig {
     pub show_cost: bool,
     #[serde(default)]
     pub show_speed: bool,
+    /// Braille mini-trend chart of the last 12 CTX% samples. Pure Nerd Font
+    /// territory; auto-disabled when `display.icons = false`.
+    #[serde(default)]
+    pub show_ctx_sparkline: bool,
 }
 
 impl Default for BudgetSegmentConfig {
@@ -296,6 +300,7 @@ impl Default for BudgetSegmentConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            show_ctx_sparkline: false,
         }
     }
 }
@@ -429,6 +434,7 @@ show_context = true
 show_tokens = true
 show_cost = true
 show_speed = false          # output tok/s rate
+show_ctx_sparkline = false  # 6-cell braille trend chart of CTX% (Nerd Font only)
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
 enabled = false             # opt-in: requires OAuth credentials
@@ -449,21 +455,23 @@ max_lines = 2
 enabled = true
 max_lines = 2
 
-[pane]
-# Group marker style.
+[layout]
+# Which renderer arranges the lines.
 #
-# v1 frame styles (stable, backward-compatible):
+# Flat / framed (3 fixed rows: identity / config / budget):
 #   "none"     — flat output, no grouping markers
-#   "zones"    — one `─── activity ───` rule between state and activity (+1 row)
-#   "grid"     — fixed label column + │ + right-padded content (table layout, 0 rows)
-#   "cards"    — each group is its own ╭─┬─╮ card, stacked vertically
-#                (+2 rows per non-empty group; strong separation)
-#   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between every group
-#                (+2 rows + 1 per gap; cheaper than cards, same separation)
+#   "zones"    — `─── activity ───` rule between state and activity (+1 row)
+#   "grid"     — fixed label column + │ + right-padded content (table layout)
+#   "cards"    — each group is its own ╭─┬─╮ card stacked vertically
+#   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between groups
 #
-# v2 layout styles (new, recommended) — coming next release:
-#   "cockpit" | "console" | "flightstrip" | "auto"
-style = "none"
+# Instrument-cluster (widget-based, density depends on terminal width):
+#   "cockpit"     — 3-row default (identity + cluster + activity ticker)
+#   "console"     — framed dashboard, ≥130 cols recommended
+#   "flightstrip" — 2-row dense strip, narrow IDE statuslines
+#   "auto"        — width-bracket resolver: ≥130 console, ≥110 cockpit,
+#                   ≥90 flightstrip, <90 degraded cockpit
+name = "none"
 #
 # Width only applies to "zones" (which draws a horizontal rule).
 width_mode = "auto"     # "auto" | "terminal" | "fixed"
@@ -487,12 +495,12 @@ pub struct ProjectOverrideConfig {
     pub display: Option<ProjectDisplayOverride>,
     pub colors: Option<ColorsConfig>,
     pub segments: Option<ProjectSegmentsOverride>,
-    pub pane: Option<ProjectPaneOverride>,
+    pub layout: Option<ProjectLayoutOverride>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct ProjectPaneOverride {
-    pub style: Option<String>,
+pub struct ProjectLayoutOverride {
+    pub name: Option<String>,
     pub width_mode: Option<String>,
     pub fixed_width: Option<usize>,
     pub min_width: Option<usize>,
@@ -551,6 +559,7 @@ pub struct ProjectBudgetOverride {
     pub show_tokens: Option<bool>,
     pub show_cost: Option<bool>,
     pub show_speed: Option<bool>,
+    pub show_ctx_sparkline: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -729,6 +738,9 @@ pub fn merge_configs(
             if let Some(v) = budget.show_speed {
                 user.segments.budget.show_speed = v;
             }
+            if let Some(v) = budget.show_ctx_sparkline {
+                user.segments.budget.show_ctx_sparkline = v;
+            }
         }
         if let Some(quota) = &segments.quota {
             if let Some(v) = quota.enabled {
@@ -773,27 +785,27 @@ pub fn merge_configs(
         }
     }
 
-    if let Some(pane) = &project.pane {
-        if let Some(v) = &pane.style {
-            user.pane.style = v.clone();
+    if let Some(layout) = &project.layout {
+        if let Some(v) = &layout.name {
+            user.layout.name = v.clone();
         }
-        if let Some(v) = &pane.width_mode {
-            user.pane.width_mode = v.clone();
+        if let Some(v) = &layout.width_mode {
+            user.layout.width_mode = v.clone();
         }
-        if pane.fixed_width.is_some() {
-            user.pane.fixed_width = pane.fixed_width;
+        if layout.fixed_width.is_some() {
+            user.layout.fixed_width = layout.fixed_width;
         }
-        if let Some(v) = pane.min_width {
-            user.pane.min_width = v;
+        if let Some(v) = layout.min_width {
+            user.layout.min_width = v;
         }
-        if let Some(v) = pane.max_width {
-            user.pane.max_width = v;
+        if let Some(v) = layout.max_width {
+            user.layout.max_width = v;
         }
-        if let Some(v) = pane.cc_margin {
-            user.pane.cc_margin = v;
+        if let Some(v) = layout.cc_margin {
+            user.layout.cc_margin = v;
         }
-        if let Some(v) = pane.tonal_strata {
-            user.pane.tonal_strata = v;
+        if let Some(v) = layout.tonal_strata {
+            user.layout.tonal_strata = v;
         }
     }
 
@@ -943,10 +955,10 @@ pub fn default_project_config_toml() -> &'static str {
 # enabled = true
 # max_lines = 2
 
-# [pane]
-# # v1 frame styles (stable):       "none" | "zones" | "grid" | "cards" | "sections"
-# # v2 layout styles (next release): "cockpit" | "console" | "flightstrip" | "auto"
-# style = "grid"
+# [layout]
+# # Flat / framed:        "none" | "zones" | "grid" | "cards" | "sections"
+# # Instrument-cluster:   "cockpit" | "console" | "flightstrip" | "auto"
+# name = "grid"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100
 # min_width = 60
@@ -962,6 +974,12 @@ pub fn default_project_config_toml() -> &'static str {
 pub enum GlyphMode {
     Ascii,
     Icon,
+}
+
+impl GlyphMode {
+    pub fn is_icon(self) -> bool {
+        matches!(self, GlyphMode::Icon)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1007,6 +1025,7 @@ pub struct RenderConfig {
     pub show_tokens: bool,
     pub show_cost: bool,
     pub show_speed: bool,
+    pub show_ctx_sparkline: bool,
     // Quota segment toggles
     pub show_quota: bool,
     pub show_quota_five_hour: bool,
@@ -1061,6 +1080,7 @@ impl Default for RenderConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            show_ctx_sparkline: false,
             show_quota: false,
             show_quota_five_hour: true,
             show_quota_seven_day: false,
@@ -1090,24 +1110,24 @@ impl Default for RenderConfig {
     }
 }
 
-fn parse_pane_style(value: &str) -> PaneStyle {
+fn parse_layout_name(value: &str) -> PaneStyle {
     match value.to_lowercase().as_str() {
-        // v1 frame styles
-        "none" | "v1-classic" => PaneStyle::V1None,
+        // Flat / framed layouts
+        "none" => PaneStyle::V1None,
         "zones" => PaneStyle::V1Zones,
         "grid" => PaneStyle::V1Grid,
         "cards" => PaneStyle::V1Cards,
         "sections" => PaneStyle::V1Sections,
-        // v2 layout styles
+        // Instrument-cluster layouts
         "cockpit" => PaneStyle::V2Cockpit,
         "console" => PaneStyle::V2Console,
         "flightstrip" => PaneStyle::V2Flightstrip,
-        "auto" | "v2" => PaneStyle::V2Auto,
+        "auto" => PaneStyle::V2Auto,
         unknown => {
             eprintln!(
-                "warning: unknown pane.style {unknown:?}; falling back to \"none\" \
-                 (valid styles: v1 → none | zones | grid | cards | sections; \
-                 v2 → cockpit | console | flightstrip | auto)"
+                "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
+                 (valid: none | zones | grid | cards | sections | \
+                 cockpit | console | flightstrip | auto)"
             );
             PaneStyle::V1None
         }
@@ -1210,6 +1230,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tokens: pulseline.segments.budget.show_tokens,
         show_cost: pulseline.segments.budget.show_cost,
         show_speed: pulseline.segments.budget.show_speed,
+        show_ctx_sparkline: pulseline.segments.budget.show_ctx_sparkline,
         // Quota
         show_quota: pulseline.segments.quota.enabled,
         show_quota_five_hour: pulseline.segments.quota.show_five_hour,
@@ -1223,15 +1244,15 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tools: pulseline.segments.tools.enabled,
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,
-        pane_style: parse_pane_style(&pulseline.pane.style),
+        pane_style: parse_layout_name(&pulseline.layout.name),
         pane_width_mode: parse_pane_width_mode(
-            &pulseline.pane.width_mode,
-            pulseline.pane.fixed_width,
+            &pulseline.layout.width_mode,
+            pulseline.layout.fixed_width,
         ),
-        pane_min_width: pulseline.pane.min_width,
-        pane_max_width: pulseline.pane.max_width,
-        pane_cc_margin: pulseline.pane.cc_margin,
-        pane_tonal_strata: pulseline.pane.tonal_strata,
+        pane_min_width: pulseline.layout.min_width,
+        pane_max_width: pulseline.layout.max_width,
+        pane_cc_margin: pulseline.layout.cc_margin,
+        pane_tonal_strata: pulseline.layout.tonal_strata,
         ..RenderConfig::default()
     }
 }

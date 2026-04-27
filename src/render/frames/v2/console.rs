@@ -33,7 +33,8 @@ pub fn render(
     config: &RenderConfig,
     p: &ThemePalette,
 ) -> Vec<String> {
-    let width = config.terminal_width.unwrap_or(usize::MAX);
+    // Unknown width → assume 140 (console's intended bracket).
+    let width = config.terminal_width.unwrap_or(140);
 
     // Below 110 cols the framed dashboard becomes claustrophobic; defer to
     // smaller siblings rather than mangle our own borders.
@@ -53,7 +54,7 @@ pub fn render(
     lines.push(top_frame(frame, config, p, inner));
 
     if shared::config_row_enabled(config) {
-        let row = shared::config_row(frame, config, p);
+        let row = shared::config_row(frame, config, p, inner);
         if !row.is_empty() {
             lines.push(framed(&row, p, inner, color));
         }
@@ -148,8 +149,16 @@ fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePa
             )
         })
         .unwrap_or_default();
-    let spark = shared::ctx_sparkline(&frame.ctx_history, p, color);
-    format!("{label}{bar}{pct_str}{total_str}    {spark}")
+    let spark = if shared::sparkline_enabled(config) {
+        shared::ctx_sparkline(&frame.ctx_history, p, color)
+    } else {
+        String::new()
+    };
+    if spark.is_empty() {
+        format!("{label}{bar}{pct_str}{total_str}")
+    } else {
+        format!("{label}{bar}{pct_str}{total_str}    {spark}")
+    }
 }
 
 fn tok_cost_quota_row(
@@ -171,29 +180,56 @@ fn tok_cost_quota_row(
         let cost_lbl = colorize("COST  ", &p.structural, color);
         parts.push(format!(
             "{cost_lbl}{}",
-            shared::cost_cell(&frame.line3, p, color)
+            shared::cost_cell(&frame.line3, config, p)
         ));
     }
-    if config.show_quota && config.show_quota_five_hour {
-        if let Some(pct) = frame.quota.five_hour_pct {
-            let bar = widgets::gauge::render(pct as u64, QUOTA_GAUGE_WIDTH, p, color);
-            let pct_str = colorize(&format!("  {pct:.0}%"), p.color_for_quota_pct(pct), color);
-            let lbl = colorize("Q5h  ", &p.structural, color);
-            let reset_part = frame
-                .quota
-                .five_hour_reset_minutes
-                .map(|m| {
-                    colorize(
-                        &format!("  {}", crate::render::fmt::format_reset_duration(m)),
-                        &p.structural,
-                        color,
-                    )
-                })
-                .unwrap_or_default();
-            parts.push(format!("{lbl}{bar}{pct_str}{reset_part}"));
+    if config.show_quota {
+        if config.show_quota_five_hour {
+            if let Some(pct) = frame.quota.five_hour_pct {
+                parts.push(quota_gauge_segment(
+                    "Q5h  ",
+                    pct,
+                    frame.quota.five_hour_reset_minutes,
+                    p,
+                    color,
+                ));
+            }
+        }
+        if config.show_quota_seven_day {
+            if let Some(pct) = frame.quota.seven_day_pct {
+                parts.push(quota_gauge_segment(
+                    "Q7d  ",
+                    pct,
+                    frame.quota.seven_day_reset_minutes,
+                    p,
+                    color,
+                ));
+            }
         }
     }
     parts.join("    ")
+}
+
+fn quota_gauge_segment(
+    label: &str,
+    pct: f64,
+    reset_min: Option<u64>,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
+    let bar = widgets::gauge::render(pct as u64, QUOTA_GAUGE_WIDTH, p, color);
+    let pct_str = colorize(&format!("  {pct:.0}%"), p.color_for_quota_pct(pct), color);
+    let lbl = colorize(label, &p.structural, color);
+    let reset_part = reset_min
+        .map(|m| {
+            colorize(
+                &format!("  {}", crate::render::fmt::format_reset_duration(m)),
+                &p.structural,
+                color,
+            )
+        })
+        .unwrap_or_default();
+    format!("{lbl}{bar}{pct_str}{reset_part}")
 }
 
 fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
@@ -233,7 +269,7 @@ fn agent_todo_row(
             .iter()
             .take(config.max_agent_lines.max(1))
             .map(|a| {
-                let prefix = colorize("A:", p.agent_purple(), color);
+                let prefix = shared::agent_prefix(config, p);
                 let name = match &a.agent_type {
                     Some(t) => t.clone(),
                     None => a

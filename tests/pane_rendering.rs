@@ -269,8 +269,8 @@ fn sections_skips_empty_groups_for_separator_count() {
 fn sections_parser_accepts_sections_keyword() {
     let user = PulselineConfig::default();
     let project: ProjectOverrideConfig = toml::from_str(
-        r#"[pane]
-style = "sections"
+        r#"[layout]
+name = "sections"
 "#,
     )
     .expect("toml parse");
@@ -283,8 +283,8 @@ style = "sections"
 fn cards_parser_accepts_cards_keyword() {
     let user = PulselineConfig::default();
     let project: ProjectOverrideConfig = toml::from_str(
-        r#"[pane]
-style = "cards"
+        r#"[layout]
+name = "cards"
 "#,
     )
     .expect("toml parse");
@@ -367,8 +367,8 @@ fn project_config_overrides_pane_style() {
     let user = PulselineConfig::default();
     let project: ProjectOverrideConfig = toml::from_str(
         r#"
-[pane]
-style = "grid"
+[layout]
+name = "grid"
 min_width = 80
 "#,
     )

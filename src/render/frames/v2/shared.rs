@@ -10,12 +10,20 @@ use crate::render::color::{colorize, ThemePalette};
 use crate::render::fmt::{
     format_agent_elapsed, format_number, format_reset_duration, format_speed,
 };
+use crate::render::icons::{glyph, ICON_AGENT};
 use crate::render::layout;
 use crate::render::widgets;
 use crate::types::{
     AgentSummary, CompletedToolCount, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame,
     TodoSummary, ToolSummary,
 };
+
+/// CTX sparkline (braille mini-chart) is opt-in and Nerd Font only — there
+/// is no ASCII fallback that conveys the same trend information, so we hide
+/// it cleanly under `icons = false` rather than emitting boxes.
+pub fn sparkline_enabled(config: &RenderConfig) -> bool {
+    config.show_ctx_sparkline && config.glyph_mode.is_icon()
+}
 
 /// Whether at least one config-row segment is enabled.
 ///
@@ -116,13 +124,58 @@ pub fn ctx_pill(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) -> 
 /// Compact L2 config row for v2 (opt-in). Delegates to v1's `format_line2` so
 /// the icons, counts, and toggles stay in lockstep across layouts; v2 only
 /// adds a leading `CFG  ` label and uses two spaces between segments.
-pub fn config_row(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
+///
+/// Width-aware: when the assembled row exceeds `max_width`, segments are
+/// progressively turned off in low-value-first order (duration, plugins,
+/// skills, mcp, hooks, memory, rules, claude_md) until the row fits or
+/// nothing remains.
+pub fn config_row(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    max_width: usize,
+) -> String {
+    use crate::render::color::visible_width;
+
+    const DROP_ORDER: &[fn(&mut RenderConfig)] = &[
+        |c| c.show_duration = false,
+        |c| c.show_plugins = false,
+        |c| c.show_skills = false,
+        |c| c.show_mcp = false,
+        |c| c.show_hooks = false,
+        |c| c.show_memory = false,
+        |c| c.show_rules = false,
+        |c| c.show_claude_md = false,
+    ];
+
+    let prefix = colorize("CFG  ", &p.structural, config.color_enabled);
+    let prefix_w = visible_width(&prefix);
+
+    // Fast path: try with the user's config first; only clone when shrinking.
     let body = layout::format_line2(frame, config, "  ", p);
     if body.is_empty() {
         return String::new();
     }
-    let prefix = colorize("CFG  ", &p.structural, config.color_enabled);
-    format!("{prefix}{body}")
+    if prefix_w + visible_width(&body) <= max_width {
+        return format!("{prefix}{body}");
+    }
+
+    let mut shrunk = config.clone();
+    let mut last_body = String::new();
+    for drop in DROP_ORDER {
+        drop(&mut shrunk);
+        last_body = layout::format_line2(frame, &shrunk, "  ", p);
+        if last_body.is_empty() {
+            return String::new();
+        }
+        if prefix_w + visible_width(&last_body) <= max_width {
+            return format!("{prefix}{last_body}");
+        }
+    }
+    // Even after dropping every optional segment we still overflow — emit the
+    // last (still over-budget) body and let CC clip it visibly. Better than a
+    // blank row.
+    format!("{prefix}{last_body}")
 }
 
 /// CTX gauge cell — `gauge_width` cells, followed by `% used` text.
@@ -167,8 +220,11 @@ pub fn token_rate_cell(
     }
 }
 
-/// Cost cell — `$3.50 ◐` (text + arc).
-pub fn cost_cell(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) -> String {
+/// Cost cell — `$3.50 ◐` with the burn arc when icons are on; falls back to
+/// `$3.50 ($1.5/h)` text under `icons = false` so non-Nerd-Font terminals
+/// still get the same information.
+pub fn cost_cell(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
+    let color = config.color_enabled;
     let total = line3.total_cost_usd.unwrap_or(0.0);
     let per_hour = line3
         .total_duration_ms
@@ -176,25 +232,61 @@ pub fn cost_cell(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) ->
         .map(|d| total / ((d as f64) / 3_600_000.0))
         .unwrap_or(0.0);
 
-    let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color_enabled);
-    let arc = widgets::arc::render(per_hour, p, color_enabled);
-    format!("{total_str} {arc}")
+    let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color);
+    if config.glyph_mode.is_icon() {
+        let arc = widgets::arc::render(per_hour, p, color);
+        return format!("{total_str} {arc}");
+    }
+    if per_hour > 0.0 {
+        let rate = colorize(&format!("(${per_hour:.1}/h)"), &p.structural, color);
+        format!("{total_str} {rate}")
+    } else {
+        total_str
+    }
 }
 
 /// Quota text cell — `Q5h 75% 02h 0m`. Returns empty if no five-hour data.
 pub fn quota_text_cell(quota: &QuotaMetrics, p: &ThemePalette, color_enabled: bool) -> String {
-    let pct = match quota.five_hour_pct {
+    quota_text_cell_for(
+        "Q5h ",
+        quota.five_hour_pct,
+        quota.five_hour_reset_minutes,
+        p,
+        color_enabled,
+    )
+}
+
+/// Q7d sibling — same shape as `quota_text_cell` but driven by the seven-day
+/// window. Returns empty when CC didn't supply Q7d data (API users) or the
+/// user has `show_quota_seven_day = false`.
+pub fn quota_seven_day_cell(quota: &QuotaMetrics, p: &ThemePalette, color_enabled: bool) -> String {
+    quota_text_cell_for(
+        "Q7d ",
+        quota.seven_day_pct,
+        quota.seven_day_reset_minutes,
+        p,
+        color_enabled,
+    )
+}
+
+fn quota_text_cell_for(
+    label_text: &str,
+    pct: Option<f64>,
+    reset_min: Option<u64>,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let pct = match pct {
         Some(v) => v,
         None => return String::new(),
     };
-    let label = colorize("Q5h ", &p.structural, color_enabled);
+    let label = colorize(label_text, &p.structural, color_enabled);
     let pct_str = colorize(
         &format!("{pct:.0}%"),
         p.color_for_quota_pct(pct),
         color_enabled,
     );
-    let reset_part = quota
-        .five_hour_reset_minutes
+    let reset_part = reset_min
         .map(|m| {
             colorize(
                 &format!(" {}", format_reset_duration(m)),
@@ -226,7 +318,7 @@ pub fn activity_ticker(frame: &RenderFrame, config: &RenderConfig, p: &ThemePale
 
     if config.show_agents {
         for agent in frame.agents.iter().take(config.max_agent_lines) {
-            parts.push(format_agent_chip(agent, p, color));
+            parts.push(format_agent_chip(agent, config, p, color));
         }
     }
 
@@ -250,8 +342,25 @@ fn format_completed_summary(
     format!("{check}{count_str}")
 }
 
-fn format_agent_chip(agent: &AgentSummary, p: &ThemePalette, color: bool) -> String {
-    let prefix = colorize("A:", p.agent_purple(), color);
+/// `glyph(ICON_AGENT) | "A:"` colored with `agent_purple` — shared between
+/// cockpit (`format_agent_chip`) and console (`agent_todo_row`) so the
+/// glyph-vs-ascii decision lives in one place and `display.icons = false`
+/// degrades both layouts identically.
+pub fn agent_prefix(config: &RenderConfig, p: &ThemePalette) -> String {
+    colorize(
+        &glyph(config.glyph_mode, ICON_AGENT, "A:"),
+        p.agent_purple(),
+        config.color_enabled,
+    )
+}
+
+fn format_agent_chip(
+    agent: &AgentSummary,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
+    let prefix = agent_prefix(config, p);
     let name = match &agent.agent_type {
         Some(t) => t.clone(),
         None => agent
@@ -346,12 +455,47 @@ pub fn cost_text_only(line3: &Line3Metrics, p: &ThemePalette, color_enabled: boo
 
 /// Single-row fallback used by Cockpit (<80 cols) and Flightstrip (<70 cols).
 /// Identity + CTX% + cost — the irreducible minimum.
+///
+/// Width-aware: when the assembled row exceeds `config.terminal_width`,
+/// progressively trim head segments (project path → git stats → version /
+/// style) until it fits. Model + branch + CTX% + cost are always preserved.
 pub fn degraded_single_row(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
+    use crate::render::color::visible_width;
+
     let color = config.color_enabled;
-    let head = identity_headline(&frame.line1, config, p);
     let pct = frame.line3.context_used_percentage.unwrap_or(0);
     let pct_color = p.color_for_ctx_pct(pct, frame.line3.context_window_size);
     let pct_str = colorize(&format!("{pct}%"), pct_color, color);
     let cost = cost_text_only(&frame.line3, p, color);
+    let tail_w = visible_width(&pct_str) + visible_width(&cost) + 4; // two "  " seps
+    let max_head = config
+        .terminal_width
+        .map(|w| w.saturating_sub(tail_w))
+        .unwrap_or(usize::MAX);
+
+    // Drop order: trim from least-essential to most. We never drop model + branch.
+    const TRIMMERS: &[fn(&mut RenderConfig)] = &[
+        |c| c.show_project = false,
+        |c| c.show_git_stats = false,
+        |c| c.show_version = false,
+        |c| c.show_style = false,
+        |c| c.show_agent = false,
+        |c| c.show_worktree = false,
+    ];
+
+    let mut head = identity_headline(&frame.line1, config, p);
+    if visible_width(&head) <= max_head {
+        return format!("{head}  {pct_str}  {cost}");
+    }
+
+    let mut shrunk = config.clone();
+    for trim in TRIMMERS {
+        trim(&mut shrunk);
+        head = identity_headline(&frame.line1, &shrunk, p);
+        if visible_width(&head) <= max_head {
+            return format!("{head}  {pct_str}  {cost}");
+        }
+    }
+    // Even bare model+branch overflows — let CC clip rather than emit nothing.
     format!("{head}  {pct_str}  {cost}")
 }

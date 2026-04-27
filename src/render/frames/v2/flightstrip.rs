@@ -23,7 +23,8 @@ pub fn render(
     config: &RenderConfig,
     p: &ThemePalette,
 ) -> Vec<String> {
-    let width = config.terminal_width.unwrap_or(usize::MAX);
+    // Unknown width → assume 100 (flightstrip's intended bracket midpoint).
+    let width = config.terminal_width.unwrap_or(100);
 
     if width < 70 {
         return vec![shared::degraded_single_row(frame, config, p)];
@@ -75,7 +76,7 @@ fn strip_l2(
     let color = config.color_enabled;
     let mut parts: Vec<String> = Vec::new();
 
-    if width >= 90 {
+    if width >= 90 && shared::sparkline_enabled(config) {
         let spark = shared::ctx_sparkline(&frame.ctx_history, p, color);
         parts.push(spark);
     }

@@ -113,22 +113,24 @@ fn cockpit_inserts_optional_config_row_when_toggle_on() {
 
 #[test]
 fn cockpit_pushes_ctx_history_across_invocations() {
-    // Two ticks at the same session key should produce a sparkline that grows.
+    // Two ticks at the same session key should produce a sparkline that grows
+    // — but only when the user has opted in via `show_ctx_sparkline = true`.
     let tmp = build_fake_home();
     let cwd = tmp.path().to_str().unwrap();
     let mut runner = PulseLineRunner::default().with_user_home(tmp.path().join("fake_home"));
 
+    let mut cfg = cockpit_cfg(140);
+    cfg.show_ctx_sparkline = true;
+    cfg.glyph_mode = cc_pulseline::config::GlyphMode::Icon;
+
     let _ = runner
-        .run_from_str(&payload(cwd), cockpit_cfg(140))
+        .run_from_str(&payload(cwd), cfg.clone())
         .expect("first render");
 
-    // Second render: history should contain at least 2 samples internally;
-    // the sparkline is drawn into the cluster row regardless.
     let lines2 = runner
-        .run_from_str(&payload(cwd), cockpit_cfg(140))
+        .run_from_str(&payload(cwd), cfg)
         .expect("second render");
 
-    // Cluster row contains the sparkline glyph block (any U+2800..U+28FF char).
     let cluster = lines2
         .iter()
         .find(|l| l.contains("CTX"))
@@ -142,14 +144,13 @@ fn cockpit_pushes_ctx_history_across_invocations() {
 }
 
 #[test]
-fn cockpit_alias_v2_resolves_to_auto() {
-    // Pure parser smoke test — `style = "v2"` should not fall back to V1None.
+fn cockpit_layout_name_resolves_to_v2cockpit() {
     use cc_pulseline::config::{build_render_config, PulselineConfig};
     let toml_input = r#"
-[pane]
-style = "v2"
+[layout]
+name = "cockpit"
 "#;
     let parsed: PulselineConfig = toml::from_str(toml_input).expect("toml parse");
     let rendered = build_render_config(&parsed);
-    assert_eq!(rendered.pane_style, PaneStyle::V2Auto);
+    assert_eq!(rendered.pane_style, PaneStyle::V2Cockpit);
 }

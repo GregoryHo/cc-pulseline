@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`[pane]` → `[layout]`, `style` → `name` (BREAKING, pre-release)** — Config section + key rename to reflect that the choice is "which layout arranges the lines", not "frame chrome around fixed lines". The TOML enum strings (`none`/`zones`/`grid`/`cards`/`sections`/`cockpit`/`console`/`flightstrip`/`auto`) and internal `PaneStyle` Rust enum are unchanged — only the section/field labels move. v1/v2 distinction is dropped from user-facing comments; layouts are listed alphabetically (flat/framed group + instrument-cluster group) without internal-organization labels. Hard cut: existing `[pane]` blocks are silently ignored. See `designs/style-to-layout-taxonomy.md`
+- **v2 layouts now honor `display.icons`** — Hardcoded `A:` agent prefix in cockpit / console / flightstrip is replaced with `glyph(ICON_AGENT, "A:")`; cost arc (`◔◑◕●`) falls back to text rate `($X.X/h)` under `icons = false`. Sparkline emit is gated on the same axis. Every (layout × display) pair now composes cleanly
 - Per-frame pane impls split into `src/render/frames/v1/`; `PaneStyle` enum variants gain `V1` prefix. TOML strings unchanged, no behavior change. New `docs/pane-styles.md` documents the v1 frame styles
+
+### Added
+
+- **`show_ctx_sparkline` toggle** — New `[segments.budget]` opt-in (default `false`) for the 6-cell braille trend chart of CTX% history. Layout-agnostic: any layout that renders the CTX segment picks it up (cockpit / console / flightstrip cluster cells, v1 layouts append after CTX% on L3). Auto-hidden when `display.icons = false` since braille has no ASCII fallback
+- **Q7d in v2 layouts** — Cockpit cluster row and console quota row now render the seven-day quota window alongside Q5h when `show_quota_seven_day = true`. Previously the toggle was silently dropped on v2 layouts
 
 ### Added
 

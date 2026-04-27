@@ -94,8 +94,10 @@ impl PulseLineRunner {
                 state.push_ctx_sample(sample);
             }
         }
-        // Only v2 layouts read `frame.ctx_history`; skip the copy for v1.
-        if config.pane_style.is_v2() {
+        // Sparkline consumers: v2 layouts always read it; v1 layouts only when
+        // the user has opted in via `show_ctx_sparkline`. Skip the copy
+        // otherwise — it's a tight allocation hot path.
+        if config.pane_style.is_v2() || config.show_ctx_sparkline {
             frame.ctx_history = state.ctx_history.iter().copied().collect();
         }
 
