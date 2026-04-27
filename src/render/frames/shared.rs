@@ -338,20 +338,27 @@ pub fn config_row(
 pub fn ctx_gauge_cell(
     line3: &Line3Metrics,
     gauge_width: usize,
+    mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
     let pct = line3.context_used_percentage.unwrap_or(0);
     let label = colorize("CTX  ", &p.structural, color_enabled);
-    let bar = widgets::gauge::render(pct, gauge_width, p, color_enabled);
+    let bar = widgets::gauge::render(pct, gauge_width, mode, p, color_enabled);
     let pct_color = p.color_for_ctx_pct(pct, line3.context_window_size);
     let pct_str = colorize(&format!(" {pct}%"), pct_color, color_enabled);
     format!("{label}{bar}{pct_str}")
 }
 
-/// CTX sparkline glyph strip (no label) — empty when history is empty.
-pub fn ctx_sparkline(history: &[u8], p: &ThemePalette, color_enabled: bool) -> String {
-    widgets::sparkline::render(history, p, color_enabled)
+/// CTX sparkline glyph strip (no label) — empty when history is empty *or*
+/// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
+pub fn ctx_sparkline(
+    history: &[u8],
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    widgets::sparkline::render(history, mode, p, color_enabled)
 }
 
 /// Token-rate widget — "TOK 1.2K/s" with `↗` only when `speed.is_some()`.
@@ -390,7 +397,7 @@ pub fn cost_cell(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) 
 
     let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color);
     if config.glyph_mode.is_icon() {
-        let arc = widgets::arc::render(per_hour, p, color);
+        let arc = widgets::arc::render(per_hour, config.glyph_mode, p, color);
         return format!("{total_str} {arc}");
     }
     if per_hour > 0.0 {
@@ -462,7 +469,13 @@ pub fn activity_ticker(frame: &RenderFrame, config: &RenderConfig, p: &ThemePale
 
     if config.show_tools {
         if !frame.tools.is_empty() {
-            let tape = widgets::tape::render(&frame.tools, config.max_tool_lines.max(1), p, color);
+            let tape = widgets::tape::render(
+                &frame.tools,
+                config.max_tool_lines.max(1),
+                config.glyph_mode,
+                p,
+                color,
+            );
             if !tape.is_empty() {
                 parts.push(tape);
             }
@@ -596,10 +609,11 @@ pub fn completed_tool_chips(
 pub fn tools_tape(
     tools: &[ToolSummary],
     max_items: usize,
+    mode: GlyphMode,
     p: &ThemePalette,
     color: bool,
 ) -> String {
-    widgets::tape::render(tools, max_items, p, color)
+    widgets::tape::render(tools, max_items, mode, p, color)
 }
 
 /// Bare cost text — `$X.XX` colored with `cost_base`. Shared between Cockpit

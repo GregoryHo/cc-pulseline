@@ -57,7 +57,7 @@ fn strip_l1(
     } else {
         NARROW_GAUGE_WIDTH
     };
-    let gauge = crate::render::widgets::gauge::render(pct, gauge_w, p, color);
+    let gauge = crate::render::widgets::gauge::render(pct, gauge_w, config.glyph_mode, p, color);
     parts.push(format!("{pct_str} {gauge}"));
 
     if width >= 90 && config.show_cost {
@@ -77,7 +77,7 @@ fn strip_l2(
     let mut parts: Vec<String> = Vec::new();
 
     if width >= 90 && shared::sparkline_enabled(config) {
-        let spark = shared::ctx_sparkline(&frame.ctx_history, p, color);
+        let spark = shared::ctx_sparkline(&frame.ctx_history, config.glyph_mode, p, color);
         parts.push(spark);
     }
 

@@ -16,10 +16,25 @@
 //! is "doing fine," 5–15/h is "actively coding," 15–50/h is "watch out," and
 //! ≥50/h is "long parallel run." Sized so a single glyph carries information.
 
+use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
 
 /// Render the cost arc glyph with its color, given hourly burn rate (USD/h).
-pub fn render(burn_per_hour: f64, palette: &ThemePalette, color_enabled: bool) -> String {
+///
+/// **Icon-only widget.** The pictographic fill arc relies on Unicode
+/// `○ ◔ ◑ ◕ ●` which has no clean ASCII analogue at single-char width, so
+/// under `GlyphMode::Ascii` this fn returns an empty string. Callers that
+/// want a text fallback should compose `($X.X/h)` separately (see the
+/// `cost_cell` helper in `frames/shared.rs`).
+pub fn render(
+    burn_per_hour: f64,
+    mode: GlyphMode,
+    palette: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    if matches!(mode, GlyphMode::Ascii) {
+        return String::new();
+    }
     let (glyph, color) = pick(burn_per_hour, palette);
     colorize(&glyph.to_string(), color, color_enabled)
 }
@@ -104,18 +119,31 @@ mod tests {
         p.structural = "STRUCT".to_string();
         p.active_amber = "AMBER".to_string();
 
-        assert!(render(0.0, &p, true).contains("STRUCT"));
-        assert!(render(2.0, &p, true).contains("LOW"));
-        assert!(render(10.0, &p, true).contains("MID"));
-        assert!(render(20.0, &p, true).contains("AMBER"));
-        assert!(render(80.0, &p, true).contains("HIGH"));
+        assert!(render(0.0, GlyphMode::Icon, &p, true).contains("STRUCT"));
+        assert!(render(2.0, GlyphMode::Icon, &p, true).contains("LOW"));
+        assert!(render(10.0, GlyphMode::Icon, &p, true).contains("MID"));
+        assert!(render(20.0, GlyphMode::Icon, &p, true).contains("AMBER"));
+        assert!(render(80.0, GlyphMode::Icon, &p, true).contains("HIGH"));
     }
 
     #[test]
     fn render_no_color_returns_just_glyph() {
         let p = aurora_marker_palette();
-        let s = render(10.0, &p, false);
+        let s = render(10.0, GlyphMode::Icon, &p, false);
         assert_eq!(s.chars().count(), 1);
         assert_eq!(s.chars().next().unwrap(), '\u{25D1}');
+    }
+
+    #[test]
+    fn ascii_mode_returns_empty_string() {
+        let p = aurora_marker_palette();
+        // Across the entire burn-rate range, Ascii mode never emits a glyph.
+        for rate in [0.0, 1.0, 10.0, 30.0, 100.0] {
+            assert_eq!(
+                render(rate, GlyphMode::Ascii, &p, true),
+                "",
+                "rate={rate} should be empty in Ascii mode"
+            );
+        }
     }
 }

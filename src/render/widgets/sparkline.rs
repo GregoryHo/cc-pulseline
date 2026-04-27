@@ -21,6 +21,7 @@
 //! left-padded with empty cells (pattern starts toward the right edge), which
 //! reads naturally as "history is filling up."
 
+use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
 
 const SPARK_CELLS: usize = 6;
@@ -67,10 +68,23 @@ fn height_for(sample: u8) -> u8 {
 /// Renders all-`⠀` (empty) when `samples` is empty so layouts can include the
 /// widget unconditionally without leaking width.
 ///
+/// **Icon-only widget.** Braille has no ASCII equivalent that conveys the same
+/// trend information at this density, so under `GlyphMode::Ascii` this fn
+/// returns an empty string — the widget itself is the gate point so callers
+/// don't need to pre-check `glyph_mode.is_icon()`.
+///
 /// Color: when `color_enabled`, picks one of `aurora_low/mid/high` based on
 /// the *latest* sample value: <34 low, <67 mid, ≥67 high. The whole strip
 /// uses one color — per-cell gradients would muddy the slope readout.
-pub fn render(samples: &[u8], palette: &ThemePalette, color_enabled: bool) -> String {
+pub fn render(
+    samples: &[u8],
+    mode: GlyphMode,
+    palette: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    if matches!(mode, GlyphMode::Ascii) {
+        return String::new();
+    }
     let raw = render_glyphs(samples);
     if samples.is_empty() {
         return raw;
@@ -177,9 +191,9 @@ mod tests {
     #[test]
     fn render_picks_aurora_color_by_last_sample() {
         let palette = super::super::test_support::aurora_marker_palette();
-        let low = render(&[10], &palette, true);
-        let mid = render(&[40], &palette, true);
-        let high = render(&[80], &palette, true);
+        let low = render(&[10], GlyphMode::Icon, &palette, true);
+        let mid = render(&[40], GlyphMode::Icon, &palette, true);
+        let high = render(&[80], GlyphMode::Icon, &palette, true);
         assert!(low.contains("LOW"), "expected aurora_low marker in {low:?}");
         assert!(mid.contains("MID"), "expected aurora_mid marker in {mid:?}");
         assert!(
@@ -191,8 +205,25 @@ mod tests {
     #[test]
     fn render_no_color_returns_raw_glyphs() {
         let palette = super::super::test_support::aurora_marker_palette();
-        let plain = render(&[10, 20, 30], &palette, false);
+        let plain = render(&[10, 20, 30], GlyphMode::Icon, &palette, false);
         assert_eq!(plain.chars().count(), 6);
         assert!(!plain.contains('\x1b'));
+    }
+
+    #[test]
+    fn ascii_mode_returns_empty_string() {
+        let palette = super::super::test_support::aurora_marker_palette();
+        // Sparse and dense input alike — Ascii mode never emits braille.
+        assert_eq!(render(&[], GlyphMode::Ascii, &palette, true), "");
+        assert_eq!(render(&[50], GlyphMode::Ascii, &palette, true), "");
+        assert_eq!(
+            render(
+                &[10, 20, 30, 40, 50, 60, 70, 80],
+                GlyphMode::Ascii,
+                &palette,
+                true
+            ),
+            ""
+        );
     }
 }

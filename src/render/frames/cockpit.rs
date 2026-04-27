@@ -93,10 +93,21 @@ fn cluster_row(
     } else {
         COMPACT_GAUGE_WIDTH
     };
-    cells.push(shared::ctx_gauge_cell(&frame.line3, gauge_w, p, color));
+    cells.push(shared::ctx_gauge_cell(
+        &frame.line3,
+        gauge_w,
+        config.glyph_mode,
+        p,
+        color,
+    ));
 
     if width >= 100 && shared::sparkline_enabled(config) {
-        cells.push(shared::ctx_sparkline(&frame.ctx_history, p, color));
+        cells.push(shared::ctx_sparkline(
+            &frame.ctx_history,
+            config.glyph_mode,
+            p,
+            color,
+        ));
     }
 
     if config.show_tokens {

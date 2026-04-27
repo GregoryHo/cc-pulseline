@@ -132,7 +132,7 @@ fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePa
     let color = config.color_enabled;
     let pct = frame.line3.context_used_percentage.unwrap_or(0);
     let label = colorize("CTX  ", &p.structural, color);
-    let bar = widgets::gauge::render(pct, GAUGE_WIDTH, p, color);
+    let bar = widgets::gauge::render(pct, GAUGE_WIDTH, config.glyph_mode, p, color);
     let pct_str = colorize(
         &format!("  {pct}%"),
         p.color_for_ctx_pct(pct, frame.line3.context_window_size),
@@ -150,7 +150,7 @@ fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePa
         })
         .unwrap_or_default();
     let spark = if shared::sparkline_enabled(config) {
-        shared::ctx_sparkline(&frame.ctx_history, p, color)
+        shared::ctx_sparkline(&frame.ctx_history, config.glyph_mode, p, color)
     } else {
         String::new()
     };
@@ -190,6 +190,7 @@ fn tok_cost_quota_row(
                     "Q5h  ",
                     pct,
                     frame.quota.five_hour_reset_minutes,
+                    config.glyph_mode,
                     p,
                     color,
                 ));
@@ -201,6 +202,7 @@ fn tok_cost_quota_row(
                     "Q7d  ",
                     pct,
                     frame.quota.seven_day_reset_minutes,
+                    config.glyph_mode,
                     p,
                     color,
                 ));
@@ -214,10 +216,11 @@ fn quota_gauge_segment(
     label: &str,
     pct: f64,
     reset_min: Option<u64>,
+    mode: crate::config::GlyphMode,
     p: &ThemePalette,
     color: bool,
 ) -> String {
-    let bar = widgets::gauge::render(pct as u64, QUOTA_GAUGE_WIDTH, p, color);
+    let bar = widgets::gauge::render(pct as u64, QUOTA_GAUGE_WIDTH, mode, p, color);
     let pct_str = colorize(&format!("  {pct:.0}%"), p.color_for_quota_pct(pct), color);
     let lbl = colorize(label, &p.structural, color);
     let reset_part = reset_min
@@ -239,7 +242,13 @@ fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &Theme
     }
     let mut parts: Vec<String> = Vec::new();
     if !frame.tools.is_empty() {
-        let tape = shared::tools_tape(&frame.tools, config.max_tool_lines.max(2), p, color);
+        let tape = shared::tools_tape(
+            &frame.tools,
+            config.max_tool_lines.max(2),
+            config.glyph_mode,
+            p,
+            color,
+        );
         if !tape.is_empty() {
             parts.push(tape);
         }

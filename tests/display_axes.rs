@@ -268,3 +268,104 @@ style = "console"
     // Default layout is "none" → V1None.
     assert_eq!(cfg.pane_style, LayoutStyle::None);
 }
+
+// ── ASCII contract: `display.icons = false` produces zero Unicode block
+//    chars across every layout. This is the catch-net for any widget call
+//    site that forgot to pass `glyph_mode`. ──
+
+const UNICODE_BLOCKS: &[char] = &[
+    '\u{2588}', // █
+    '\u{2589}', // ▉
+    '\u{258A}', // ▊
+    '\u{258B}', // ▋
+    '\u{258C}', // ▌
+    '\u{258D}', // ▍
+    '\u{258E}', // ▎
+    '\u{258F}', // ▏
+    '\u{2591}', // ░
+    '\u{25B6}', // ▶ (tape arrow — must become '>' in Ascii mode)
+];
+
+const ALL_LAYOUTS: &[LayoutStyle] = &[
+    LayoutStyle::None,
+    LayoutStyle::Zones,
+    LayoutStyle::Grid,
+    LayoutStyle::Cards,
+    LayoutStyle::Sections,
+    LayoutStyle::Cockpit,
+    LayoutStyle::Console,
+    LayoutStyle::Flightstrip,
+    LayoutStyle::Auto,
+];
+
+fn frame_with_tools_for_ascii_contract() -> RenderFrame {
+    let mut f = frame_with_agent_and_quota();
+    // Force the tape widget into the render: tools push the recent-tools row
+    // through tape::render. Without this, the catch-net wouldn't catch a
+    // missed glyph_mode threading on the tape path.
+    use cc_pulseline::types::{CompletedToolCount, ToolSummary};
+    f.tools = vec![
+        ToolSummary {
+            id: "1".to_string(),
+            name: "Read".to_string(),
+            target: Some("main.rs".to_string()),
+        },
+        ToolSummary {
+            id: "2".to_string(),
+            name: "Bash".to_string(),
+            target: Some("cargo test".to_string()),
+        },
+    ];
+    f.completed_tools = vec![CompletedToolCount {
+        name: "Edit".to_string(),
+        count: 5,
+        last_completed_at: None,
+    }];
+    f
+}
+
+#[test]
+fn ascii_mode_emits_no_unicode_block_chars_across_every_layout() {
+    let frame = frame_with_tools_for_ascii_contract();
+    for layout in ALL_LAYOUTS {
+        let cfg = cfg_for(*layout, false, 160);
+        let lines = render_frame(&frame, &cfg);
+        let blob = lines.join("\n");
+        for c in UNICODE_BLOCKS {
+            assert!(
+                !blob.contains(*c),
+                "{:?} layout under display.icons=false leaked U+{:04X} (`{c}`):\n{blob}",
+                layout,
+                *c as u32
+            );
+        }
+    }
+}
+
+#[test]
+fn icon_mode_still_uses_block_chars_in_instrument_clusters() {
+    // Sanity: the catch-net above must not pass trivially because no widget
+    // ever emits a block char. Confirm Icon mode keeps emitting them in at
+    // least one of cockpit/console/flightstrip (the ones that actually use
+    // gauge widgets).
+    let frame = frame_with_tools_for_ascii_contract();
+    let mut saw_block = false;
+    for layout in [
+        LayoutStyle::Cockpit,
+        LayoutStyle::Console,
+        LayoutStyle::Flightstrip,
+    ] {
+        let cfg = cfg_for(layout, true, 160);
+        let blob = render_frame(&frame, &cfg).join("\n");
+        if UNICODE_BLOCKS.iter().any(|c| blob.contains(*c)) {
+            saw_block = true;
+            break;
+        }
+    }
+    assert!(
+        saw_block,
+        "expected at least one block glyph from gauge/tape in icon mode \
+         across cockpit/console/flightstrip — otherwise the ASCII catch-net \
+         above is meaningless"
+    );
+}

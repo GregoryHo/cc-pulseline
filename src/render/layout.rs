@@ -461,7 +461,7 @@ fn format_context_segment(
             let spark = if frames::shared::sparkline_enabled(config) && !history.is_empty() {
                 format!(
                     " {}",
-                    crate::render::widgets::sparkline::render(history, p, color)
+                    crate::render::widgets::sparkline::render(history, config.glyph_mode, p, color)
                 )
             } else {
                 String::new()
