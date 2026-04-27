@@ -10,7 +10,7 @@ use cc_pulseline::config::{build_render_config, GlyphMode, PulselineConfig, Rend
 use cc_pulseline::render::color::resolve_palette;
 use cc_pulseline::render::icons::ICON_AGENT;
 use cc_pulseline::render::layout::render_frame;
-use cc_pulseline::render::pane::PaneStyle;
+use cc_pulseline::render::pane::LayoutStyle;
 use cc_pulseline::types::{AgentSummary, QuotaMetrics, RenderFrame};
 
 fn frame_with_agent_and_quota() -> RenderFrame {
@@ -43,7 +43,7 @@ fn frame_with_agent_and_quota() -> RenderFrame {
     f
 }
 
-fn cfg_for(layout: PaneStyle, icons: bool, width: usize) -> RenderConfig {
+fn cfg_for(layout: LayoutStyle, icons: bool, width: usize) -> RenderConfig {
     RenderConfig {
         glyph_mode: if icons {
             GlyphMode::Icon
@@ -72,7 +72,7 @@ fn cfg_for(layout: PaneStyle, icons: bool, width: usize) -> RenderConfig {
 #[test]
 fn cockpit_agent_uses_nf_glyph_when_icons_on() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Cockpit, true, 140);
+    let cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     let lines = render_frame(&f, &cfg);
     let activity = lines
         .iter()
@@ -91,7 +91,7 @@ fn cockpit_agent_uses_nf_glyph_when_icons_on() {
 #[test]
 fn cockpit_agent_uses_text_prefix_when_icons_off() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Cockpit, false, 140);
+    let cfg = cfg_for(LayoutStyle::Cockpit, false, 140);
     let lines = render_frame(&f, &cfg);
     let activity = lines
         .iter()
@@ -106,7 +106,7 @@ fn cockpit_agent_uses_text_prefix_when_icons_off() {
 #[test]
 fn console_agent_uses_text_prefix_when_icons_off() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Console, false, 140);
+    let cfg = cfg_for(LayoutStyle::Console, false, 140);
     let lines = render_frame(&f, &cfg);
     let agent_line = lines
         .iter()
@@ -123,7 +123,7 @@ fn console_agent_uses_text_prefix_when_icons_off() {
 #[test]
 fn cockpit_cost_uses_arc_when_icons_on() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Cockpit, true, 140);
+    let cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     let lines = render_frame(&f, &cfg);
     let cluster = lines.iter().find(|l| l.contains("$3.50")).expect("cluster");
     let arc_glyphs = ['\u{25CB}', '\u{25D4}', '\u{25D1}', '\u{25D5}', '\u{25CF}'];
@@ -136,7 +136,7 @@ fn cockpit_cost_uses_arc_when_icons_on() {
 #[test]
 fn cockpit_cost_uses_rate_text_when_icons_off() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Cockpit, false, 140);
+    let cfg = cfg_for(LayoutStyle::Cockpit, false, 140);
     let lines = render_frame(&f, &cfg);
     let cluster = lines.iter().find(|l| l.contains("$3.50")).expect("cluster");
     let arc_glyphs = ['\u{25CB}', '\u{25D4}', '\u{25D1}', '\u{25D5}', '\u{25CF}'];
@@ -155,7 +155,7 @@ fn cockpit_cost_uses_rate_text_when_icons_off() {
 #[test]
 fn cockpit_no_sparkline_when_toggle_off() {
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(PaneStyle::V2Cockpit, true, 140);
+    let cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     assert!(!cfg.show_ctx_sparkline);
     let lines = render_frame(&f, &cfg);
     for l in &lines {
@@ -169,7 +169,7 @@ fn cockpit_no_sparkline_when_toggle_off() {
 #[test]
 fn cockpit_sparkline_appears_when_toggle_on_and_icons_on() {
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(PaneStyle::V2Cockpit, true, 140);
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     cfg.show_ctx_sparkline = true;
     let lines = render_frame(&f, &cfg);
     let cluster = lines.iter().find(|l| l.contains("CTX")).expect("cluster");
@@ -184,7 +184,7 @@ fn cockpit_sparkline_appears_when_toggle_on_and_icons_on() {
 #[test]
 fn cockpit_sparkline_hidden_when_toggle_on_but_icons_off() {
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(PaneStyle::V2Cockpit, false, 140);
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, false, 140);
     cfg.show_ctx_sparkline = true;
     let lines = render_frame(&f, &cfg);
     for l in &lines {
@@ -200,7 +200,7 @@ fn v1_sections_layout_renders_sparkline_when_toggle_on() {
     // The sparkline is layout-agnostic — any layout that emits the CTX
     // segment should pick it up when the user opts in.
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(PaneStyle::V1None, true, 140);
+    let mut cfg = cfg_for(LayoutStyle::None, true, 140);
     cfg.show_ctx_sparkline = true;
     let lines = render_frame(&f, &cfg);
     // v1 L3 is the third line; identify it by the "(86.0k/200.0k)" pattern.
@@ -216,7 +216,7 @@ fn v1_sections_layout_renders_sparkline_when_toggle_on() {
 #[test]
 fn cockpit_renders_q7d_alongside_q5h() {
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(PaneStyle::V2Cockpit, true, 140);
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     cfg.show_quota = true;
     cfg.show_quota_five_hour = true;
     cfg.show_quota_seven_day = true;
@@ -232,7 +232,7 @@ fn cockpit_renders_q7d_alongside_q5h() {
 #[test]
 fn console_renders_q7d_alongside_q5h() {
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(PaneStyle::V2Console, true, 160);
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
     cfg.show_quota = true;
     cfg.show_quota_five_hour = true;
     cfg.show_quota_seven_day = true;
@@ -252,7 +252,7 @@ name = "console"
 "#;
     let parsed: PulselineConfig = toml::from_str(toml_input).expect("parse");
     let cfg = build_render_config(&parsed);
-    assert_eq!(cfg.pane_style, PaneStyle::V2Console);
+    assert_eq!(cfg.pane_style, LayoutStyle::Console);
 }
 
 #[test]
@@ -266,5 +266,5 @@ style = "console"
     let parsed: PulselineConfig = toml::from_str(toml_input).expect("parse");
     let cfg = build_render_config(&parsed);
     // Default layout is "none" → V1None.
-    assert_eq!(cfg.pane_style, PaneStyle::V1None);
+    assert_eq!(cfg.pane_style, LayoutStyle::None);
 }

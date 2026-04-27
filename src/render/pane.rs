@@ -4,57 +4,50 @@ use crate::config::GlyphMode;
 
 use super::frames;
 
+/// User-facing layout style. Each variant maps 1:1 to a `name = "..."` value
+/// in `[layout]` config and to a render fn in `super::frames`.
+///
+/// Two flavours coexist:
+/// - **Flat-row layouts** (`None`, `Zones`, `Grid`, `Cards`, `Sections`) emit
+///   v1-style line output and may be wrapped by `apply_pane()` chrome.
+/// - **Instrument-cluster layouts** (`Cockpit`, `Console`, `Flightstrip`,
+///   `Auto`) own the full render pipeline and bypass `apply_pane()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneStyle {
-    /// v1: flat output, no decoration. Default.
-    V1None,
-    /// v1: two strata separated by a single labelled rule (echoes CC's own
+pub enum LayoutStyle {
+    /// Flat output, no decoration. Default.
+    None,
+    /// Two strata separated by a single labelled rule (echoes CC's own
     /// horizontal rules above/below the input box). State (Identity/Config/
     /// Budget) above, `──── activity ────` rule, then live Activity below.
-    V1Zones,
-    /// v1: table layout with a fixed label column + `│` divider + right-padded
+    Zones,
+    /// Table layout with a fixed label column + `│` divider + right-padded
     /// content. Every line begins and ends at the same visual position —
     /// solves jagged right edges and makes group boundaries explicit without
     /// adding rows. Activity continuation rows span the label column.
-    V1Grid,
-    /// v1: one independent `╭─┬─╮ / ╰─┴─╯` frame per group, stacked vertically.
+    Grid,
+    /// One independent `╭─┬─╮ / ╰─┴─╯` frame per group, stacked vertically.
     /// Each group (Identity / Config / Budget / Activity) becomes its own
     /// self-contained card. All cards share a global `max_label_width` and
     /// `max_content_width` so they line up when stacked. Adds 2 rows per
     /// non-empty group (top + bottom of each card).
-    V1Cards,
-    /// v1: single outer `╭─┬─╮ / ╰─┴─╯` wrapper with a `├─┼─┤` separator
+    Cards,
+    /// Single outer `╭─┬─╮ / ╰─┴─╯` wrapper with a `├─┼─┤` separator
     /// emitted between every pair of non-empty groups. Reads as one
     /// container with explicit internal dividers — cheaper than Cards
     /// (no double-border gaps).
-    V1Sections,
-    /// v2: 3-row instrument cluster (default after the v2 flip).
+    Sections,
+    /// 3-row instrument cluster (default after the v2 flip).
     /// Identity headline + cluster (gauge, sparkline, rate, cost, quota)
     /// + activity ticker.
-    V2Cockpit,
-    /// v2: 4-5 row framed dashboard (highest "quality feel"). Best when
+    Cockpit,
+    /// 4-5 row framed dashboard (highest "quality feel"). Best when
     /// statusline is ≥130 cols. Wraps content in `╭─╮ │ ╰─╯`.
-    V2Console,
-    /// v2: dense 2-row strip for narrow IDE statuslines.
-    V2Flightstrip,
-    /// v2: width-bracket resolver — picks console/cockpit/flightstrip per
+    Console,
+    /// Dense 2-row strip for narrow IDE statuslines.
+    Flightstrip,
+    /// Width-bracket resolver — picks console/cockpit/flightstrip per
     /// terminal width on every render tick.
-    V2Auto,
-}
-
-impl PaneStyle {
-    /// Returns true for the v2 instrument-cluster layouts (cockpit, console,
-    /// flightstrip, auto). v2 layouts own the entire rendering pipeline and
-    /// bypass `apply_pane`.
-    pub fn is_v2(self) -> bool {
-        matches!(
-            self,
-            PaneStyle::V2Cockpit
-                | PaneStyle::V2Console
-                | PaneStyle::V2Flightstrip
-                | PaneStyle::V2Auto
-        )
-    }
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +80,7 @@ pub const DEFAULT_PANE_CC_MARGIN: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct PaneConfig {
-    pub style: PaneStyle,
+    pub style: LayoutStyle,
     pub width_mode: PaneWidth,
     pub min_width: usize,
     pub max_width: usize,
@@ -99,15 +92,21 @@ pub struct PaneConfig {
 
 /// Apply the configured pane style to `lines`.
 ///
-/// Returns `lines` unchanged when `cfg.style == PaneStyle::V1None` or when the
-/// terminal can't fit `cfg.min_width`.
+/// Returns `lines` unchanged when `cfg.style == LayoutStyle::None` or when
+/// the style is an instrument-cluster layout (which renders independently
+/// upstream of this function), or when the terminal can't fit `cfg.min_width`.
 pub fn apply_pane(
     lines: Vec<String>,
     groups: &[(LineKind, Range<usize>)],
     cfg: &PaneConfig,
 ) -> Vec<String> {
-    if matches!(cfg.style, PaneStyle::V1None) || cfg.style.is_v2() {
-        return lines;
+    match cfg.style {
+        LayoutStyle::None
+        | LayoutStyle::Cockpit
+        | LayoutStyle::Console
+        | LayoutStyle::Flightstrip
+        | LayoutStyle::Auto => return lines,
+        LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Cards | LayoutStyle::Sections => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
         return lines;
@@ -124,19 +123,18 @@ pub fn apply_pane(
         return lines;
     }
 
-    let g = frames::v1::shared::glyphs(cfg.glyph_mode);
+    let g = frames::shared::glyphs(cfg.glyph_mode);
     match cfg.style {
-        PaneStyle::V1Zones => frames::v1::zones::render(&grouped, &lines, groups, cfg, g),
-        PaneStyle::V1Grid => frames::v1::grid::render(&lines, groups, cfg, g),
-        PaneStyle::V1Cards => frames::v1::cards::render(&lines, groups, cfg, g),
-        PaneStyle::V1Sections => frames::v1::sections::render(&lines, groups, cfg, g),
-        // v2 styles bypass apply_pane (handled at the top of this fn) and
-        // V1None means "no decoration" — both paths return raw lines.
-        PaneStyle::V1None
-        | PaneStyle::V2Cockpit
-        | PaneStyle::V2Console
-        | PaneStyle::V2Flightstrip
-        | PaneStyle::V2Auto => lines,
+        LayoutStyle::Zones => frames::zones::render(&grouped, &lines, groups, cfg, g),
+        LayoutStyle::Grid => frames::grid::render(&lines, groups, cfg, g),
+        LayoutStyle::Cards => frames::cards::render(&lines, groups, cfg, g),
+        LayoutStyle::Sections => frames::sections::render(&lines, groups, cfg, g),
+        // Decoration-bypassing styles short-circuited at the top of this fn.
+        LayoutStyle::None
+        | LayoutStyle::Cockpit
+        | LayoutStyle::Console
+        | LayoutStyle::Flightstrip
+        | LayoutStyle::Auto => lines,
     }
 }
 

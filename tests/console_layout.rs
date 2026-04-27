@@ -4,7 +4,7 @@ use std::fs;
 
 use cc_pulseline::config::RenderConfig;
 use cc_pulseline::render::icons::{FRAME_BL, FRAME_TL};
-use cc_pulseline::render::pane::PaneStyle;
+use cc_pulseline::render::pane::LayoutStyle;
 use cc_pulseline::PulseLineRunner;
 use serde_json::json;
 use tempfile::TempDir;
@@ -42,7 +42,7 @@ fn cfg(width: usize) -> RenderConfig {
     RenderConfig {
         color_enabled: false,
         terminal_width: Some(width),
-        pane_style: PaneStyle::V2Console,
+        pane_style: LayoutStyle::Console,
         show_claude_md: false,
         show_rules: false,
         show_memory: false,

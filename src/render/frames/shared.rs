@@ -1,22 +1,179 @@
-//! Shared building blocks for v2 layouts.
+//! Shared building blocks for layout frames.
+//!
+//! Two non-overlapping concerns live here:
+//! 1. **Box-drawing glyphs + label/content padding** — used by the flat-row
+//!    decorating layouts (`zones`, `grid`, `cards`, `sections`).
+//! 2. **Widget call helpers + cluster row builders** — used by the
+//!    instrument-cluster layouts (`cockpit`, `console`, `flightstrip`,
+//!    `auto`).
 //!
 //! Each helper returns a string fragment (already colorized when the config
 //! enables it) so layouts compose them with their own separators / framing.
 
+use std::ops::Range;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::config::RenderConfig;
-use crate::render::color::{colorize, ThemePalette};
+use crate::config::{GlyphMode, RenderConfig};
+use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{
     format_agent_elapsed, format_number, format_reset_duration, format_speed,
 };
 use crate::render::icons::{glyph, ICON_AGENT};
 use crate::render::layout;
+use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
 use crate::types::{
     AgentSummary, CompletedToolCount, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame,
     TodoSummary, ToolSummary,
 };
+
+// ============================================================================
+// Box-drawing glyphs and frame helpers (flat-row layouts)
+// ============================================================================
+
+pub struct FrameGlyphs {
+    pub h: &'static str,
+    pub v: &'static str,
+    pub tl: &'static str,
+    pub tr: &'static str,
+    pub bl: &'static str,
+    pub br: &'static str,
+    pub tee_t: &'static str,
+    pub tee_b: &'static str,
+    pub tee_l: &'static str,
+    pub tee_r: &'static str,
+    pub cross: &'static str,
+}
+
+const UNICODE_GLYPHS: FrameGlyphs = FrameGlyphs {
+    h: "─",
+    v: "│",
+    tl: "╭",
+    tr: "╮",
+    bl: "╰",
+    br: "╯",
+    tee_t: "┬",
+    tee_b: "┴",
+    tee_l: "├",
+    tee_r: "┤",
+    cross: "┼",
+};
+
+const ASCII_GLYPHS: FrameGlyphs = FrameGlyphs {
+    h: "-",
+    v: "|",
+    tl: "+",
+    tr: "+",
+    bl: "+",
+    br: "+",
+    tee_t: "+",
+    tee_b: "+",
+    tee_l: "+",
+    tee_r: "+",
+    cross: "+",
+};
+
+pub fn glyphs(mode: GlyphMode) -> &'static FrameGlyphs {
+    match mode {
+        GlyphMode::Icon => &UNICODE_GLYPHS,
+        GlyphMode::Ascii => &ASCII_GLYPHS,
+    }
+}
+
+pub fn max_label_width(groups: &[PaneGroup]) -> usize {
+    groups
+        .iter()
+        .map(|pg| visible_width(&pg.label))
+        .max()
+        .unwrap_or(0)
+}
+
+pub fn max_content_width(lines: &[String]) -> usize {
+    lines.iter().map(|l| visible_width(l)).max().unwrap_or(0)
+}
+
+pub fn label_for_kind(cfg: &PaneConfig, kind: LineKind) -> &str {
+    cfg.groups
+        .iter()
+        .find(|pg| pg.kinds.contains(&kind))
+        .map(|pg| pg.label.as_str())
+        .unwrap_or("")
+}
+
+/// Right-pad `s` with spaces to reach `width` visible cells.
+/// Uses `visible_width` (which strips ANSI) so styled strings pad correctly —
+/// `format!("{:<width$}")` would over-pad by counting escape bytes.
+pub fn pad_to(s: &str, width: usize) -> String {
+    let pad = width.saturating_sub(visible_width(s));
+    let mut out = String::with_capacity(s.len() + pad);
+    out.push_str(s);
+    for _ in 0..pad {
+        out.push(' ');
+    }
+    out
+}
+
+pub struct FrameBorders {
+    pub top: String,
+    pub mid: String,
+    pub bot: String,
+}
+
+/// Top / mid / bot share the same dash widths so `┬`/`┼`/`┴` joints align
+/// vertically across all three.
+pub fn frame_borders(max_label: usize, content_width: usize, g: &FrameGlyphs) -> FrameBorders {
+    let dash_l = g.h.repeat(max_label + 2);
+    let dash_r = g.h.repeat(content_width + 2);
+    FrameBorders {
+        top: format!(
+            "{tl}{dash_l}{tee_t}{dash_r}{tr}",
+            tl = g.tl,
+            tr = g.tr,
+            tee_t = g.tee_t,
+        ),
+        mid: format!(
+            "{tee_l}{dash_l}{cross}{dash_r}{tee_r}",
+            tee_l = g.tee_l,
+            tee_r = g.tee_r,
+            cross = g.cross,
+        ),
+        bot: format!(
+            "{bl}{dash_l}{tee_b}{dash_r}{br}",
+            bl = g.bl,
+            br = g.br,
+            tee_b = g.tee_b,
+        ),
+    }
+}
+
+/// First row of the group shows the label; continuation rows blank it so the
+/// `│` divider column lines up vertically.
+#[allow(clippy::too_many_arguments)]
+pub fn push_walled_group_rows(
+    out: &mut Vec<String>,
+    lines: &[String],
+    kind: LineKind,
+    range: Range<usize>,
+    cfg: &PaneConfig,
+    g: &FrameGlyphs,
+    max_label: usize,
+    content_width: usize,
+) {
+    let label = label_for_kind(cfg, kind);
+    let mut first = true;
+    for idx in range.start..range.end {
+        let Some(line) = lines.get(idx) else { continue };
+        let lbl = if first { label } else { "" };
+        let lbl_field = pad_to(lbl, max_label);
+        let line_field = pad_to(line, content_width);
+        out.push(format!("{v} {lbl_field} {v} {line_field} {v}", v = g.v));
+        first = false;
+    }
+}
+
+// ============================================================================
+// Widget call helpers + cluster row builders (instrument-cluster layouts)
+// ============================================================================
 
 /// CTX sparkline (braille mini-chart) is opt-in and Nerd Font only — there
 /// is no ASCII fallback that conveys the same trend information, so we hide
@@ -27,9 +184,9 @@ pub fn sparkline_enabled(config: &RenderConfig) -> bool {
 
 /// Whether at least one config-row segment is enabled.
 ///
-/// In v2 the L2 row is opt-in: it stays hidden unless the user has flipped
-/// any `show_*` for the config segments. v1 still renders L2 always-on
-/// (handled by the legacy code path).
+/// In instrument-cluster layouts the L2 row is opt-in: it stays hidden unless
+/// the user has flipped any `show_*` for the config segments. Flat layouts
+/// still render L2 always-on (handled by the legacy code path).
 pub fn config_row_enabled(config: &RenderConfig) -> bool {
     config.show_claude_md
         || config.show_rules
@@ -121,9 +278,10 @@ pub fn ctx_pill(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) -> 
     }
 }
 
-/// Compact L2 config row for v2 (opt-in). Delegates to v1's `format_line2` so
-/// the icons, counts, and toggles stay in lockstep across layouts; v2 only
-/// adds a leading `CFG  ` label and uses two spaces between segments.
+/// Compact L2 config row for instrument-cluster layouts (opt-in). Delegates to
+/// `format_line2` in `layout.rs` so the icons, counts, and toggles stay in
+/// lockstep across layouts; this only adds a leading `CFG  ` label and uses
+/// two spaces between segments.
 ///
 /// Width-aware: when the assembled row exceeds `max_width`, segments are
 /// progressively turned off in low-value-first order (duration, plugins,
@@ -135,8 +293,6 @@ pub fn config_row(
     p: &ThemePalette,
     max_width: usize,
 ) -> String {
-    use crate::render::color::visible_width;
-
     const DROP_ORDER: &[fn(&mut RenderConfig)] = &[
         |c| c.show_duration = false,
         |c| c.show_plugins = false,
@@ -460,8 +616,6 @@ pub fn cost_text_only(line3: &Line3Metrics, p: &ThemePalette, color_enabled: boo
 /// progressively trim head segments (project path → git stats → version /
 /// style) until it fits. Model + branch + CTX% + cost are always preserved.
 pub fn degraded_single_row(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
-    use crate::render::color::visible_width;
-
     let color = config.color_enabled;
     let pct = frame.line3.context_used_percentage.unwrap_or(0);
     let pct_color = p.color_for_ctx_pct(pct, frame.line3.context_window_size);

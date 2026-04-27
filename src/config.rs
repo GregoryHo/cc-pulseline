@@ -1,5 +1,5 @@
 use crate::render::color::{resolve_palette, ThemePalette};
-use crate::render::pane::{PaneStyle, PaneWidth};
+use crate::render::pane::{LayoutStyle, PaneWidth};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -1048,7 +1048,7 @@ pub struct RenderConfig {
     pub terminal_width: Option<usize>,
     pub degrade_order: Vec<WidthDegradeStrategy>,
     // Pane framing
-    pub pane_style: PaneStyle,
+    pub pane_style: LayoutStyle,
     pub pane_width_mode: PaneWidth,
     pub pane_min_width: usize,
     pub pane_max_width: usize,
@@ -1109,7 +1109,7 @@ impl Default for RenderConfig {
                 WidthDegradeStrategy::CompressCoreLines,
                 WidthDegradeStrategy::DropActivityLinesFirst,
             ],
-            pane_style: PaneStyle::V1None,
+            pane_style: LayoutStyle::None,
             pane_width_mode: PaneWidth::Auto,
             pane_min_width: 60,
             pane_max_width: 140,
@@ -1119,26 +1119,26 @@ impl Default for RenderConfig {
     }
 }
 
-fn parse_layout_name(value: &str) -> PaneStyle {
+fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         // Flat / framed layouts
-        "none" => PaneStyle::V1None,
-        "zones" => PaneStyle::V1Zones,
-        "grid" => PaneStyle::V1Grid,
-        "cards" => PaneStyle::V1Cards,
-        "sections" => PaneStyle::V1Sections,
+        "none" => LayoutStyle::None,
+        "zones" => LayoutStyle::Zones,
+        "grid" => LayoutStyle::Grid,
+        "cards" => LayoutStyle::Cards,
+        "sections" => LayoutStyle::Sections,
         // Instrument-cluster layouts
-        "cockpit" => PaneStyle::V2Cockpit,
-        "console" => PaneStyle::V2Console,
-        "flightstrip" => PaneStyle::V2Flightstrip,
-        "auto" => PaneStyle::V2Auto,
+        "cockpit" => LayoutStyle::Cockpit,
+        "console" => LayoutStyle::Console,
+        "flightstrip" => LayoutStyle::Flightstrip,
+        "auto" => LayoutStyle::Auto,
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
                  (valid: none | zones | grid | cards | sections | \
                  cockpit | console | flightstrip | auto)"
             );
-            PaneStyle::V1None
+            LayoutStyle::None
         }
     }
 }

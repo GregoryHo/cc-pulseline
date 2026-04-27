@@ -8,9 +8,9 @@ use crate::{
 
 use super::color::{colorize, take_visible_chars, visible_width, ThemePalette, RESET};
 use super::fmt::{format_duration, format_number, format_reset_duration, format_speed};
-use super::frames::v2;
+use super::frames;
 use super::icons::*;
-use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
+use super::pane::{apply_pane, LayoutStyle, LineKind, PaneConfig, PaneGroup};
 
 /// Borrow `base` or yield an owned variant whose `separator` is overridden with
 /// the row-appropriate strata tier. See `designs/tonal-strata-redesign.md`:
@@ -41,21 +41,19 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     });
     let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
 
-    if config.pane_style.is_v2() {
-        let palette = &config.palette;
-        return match config.pane_style {
-            PaneStyle::V2Cockpit => v2::cockpit::render(frame, config, palette),
-            PaneStyle::V2Console => v2::console::render(frame, config, palette),
-            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, config, palette),
-            PaneStyle::V2Auto => v2::auto::render(frame, config, palette),
-            // Exhaustive enumeration: adding a new V2 variant must update this
-            // match (compile error) instead of silently rendering blank.
-            PaneStyle::V1None
-            | PaneStyle::V1Zones
-            | PaneStyle::V1Grid
-            | PaneStyle::V1Cards
-            | PaneStyle::V1Sections => unreachable!("is_v2() gates this branch"),
-        };
+    // Instrument-cluster layouts own the full pipeline; flat-row layouts fall
+    // through to the v1-style assembly below.
+    let palette = &config.palette;
+    match config.pane_style {
+        LayoutStyle::Cockpit => return frames::cockpit::render(frame, config, palette),
+        LayoutStyle::Console => return frames::console::render(frame, config, palette),
+        LayoutStyle::Flightstrip => return frames::flightstrip::render(frame, config, palette),
+        LayoutStyle::Auto => return frames::auto::render(frame, config, palette),
+        LayoutStyle::None
+        | LayoutStyle::Zones
+        | LayoutStyle::Grid
+        | LayoutStyle::Cards
+        | LayoutStyle::Sections => {}
     }
 
     let color = config.color_enabled;
@@ -101,21 +99,22 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
 
     // Deduct the active style's horizontal overhead from the degradation
     // budget so content + decoration together fit the terminal.
-    let pane_active = !matches!(config.pane_style, PaneStyle::V1None);
+    let pane_active = !matches!(config.pane_style, LayoutStyle::None);
     let style_overhead = match config.pane_style {
-        PaneStyle::V1None | PaneStyle::V1Zones => 0,
+        LayoutStyle::None | LayoutStyle::Zones => 0,
         // Grid consumes `label_width + 2` cols on the left. The default group
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
-        PaneStyle::V1Grid => 12,
+        LayoutStyle::Grid => 12,
         // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
         // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
-        PaneStyle::V1Cards | PaneStyle::V1Sections => 16,
-        // v2 styles never reach this branch — they returned above.
-        PaneStyle::V2Cockpit
-        | PaneStyle::V2Console
-        | PaneStyle::V2Flightstrip
-        | PaneStyle::V2Auto => 0,
+        LayoutStyle::Cards | LayoutStyle::Sections => 16,
+        // Instrument-cluster styles never reach this branch — they returned
+        // above.
+        LayoutStyle::Cockpit
+        | LayoutStyle::Console
+        | LayoutStyle::Flightstrip
+        | LayoutStyle::Auto => 0,
     };
     let effective_width = config
         .terminal_width
@@ -456,9 +455,10 @@ fn format_context_segment(
             let close_paren = colorize(")", &p.separator, color);
 
             // Layout-agnostic sparkline opt-in: when `show_ctx_sparkline = true`
-            // and a Nerd Font is in use, append the braille trend after CTX. The
-            // same gate fires inside the v2 layouts via `shared::sparkline_enabled`.
-            let spark = if v2::shared::sparkline_enabled(config) && !history.is_empty() {
+            // and a Nerd Font is in use, append the braille trend after CTX.
+            // Instrument-cluster layouts gate the same way via
+            // `frames::shared::sparkline_enabled`.
+            let spark = if frames::shared::sparkline_enabled(config) && !history.is_empty() {
                 format!(
                     " {}",
                     crate::render::widgets::sparkline::render(history, p, color)

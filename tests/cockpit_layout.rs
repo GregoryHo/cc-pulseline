@@ -7,7 +7,7 @@
 use std::fs;
 
 use cc_pulseline::config::RenderConfig;
-use cc_pulseline::render::pane::PaneStyle;
+use cc_pulseline::render::pane::LayoutStyle;
 use cc_pulseline::PulseLineRunner;
 use serde_json::json;
 use tempfile::TempDir;
@@ -45,7 +45,7 @@ fn cockpit_cfg(width: usize) -> RenderConfig {
     RenderConfig {
         color_enabled: false,
         terminal_width: Some(width),
-        pane_style: PaneStyle::V2Cockpit,
+        pane_style: LayoutStyle::Cockpit,
         // v2 default: opt-in config row
         show_claude_md: false,
         show_rules: false,
@@ -152,5 +152,5 @@ name = "cockpit"
 "#;
     let parsed: PulselineConfig = toml::from_str(toml_input).expect("toml parse");
     let rendered = build_render_config(&parsed);
-    assert_eq!(rendered.pane_style, PaneStyle::V2Cockpit);
+    assert_eq!(rendered.pane_style, LayoutStyle::Cockpit);
 }
