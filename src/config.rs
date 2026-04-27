@@ -290,10 +290,17 @@ pub struct BudgetSegmentConfig {
     pub show_cost: bool,
     #[serde(default)]
     pub show_speed: bool,
-    /// Braille mini-trend chart of the last 12 CTX% samples. Pure Nerd Font
-    /// territory; auto-disabled when `display.icons = false`.
+    /// CTX visual spec — `"+"` separated widget names. Recognized:
+    /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
+    /// (see `frames::default_visuals_for`).
+    /// Examples: `"gauge+sparkline"` (cockpit default), `"text"` (flat
+    /// layouts default), `"gauge"` (text-free dashboard).
     #[serde(default)]
-    pub show_ctx_sparkline: bool,
+    pub context_visual: String,
+    /// Cost visual spec. Recognized: `text`, `arc`, `text+arc`. Defers to
+    /// layout default when empty.
+    #[serde(default)]
+    pub cost_visual: String,
 }
 
 impl Default for BudgetSegmentConfig {
@@ -303,7 +310,8 @@ impl Default for BudgetSegmentConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
-            show_ctx_sparkline: false,
+            context_visual: String::new(),
+            cost_visual: String::new(),
         }
     }
 }
@@ -316,6 +324,10 @@ pub struct QuotaSegmentConfig {
     pub show_five_hour: bool,
     #[serde(default)]
     pub show_seven_day: bool,
+    /// Quota visual spec. Recognized: `text`, `bar`. Defers to layout
+    /// default when empty (see `frames::default_visuals_for`).
+    #[serde(default)]
+    pub visual: String,
 }
 
 impl Default for QuotaSegmentConfig {
@@ -324,6 +336,7 @@ impl Default for QuotaSegmentConfig {
             enabled: false,
             show_five_hour: true,
             show_seven_day: false,
+            visual: String::new(),
         }
     }
 }
@@ -338,6 +351,10 @@ pub struct ToolSegmentConfig {
     pub max_completed: usize,
     #[serde(default = "default_max_completed_lines")]
     pub max_completed_lines: usize,
+    /// Tools visual spec. Recognized: `list`, `tape`. Defers to layout
+    /// default when empty (see `frames::default_visuals_for`).
+    #[serde(default)]
+    pub visual: String,
 }
 
 impl Default for ToolSegmentConfig {
@@ -347,6 +364,7 @@ impl Default for ToolSegmentConfig {
             max_lines: 2,
             max_completed: 4,
             max_completed_lines: 2,
+            visual: String::new(),
         }
     }
 }
@@ -437,18 +455,30 @@ show_context = true
 show_tokens = true
 show_cost = true
 show_speed = false          # output tok/s rate
-show_ctx_sparkline = false  # 6-cell braille trend chart of CTX% (Nerd Font only)
+# context_visual: per-segment widget composition. `+`-joined widget names.
+# Empty (the default) defers to the layout's choice — instrument-cluster
+# layouts use "gauge+sparkline", flat layouts use "text". Examples:
+#   context_visual = "gauge"            # text-free dashboard
+#   context_visual = "text"             # flat-style L3 inside cockpit
+#   context_visual = "gauge+sparkline"  # full instrument cluster
+context_visual = ""
+# cost_visual: same composition rule. Recognized: text, arc, text+arc.
+cost_visual = ""
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
 enabled = false             # opt-in: requires OAuth credentials
 show_five_hour = true
 show_seven_day = false
+# visual: text (Q5h 75% 02h 0m) or bar (gauge with pct overlay).
+visual = ""
 
 [segments.tools]
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
 max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
+# visual: list (per-row T:Read: ...) or tape (▶ Read · ▶ Bash · ▶ Edit).
+visual = ""
 
 [segments.agents]
 enabled = true
@@ -562,7 +592,10 @@ pub struct ProjectBudgetOverride {
     pub show_tokens: Option<bool>,
     pub show_cost: Option<bool>,
     pub show_speed: Option<bool>,
-    pub show_ctx_sparkline: Option<bool>,
+    /// CTX visual spec — see `BudgetSegmentConfig::context_visual`.
+    pub context_visual: Option<String>,
+    /// Cost visual spec — see `BudgetSegmentConfig::cost_visual`.
+    pub cost_visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -570,6 +603,8 @@ pub struct ProjectQuotaOverride {
     pub enabled: Option<bool>,
     pub show_five_hour: Option<bool>,
     pub show_seven_day: Option<bool>,
+    /// Quota visual spec — see `QuotaSegmentConfig::visual`.
+    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -578,6 +613,8 @@ pub struct ProjectToolOverride {
     pub max_lines: Option<usize>,
     pub max_completed: Option<usize>,
     pub max_completed_lines: Option<usize>,
+    /// Tools visual spec — see `ToolSegmentConfig::visual`.
+    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -741,8 +778,11 @@ pub fn merge_configs(
             if let Some(v) = budget.show_speed {
                 user.segments.budget.show_speed = v;
             }
-            if let Some(v) = budget.show_ctx_sparkline {
-                user.segments.budget.show_ctx_sparkline = v;
+            if let Some(v) = &budget.context_visual {
+                user.segments.budget.context_visual = v.clone();
+            }
+            if let Some(v) = &budget.cost_visual {
+                user.segments.budget.cost_visual = v.clone();
             }
         }
         if let Some(quota) = &segments.quota {
@@ -754,6 +794,9 @@ pub fn merge_configs(
             }
             if let Some(v) = quota.show_seven_day {
                 user.segments.quota.show_seven_day = v;
+            }
+            if let Some(v) = &quota.visual {
+                user.segments.quota.visual = v.clone();
             }
         }
         if let Some(tools) = &segments.tools {
@@ -768,6 +811,9 @@ pub fn merge_configs(
             }
             if let Some(v) = tools.max_completed_lines {
                 user.segments.tools.max_completed_lines = v;
+            }
+            if let Some(v) = &tools.visual {
+                user.segments.tools.visual = v.clone();
             }
         }
         if let Some(agents) = &segments.agents {
@@ -1028,11 +1074,21 @@ pub struct RenderConfig {
     pub show_tokens: bool,
     pub show_cost: bool,
     pub show_speed: bool,
-    pub show_ctx_sparkline: bool,
+    /// Effective CTX visual spec — already resolved against the layout
+    /// default if the user TOML left it empty. See
+    /// `frames::default_visuals_for` for the per-layout defaults and
+    /// `widgets::visual::render_context` for the dispatcher.
+    pub context_visual: String,
+    /// Effective cost visual spec. Same resolution rule as `context_visual`.
+    pub cost_visual: String,
     // Quota segment toggles
     pub show_quota: bool,
     pub show_quota_five_hour: bool,
     pub show_quota_seven_day: bool,
+    /// Effective quota visual spec.
+    pub quota_visual: String,
+    /// Effective tools visual spec.
+    pub tools_visual: String,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
@@ -1054,6 +1110,48 @@ pub struct RenderConfig {
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
     pub pane_tonal_strata: bool,
+}
+
+impl RenderConfig {
+    /// Effective CTX visual spec — falls back to the layout's default when
+    /// the field is empty. `build_render_config` resolves this up-front so
+    /// production renders never see an empty string; this helper exists for
+    /// tests that construct `RenderConfig` directly via `Default` + field
+    /// overrides.
+    pub fn effective_context_visual(&self) -> &str {
+        if self.context_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).context_visual
+        } else {
+            &self.context_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for cost.
+    pub fn effective_cost_visual(&self) -> &str {
+        if self.cost_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).cost_visual
+        } else {
+            &self.cost_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for quota.
+    pub fn effective_quota_visual(&self) -> &str {
+        if self.quota_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).quota_visual
+        } else {
+            &self.quota_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for tools.
+    pub fn effective_tools_visual(&self) -> &str {
+        if self.tools_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).tools_visual
+        } else {
+            &self.tools_visual
+        }
+    }
 }
 
 impl Default for RenderConfig {
@@ -1084,10 +1182,13 @@ impl Default for RenderConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
-            show_ctx_sparkline: false,
+            context_visual: String::new(),
+            cost_visual: String::new(),
             show_quota: false,
             show_quota_five_hour: true,
             show_quota_seven_day: false,
+            quota_visual: String::new(),
+            tools_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
             max_completed_lines: 2,
@@ -1140,6 +1241,19 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
             );
             LayoutStyle::None
         }
+    }
+}
+
+/// Resolve a user-supplied `*_visual` config string against the layout's
+/// default. Empty user value means "use the layout's choice"; any non-empty
+/// value wins outright. Returns an owned `String` because `RenderConfig`
+/// stores effective specs as owned strings (the layout default is a
+/// `'static str` literal).
+fn resolve_visual_field(user_value: &str, default_value: &'static str) -> String {
+    if user_value.is_empty() {
+        default_value.to_string()
+    } else {
+        user_value.to_string()
     }
 }
 
@@ -1209,6 +1323,11 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
 
     let terminal_width = detect_terminal_width();
 
+    // Visual spec resolution (Variation B): when the user TOML leaves a
+    // `*_visual` field empty, fall back to the layout's tasteful default.
+    let layout_style = parse_layout_name(&pulseline.layout.name);
+    let layout_visual_defaults = crate::render::frames::default_visuals_for(layout_style);
+
     RenderConfig {
         color_enabled,
         palette,
@@ -1239,11 +1358,28 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tokens: pulseline.segments.budget.show_tokens,
         show_cost: pulseline.segments.budget.show_cost,
         show_speed: pulseline.segments.budget.show_speed,
-        show_ctx_sparkline: pulseline.segments.budget.show_ctx_sparkline,
+        // Visual specs: empty user value defers to layout default. Resolved
+        // here so the rest of the pipeline reads a fully-specified string.
+        context_visual: resolve_visual_field(
+            &pulseline.segments.budget.context_visual,
+            layout_visual_defaults.context_visual,
+        ),
+        cost_visual: resolve_visual_field(
+            &pulseline.segments.budget.cost_visual,
+            layout_visual_defaults.cost_visual,
+        ),
         // Quota
         show_quota: pulseline.segments.quota.enabled,
         show_quota_five_hour: pulseline.segments.quota.show_five_hour,
         show_quota_seven_day: pulseline.segments.quota.show_seven_day,
+        quota_visual: resolve_visual_field(
+            &pulseline.segments.quota.visual,
+            layout_visual_defaults.quota_visual,
+        ),
+        tools_visual: resolve_visual_field(
+            &pulseline.segments.tools.visual,
+            layout_visual_defaults.tools_visual,
+        ),
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
         max_completed_tools: pulseline.segments.tools.max_completed,
@@ -1253,7 +1389,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tools: pulseline.segments.tools.enabled,
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,
-        pane_style: parse_layout_name(&pulseline.layout.name),
+        pane_style: layout_style,
         pane_width_mode: parse_pane_width_mode(
             &pulseline.layout.width_mode,
             pulseline.layout.fixed_width,

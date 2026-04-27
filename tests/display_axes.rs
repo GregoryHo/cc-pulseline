@@ -150,58 +150,66 @@ fn cockpit_cost_uses_rate_text_when_icons_off() {
     );
 }
 
-// ── Sparkline: hidden by default, present only when toggle on AND icons on ──
+// ── Sparkline: composed via `context_visual = "...+sparkline"`, gated by ICON ──
 
 #[test]
-fn cockpit_no_sparkline_when_toggle_off() {
+fn cockpit_no_sparkline_when_context_visual_drops_it() {
+    // Cockpit's layout default is "gauge+sparkline"; explicitly drop sparkline
+    // by setting context_visual = "gauge".
     let f = frame_with_agent_and_quota();
-    let cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
-    assert!(!cfg.show_ctx_sparkline);
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    cfg.context_visual = "gauge".to_string();
     let lines = render_frame(&f, &cfg);
     for l in &lines {
         assert!(
             !l.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
-            "no braille expected when sparkline toggle off: {l:?}"
+            "no braille expected when context_visual = \"gauge\": {l:?}"
         );
     }
 }
 
 #[test]
-fn cockpit_sparkline_appears_when_toggle_on_and_icons_on() {
+fn cockpit_sparkline_appears_with_layout_default() {
+    // cfg_for leaves context_visual = "" → layout default kicks in. Cockpit's
+    // default is "gauge+sparkline", so the braille trend should show up.
     let f = frame_with_agent_and_quota();
-    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
-    cfg.show_ctx_sparkline = true;
+    let cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    assert!(
+        cfg.context_visual.is_empty(),
+        "test premise: empty user value"
+    );
     let lines = render_frame(&f, &cfg);
     let cluster = lines.iter().find(|l| l.contains("CTX")).expect("cluster");
     assert!(
         cluster
             .chars()
             .any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
-        "sparkline should appear: {cluster:?}"
+        "sparkline should appear from cockpit's layout default: {cluster:?}"
     );
 }
 
 #[test]
-fn cockpit_sparkline_hidden_when_toggle_on_but_icons_off() {
+fn cockpit_sparkline_hidden_in_ascii_mode_even_when_spec_includes_it() {
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::Cockpit, false, 140);
-    cfg.show_ctx_sparkline = true;
+    cfg.context_visual = "gauge+sparkline".to_string();
     let lines = render_frame(&f, &cfg);
     for l in &lines {
         assert!(
             !l.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
-            "ASCII mode must hide braille even when toggle on: {l:?}"
+            "ASCII mode must hide braille even when spec opts in: {l:?}"
         );
     }
 }
 
 #[test]
-fn v1_sections_layout_renders_sparkline_when_toggle_on() {
+fn v1_layouts_render_sparkline_when_context_visual_includes_it() {
     // The sparkline is layout-agnostic — any layout that emits the CTX
-    // segment should pick it up when the user opts in.
+    // segment should pick it up when the user opts in. Flat layouts default
+    // to "text" so we set it explicitly here.
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::None, true, 140);
-    cfg.show_ctx_sparkline = true;
+    cfg.context_visual = "gauge+sparkline".to_string();
     let lines = render_frame(&f, &cfg);
     // v1 L3 is the third line; identify it by the "(86.0k/200.0k)" pattern.
     let ctx = lines.iter().find(|l| l.contains("/200.0k")).expect("L3");
@@ -340,6 +348,83 @@ fn ascii_mode_emits_no_unicode_block_chars_across_every_layout() {
             );
         }
     }
+}
+
+// ── Composability: per-segment `*_visual` config can override layout default ──
+
+#[test]
+fn cockpit_with_context_visual_text_emits_no_gauge() {
+    // Cockpit's layout default is "gauge+sparkline"; users who don't want
+    // graphic instruments can opt down to plain text.
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    cfg.context_visual = "text".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    // No gauge block chars in any line.
+    for c in &['\u{2588}', '\u{2589}', '\u{258F}', '\u{2591}'] {
+        assert!(
+            !blob.contains(*c),
+            "context_visual = \"text\" should suppress the gauge ({:?}): {blob}",
+            *c
+        );
+    }
+    // No braille either (sparkline excluded from "text").
+    for l in &lines {
+        assert!(
+            !l.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
+            "context_visual = \"text\" should suppress sparkline: {l:?}"
+        );
+    }
+}
+
+#[test]
+fn cockpit_with_context_visual_gauge_only_emits_no_sparkline() {
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    cfg.context_visual = "gauge".to_string();
+    let lines = render_frame(&f, &cfg);
+    let cluster = lines.iter().find(|l| l.contains("CTX")).expect("cluster");
+    // Gauge present.
+    assert!(
+        cluster.contains('\u{2588}') || cluster.contains('\u{258F}'),
+        "expected gauge block chars: {cluster:?}"
+    );
+    // No braille.
+    for l in &lines {
+        assert!(
+            !l.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
+            "context_visual = \"gauge\" should not emit sparkline: {l:?}"
+        );
+    }
+}
+
+#[test]
+fn layout_defaults_round_trip_via_default_visuals_for() {
+    // Sanity: each instrument-cluster layout's default includes "gauge", and
+    // flat layouts default to "text". Catches accidental edits to the
+    // default_visuals_for table.
+    use cc_pulseline::render::frames::default_visuals_for;
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Cockpit).context_visual,
+        "gauge+sparkline"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Console).context_visual,
+        "gauge+sparkline"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Flightstrip).context_visual,
+        "gauge"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::None).context_visual,
+        "text"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Cards).context_visual,
+        "text"
+    );
 }
 
 #[test]

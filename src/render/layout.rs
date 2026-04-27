@@ -454,10 +454,10 @@ fn format_context_segment(
             let total = colorize(&format_number(size), &p.primary, color);
             let close_paren = colorize(")", &p.separator, color);
 
-            // Layout-agnostic sparkline opt-in: when `show_ctx_sparkline = true`
-            // and a Nerd Font is in use, append the braille trend after CTX.
-            // Instrument-cluster layouts gate the same way via
-            // `frames::shared::sparkline_enabled`.
+            // Layout-agnostic sparkline opt-in: when the resolved
+            // `context_visual` spec includes "sparkline" *and* a Nerd Font is
+            // in use, append the braille trend after CTX. Instrument-cluster
+            // layouts gate the same way via `frames::shared::sparkline_enabled`.
             let spark = if frames::shared::sparkline_enabled(config) && !history.is_empty() {
                 format!(
                     " {}",

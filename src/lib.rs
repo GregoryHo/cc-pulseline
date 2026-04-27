@@ -94,18 +94,14 @@ impl PulseLineRunner {
                 state.push_ctx_sample(sample);
             }
         }
-        // Sparkline consumers: instrument-cluster layouts always read it;
-        // flat-row layouts only when the user has opted in via
-        // `show_ctx_sparkline`. Skip the copy otherwise — it's a tight
-        // allocation hot path.
-        let is_instrument_cluster = matches!(
-            config.pane_style,
-            crate::render::pane::LayoutStyle::Cockpit
-                | crate::render::pane::LayoutStyle::Console
-                | crate::render::pane::LayoutStyle::Flightstrip
-                | crate::render::pane::LayoutStyle::Auto
-        );
-        if is_instrument_cluster || config.show_ctx_sparkline {
+        // Sparkline consumers: any layout whose effective `context_visual`
+        // spec includes `sparkline` needs the history copy. Skip the copy
+        // otherwise — it's a tight allocation hot path.
+        let needs_sparkline = config
+            .effective_context_visual()
+            .split('+')
+            .any(|w| w.trim() == "sparkline");
+        if needs_sparkline {
             frame.ctx_history = state.ctx_history.iter().copied().collect();
         }
 

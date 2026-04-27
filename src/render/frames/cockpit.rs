@@ -93,21 +93,31 @@ fn cluster_row(
     } else {
         COMPACT_GAUGE_WIDTH
     };
-    cells.push(shared::ctx_gauge_cell(
+    // Dispatch CTX rendering through the visual spec — the layout supplies
+    // its preferred sizing (gauge_w) but the user's `context_visual` config
+    // chooses which widgets to actually render.
+    let mut ctx_spec = config.effective_context_visual().to_string();
+    if width < 100 {
+        // Below the cluster's full width budget, drop sparkline if it was
+        // requested — the eye needs cells for the gauge first. Replicates
+        // the previous hardcoded `width >= 100` gate.
+        ctx_spec = ctx_spec
+            .split('+')
+            .filter(|w| w.trim() != "sparkline")
+            .collect::<Vec<_>>()
+            .join("+");
+    }
+    let ctx_cell = shared::render_context_visual(
+        &ctx_spec,
         &frame.line3,
+        &frame.ctx_history,
         gauge_w,
         config.glyph_mode,
         p,
         color,
-    ));
-
-    if width >= 100 && shared::sparkline_enabled(config) {
-        cells.push(shared::ctx_sparkline(
-            &frame.ctx_history,
-            config.glyph_mode,
-            p,
-            color,
-        ));
+    );
+    if !ctx_cell.is_empty() {
+        cells.push(ctx_cell);
     }
 
     if config.show_tokens {

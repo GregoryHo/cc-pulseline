@@ -114,13 +114,13 @@ fn cockpit_inserts_optional_config_row_when_toggle_on() {
 #[test]
 fn cockpit_pushes_ctx_history_across_invocations() {
     // Two ticks at the same session key should produce a sparkline that grows
-    // — but only when the user has opted in via `show_ctx_sparkline = true`.
+    // — but only when the resolved `context_visual` includes "sparkline".
     let tmp = build_fake_home();
     let cwd = tmp.path().to_str().unwrap();
     let mut runner = PulseLineRunner::default().with_user_home(tmp.path().join("fake_home"));
 
     let mut cfg = cockpit_cfg(140);
-    cfg.show_ctx_sparkline = true;
+    cfg.context_visual = "gauge+sparkline".to_string();
     cfg.glyph_mode = cc_pulseline::config::GlyphMode::Icon;
 
     let _ = runner

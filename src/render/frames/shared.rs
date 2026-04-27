@@ -178,8 +178,17 @@ pub fn push_walled_group_rows(
 /// CTX sparkline (braille mini-chart) is opt-in and Nerd Font only — there
 /// is no ASCII fallback that conveys the same trend information, so we hide
 /// it cleanly under `icons = false` rather than emitting boxes.
+///
+/// Reads the resolved `context_visual` spec: any `+`-separated component
+/// equal to `"sparkline"` opts in. Compare to the legacy
+/// `show_ctx_sparkline = true` (now removed) which mapped to
+/// `context_visual = "gauge+sparkline"`.
 pub fn sparkline_enabled(config: &RenderConfig) -> bool {
-    config.show_ctx_sparkline && config.glyph_mode.is_icon()
+    config.glyph_mode.is_icon()
+        && config
+            .effective_context_visual()
+            .split('+')
+            .any(|w| w.trim() == "sparkline")
 }
 
 /// Whether at least one config-row segment is enabled.
@@ -332,6 +341,71 @@ pub fn config_row(
     // last (still over-budget) body and let CC clip it visibly. Better than a
     // blank row.
     format!("{prefix}{last_body}")
+}
+
+/// Compose a CTX cell from a `+`-separated visual spec.
+///
+/// Recognized widget names: `gauge`, `sparkline`, `text`. Unknown names are
+/// silently dropped (forward-compat: a future widget added to the registry
+/// can be referenced from a config that older binaries simply ignore).
+///
+/// Empty input returns an empty string. Multiple widgets are joined with one
+/// space — the cluster row's existing two-space cell separator stays the
+/// boundary between independent cells.
+///
+/// This is the dispatch hub for Phase 3 composability: any layout that calls
+/// it instead of `ctx_gauge_cell`/`ctx_sparkline` directly inherits the
+/// per-segment override capability for free.
+pub fn render_context_visual(
+    spec: &str,
+    line3: &Line3Metrics,
+    history: &[u8],
+    gauge_width: usize,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for raw in spec.split('+') {
+        let widget = raw.trim();
+        if widget.is_empty() {
+            continue;
+        }
+        let cell = match widget {
+            "gauge" => ctx_gauge_cell(line3, gauge_width, mode, p, color_enabled),
+            "sparkline" => {
+                // Sparkline is icon-only; widget itself returns "" under
+                // Ascii so we don't need to gate here.
+                ctx_sparkline(history, mode, p, color_enabled)
+            }
+            "text" => ctx_text_cell(line3, p, color_enabled),
+            _ => String::new(), // unknown widget — silently drop
+        };
+        if !cell.is_empty() {
+            parts.push(cell);
+        }
+    }
+    parts.join(" ")
+}
+
+/// CTX text cell — bare `43% (86.0k/200.0k)` form, no gauge or sparkline.
+/// Used when `context_visual` includes `"text"`.
+pub fn ctx_text_cell(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) -> String {
+    let pct = line3.context_used_percentage.unwrap_or(0);
+    let pct_color = p.color_for_ctx_pct(pct, line3.context_window_size);
+    let label = colorize("CTX  ", &p.structural, color_enabled);
+    let pct_str = colorize(&format!("{pct}%"), pct_color, color_enabled);
+    if let Some(size) = line3.context_window_size {
+        let used = ((size as f64) * (pct as f64) / 100.0) as u64;
+        let open = colorize(" (", &p.separator, color_enabled);
+        let used_str = colorize(&format_number(used), &p.primary, color_enabled);
+        let sep = colorize("/", &p.separator, color_enabled);
+        let total = colorize(&format_number(size), &p.primary, color_enabled);
+        let close = colorize(")", &p.separator, color_enabled);
+        format!("{label}{pct_str}{open}{used_str}{sep}{total}{close}")
+    } else {
+        format!("{label}{pct_str}")
+    }
 }
 
 /// CTX gauge cell — `gauge_width` cells, followed by `% used` text.
