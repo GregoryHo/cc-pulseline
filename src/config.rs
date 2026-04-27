@@ -1099,10 +1099,15 @@ impl Default for RenderConfig {
             transcript_window_events: 400,
             transcript_poll_throttle_ms: 250,
             terminal_width: None,
+            // Order matters: cheapest, least-destructive moves first.
+            // CompressLine2 collapses L2 separators (no info loss);
+            // CompressCoreLines truncates L1/L2/L3 with `...`;
+            // DropActivityLinesFirst is last — it removes activity entirely,
+            // so it should only fire if compression alone can't make room.
             degrade_order: vec![
-                WidthDegradeStrategy::DropActivityLinesFirst,
                 WidthDegradeStrategy::CompressLine2,
                 WidthDegradeStrategy::CompressCoreLines,
+                WidthDegradeStrategy::DropActivityLinesFirst,
             ],
             pane_style: PaneStyle::V1None,
             pane_width_mode: PaneWidth::Auto,

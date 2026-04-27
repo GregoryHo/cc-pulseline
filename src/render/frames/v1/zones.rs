@@ -61,17 +61,15 @@ fn resolve_inner_width(grouped: &[(&str, Vec<&str>)], cfg: &PaneConfig) -> usize
         PaneWidth::Auto => content_max.max(label_max),
         PaneWidth::Fixed(w) => w.max(label_max),
         PaneWidth::Terminal => {
-            // Span the detected terminal width, minus `cc_margin` cols for
-            // Claude Code's statusline padding. CC allocates the statusline a
-            // sub-region of the raw terminal — empirically ~1-4 cols narrower;
-            // lines at exactly the raw width trigger wrap and collapse the
-            // whole multi-line render. Defaults to 4 cols (verified safe on
-            // CC 2.1.119); configurable via `pane.cc_margin` for other hosts.
+            // Span the detected terminal width. The cc_margin deduction now
+            // happens once upstream in `render_frame()` for both v1 and v2,
+            // so `cfg.terminal_width` here is already the safe sub-region
+            // width — no further subtraction needed.
             //
             // When detection failed (`terminal_width = None`), fall back to
             // content-fit (Auto behavior) — NOT to max_width.
             match cfg.terminal_width {
-                Some(term) => term.saturating_sub(cfg.cc_margin).max(label_max),
+                Some(term) => term.max(label_max),
                 None => content_max.max(label_max),
             }
         }

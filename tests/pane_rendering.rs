@@ -384,14 +384,12 @@ min_width = 80
 }
 
 #[test]
-fn terminal_mode_subtracts_cc_margin_from_detected_width() {
-    // Regression: Claude Code allocates the statusline a sub-region that is
-    // narrower than the raw terminal (confirmed empirically on CC 2.1.119: a
-    // 149-col divider in a 149-col raw terminal triggered wrap and collapsed
-    // the multi-line render to 1 visible line). `cc_margin` subtracts a few
-    // cols from the detected width so every line stays strictly inside CC's
-    // slot. This test locks in that behavior — rule width MUST equal
-    // `terminal_width - cc_margin` (not `terminal_width`).
+fn terminal_mode_uses_given_terminal_width() {
+    // Contract: `apply_pane`'s `terminal_width` represents CC's safe
+    // sub-region width — caller (`render_frame`) is responsible for
+    // subtracting `cc_margin` from the raw detected width before calling.
+    // This test simulates that pre-adjustment (149 raw - 4 margin = 145)
+    // and verifies the rule spans the given width exactly.
     let lines = vec![
         "line-a".to_string(),
         "line-b".to_string(),
@@ -404,8 +402,7 @@ fn terminal_mode_subtracts_cc_margin_from_detected_width() {
     ];
     let mut cfg = base_config(PaneStyle::V1Zones);
     cfg.width_mode = PaneWidth::Terminal;
-    cfg.terminal_width = Some(149);
-    cfg.cc_margin = 4;
+    cfg.terminal_width = Some(145); // pre-adjusted: 149 raw - 4 cc_margin
     cfg.min_width = 20;
     cfg.max_width = 300;
 
@@ -417,12 +414,7 @@ fn terminal_mode_subtracts_cc_margin_from_detected_width() {
         .collect();
 
     assert!(!rule_widths.is_empty());
-    assert_eq!(
-        rule_widths[0],
-        145,
-        "rule must be terminal_width (149) minus cc_margin (4) = 145, not the raw {}",
-        cfg.terminal_width.unwrap()
-    );
+    assert_eq!(rule_widths[0], 145);
 }
 
 #[test]

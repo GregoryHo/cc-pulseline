@@ -12,10 +12,6 @@ use super::frames::v2;
 use super::icons::*;
 use super::pane::{apply_pane, LineKind, PaneConfig, PaneGroup, PaneStyle};
 
-/// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
-/// Used in width degradation to determine what counts as "activity" lines.
-const CORE_LINE_COUNT: usize = 3;
-
 /// Borrow `base` or yield an owned variant whose `separator` is overridden with
 /// the row-appropriate strata tier. See `designs/tonal-strata-redesign.md`:
 /// `is_activity = true` → `strata_activity`, otherwise → `strata_state`.
@@ -33,26 +29,25 @@ fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_
 }
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    // v2 layouts own the entire pipeline — they never go through the v1
-    // line-builder + pane-frame chain. CC allocates the statusline a sub-region
-    // narrower than the raw terminal (see DEFAULT_PANE_CC_MARGIN); without this
-    // adjustment, v2 rows render at full COLUMNS and CC's overflow detection
-    // collapses the multi-line output to a single visible line.
+    // CC allocates the statusline a sub-region narrower than the raw terminal
+    // (see DEFAULT_PANE_CC_MARGIN). Both v1 and v2 paths must size against the
+    // sub-region, not the raw terminal — otherwise CC's overflow detection
+    // wraps the over-wide line and collapses the whole multi-line render to
+    // one visible line.
+    let adjusted = config.terminal_width.map(|w| {
+        let mut c = config.clone();
+        c.terminal_width = Some(w.saturating_sub(config.pane_cc_margin));
+        c
+    });
+    let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
+
     if config.pane_style.is_v2() {
-        // Only clone when an adjustment is needed; the unknown-width path
-        // borrows the caller's config straight through.
-        let adjusted = config.terminal_width.map(|w| {
-            let mut c = config.clone();
-            c.terminal_width = Some(w.saturating_sub(config.pane_cc_margin));
-            c
-        });
-        let v2_config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
-        let palette = &v2_config.palette;
-        return match v2_config.pane_style {
-            PaneStyle::V2Cockpit => v2::cockpit::render(frame, v2_config, palette),
-            PaneStyle::V2Console => v2::console::render(frame, v2_config, palette),
-            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, v2_config, palette),
-            PaneStyle::V2Auto => v2::auto::render(frame, v2_config, palette),
+        let palette = &config.palette;
+        return match config.pane_style {
+            PaneStyle::V2Cockpit => v2::cockpit::render(frame, config, palette),
+            PaneStyle::V2Console => v2::console::render(frame, config, palette),
+            PaneStyle::V2Flightstrip => v2::flightstrip::render(frame, config, palette),
+            PaneStyle::V2Auto => v2::auto::render(frame, config, palette),
             // Exhaustive enumeration: adding a new V2 variant must update this
             // match (compile error) instead of silently rendering blank.
             PaneStyle::V1None
@@ -128,8 +123,22 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
 
     if let Some(width) = effective_width {
         let compressed_line2 = format_line2(frame, config, " ", &p_state);
-        lines =
-            apply_width_degradation(lines, width, &config.degrade_order, compressed_line2, color);
+        lines = apply_width_degradation(
+            lines,
+            width,
+            &config.degrade_order,
+            compressed_line2,
+            color,
+            activity_start,
+        );
+        // `apply_width_degradation` may have truncated `lines`; clamp every
+        // group range so downstream renderers (cards/sections) don't push
+        // chrome for indices that no longer exist (which produces empty
+        // framed boxes).
+        groups.retain_mut(|(_, range)| {
+            range.end = range.end.min(lines.len());
+            range.start < range.end
+        });
     }
 
     if pane_active {
@@ -647,6 +656,7 @@ fn apply_width_degradation(
     strategies: &[WidthDegradeStrategy],
     compressed_line2: String,
     color_enabled: bool,
+    activity_start: usize,
 ) -> Vec<String> {
     if width == 0 {
         return Vec::new();
@@ -656,6 +666,13 @@ fn apply_width_degradation(
         return lines;
     }
 
+    // "Core" = everything before activity rows (L1 identity, L2 config, L3
+    // budget, optional quota). Quota lives between L3 and the activity start,
+    // so dropping activity lines must truncate to `activity_start`, NOT to a
+    // hardcoded core count — otherwise quota gets dropped together with
+    // activity even though it belongs to the Budget group.
+    let core_end = activity_start;
+
     for strategy in strategies {
         if lines_fit_width(&lines, width) {
             break;
@@ -663,8 +680,8 @@ fn apply_width_degradation(
 
         match strategy {
             WidthDegradeStrategy::DropActivityLinesFirst => {
-                if lines.len() > CORE_LINE_COUNT {
-                    lines.truncate(CORE_LINE_COUNT);
+                if lines.len() > core_end {
+                    lines.truncate(core_end);
                 }
             }
             WidthDegradeStrategy::CompressLine2 => {
@@ -673,7 +690,7 @@ fn apply_width_degradation(
                 }
             }
             WidthDegradeStrategy::CompressCoreLines => {
-                for index in 0..lines.len().min(CORE_LINE_COUNT) {
+                for index in 0..lines.len().min(core_end) {
                     lines[index] = truncate_to_width(&lines[index], width, color_enabled);
                 }
             }
