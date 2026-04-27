@@ -90,30 +90,37 @@ fn parallel_batch_collapses_to_one_row_with_full_count() {
         .expect("render");
     let blob = lines.join("\n");
 
+    // Homogeneous batch: agent type + ×N + bracketed body, no `parallel` label.
     let agent_row = lines
         .iter()
-        .find(|l| l.contains("parallel"))
-        .unwrap_or_else(|| panic!("no parallel row in:\n{blob}"));
+        .find(|l| l.contains("general-purpose") && l.contains("×3"))
+        .unwrap_or_else(|| panic!("no batch row in:\n{blob}"));
     assert!(
-        agent_row.contains("×3"),
-        "expected ×3 (full batch), got: {agent_row:?}"
+        agent_row.contains(" [") && agent_row.contains("]"),
+        "body must be bracketed: {agent_row:?}"
     );
+    // All three descriptions are joined with ` + ` — no summary phrase.
     assert!(
-        agent_row.contains("+ 2 more"),
-        "expected '+ 2 more', got: {agent_row:?}"
+        !agent_row.contains("+ 2 more"),
+        "summary phrase must be removed, got: {agent_row:?}"
     );
-    // First description from the first agent in the batch.
-    assert!(
-        agent_row.contains("Code reuse review"),
-        "expected first agent description, got: {agent_row:?}"
-    );
+    for desc in [
+        "Code reuse review",
+        "Code quality review",
+        "Efficiency review",
+    ] {
+        assert!(
+            agent_row.contains(desc),
+            "expected description {desc:?}, got: {agent_row:?}"
+        );
+    }
 }
 
 #[test]
-fn bash_target_uses_command_smart_truncation() {
-    // A long sed command should surface the regex payload, not the verb +
-    // flags. End-to-end check that transcript stores raw + render layer
-    // applies CommandSmart.
+fn bash_target_keeps_verb_at_row_start() {
+    // The verb (`sed`, `cargo`, `grep`, …) anchors the rendered cell so the
+    // operator can recognise the command at a glance — end-to-end check
+    // that transcript stores raw + render layer keeps the head intact.
     let workspace = TempDir::new().expect("temp ws");
     let transcript = workspace.path().join("bash.jsonl");
 
@@ -139,15 +146,9 @@ fn bash_target_uses_command_smart_truncation() {
         .iter()
         .find(|l| l.contains("T:Bash"))
         .unwrap_or_else(|| panic!("no T:Bash row in:\n{blob}"));
-    // CommandSmart strips `sed`/`-i` and surfaces the quoted regex payload.
     assert!(
-        bash_row.contains("s/^name") || bash_row.contains("pulseline.toml"),
-        "command_smart should expose payload, got: {bash_row:?}"
-    );
-    // The raw verb chain must NOT appear unaltered.
-    assert!(
-        !bash_row.contains("sed -i"),
-        "verb+flag chain should be stripped, got: {bash_row:?}"
+        bash_row.contains("T:Bash: sed"),
+        "verb must lead the cell body, got: {bash_row:?}"
     );
 }
 
@@ -194,9 +195,10 @@ fn sequential_agents_render_individually_no_fold() {
         !blob.contains("parallel"),
         "sequential agents must not collapse: {blob}"
     );
-    // 2 individual rows visible + 1 overflow summary `… + 1 more agents`.
+    // 2 individual rows visible + 1 overflow summary. Pluralization is
+    // count-correct: 1 → `more agent`, 2+ → `more agents`.
     assert!(
-        blob.contains("more agents"),
+        blob.contains("more agent"),
         "expected overflow summary, got: {blob}"
     );
 }

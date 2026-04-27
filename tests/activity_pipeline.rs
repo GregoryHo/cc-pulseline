@@ -1762,7 +1762,7 @@ fn completed_tools_wraps_to_multiple_lines() {
     let config = RenderConfig {
         transcript_poll_throttle_ms: 0,
         max_completed_tools: 8,
-        tools_per_line: 6,
+        max_completed_lines: 2,
         ..RenderConfig::default()
     };
 
@@ -1770,13 +1770,26 @@ fn completed_tools_wraps_to_multiple_lines() {
         .run_from_str(&payload_json(&workspace, &transcript, "wrap-test"), config)
         .expect("render should succeed");
 
-    // Count lines containing ✓ (completed tool markers)
+    // 8 short cells fit into one row at width 200.
     let completed_lines: Vec<&String> = lines.iter().filter(|l| l.contains("✓")).collect();
     assert_eq!(
         completed_lines.len(),
-        2,
-        "8 tools at 6 per line should produce 2 completed lines: got {completed_lines:?}"
+        1,
+        "8 tools should pack onto ONE line: got {completed_lines:?}"
     );
+    let row = completed_lines[0];
+    for name in [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Grep",
+        "Glob",
+        "WebFetch",
+        "WebSearch",
+    ] {
+        assert!(row.contains(name), "row missing {name}: {row:?}");
+    }
 }
 
 #[test]
@@ -1806,7 +1819,7 @@ fn completed_tools_single_line_when_under_per_line() {
     let config = RenderConfig {
         transcript_poll_throttle_ms: 0,
         max_completed_tools: 8,
-        tools_per_line: 6,
+        max_completed_lines: 2,
         ..RenderConfig::default()
     };
 

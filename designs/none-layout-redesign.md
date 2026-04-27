@@ -241,3 +241,222 @@ Estimated diff: ~150 LOC. No new config keys, no breaking changes.
 ## Next step
 
 Pick A vs A+B vs A+B+C; answer the open questions; then I implement.
+
+---
+
+# Iteration 2 — 2026-04-27
+
+Re-review against the current screenshot (width ≈ 220, Tokyo Night, all
+segments enabled, 5 completed tools, 2 running Bash, 3-agent homogeneous
+parallel batch + 5 hidden agents, todos all-done).
+
+The Iteration 1 brief landed several wins (sparkline, reorder, agent batch
+detection) but the **agent body**, **completed-tool row**, and **running-Bash
+target** still misbehave. This iteration is scoped to those three.
+
+## Mode A — Critique (focused, six items)
+
+### A1 — Hierarchy
+The all-done todo `✓ All todos complete (6/6)` is the **only positive signal**
+in the entire stack and it's pinned at the very bottom, dimmed by the
+overflow `… + 5 more agents` line above it. **Should fix:** todo state is
+session-meaningful; it should bubble to the top of the activity zone OR get a
+distinct color tier so the eye finds it.
+
+### A2 — Affordance — agent body
+**Must fix.** The homogeneous parallel cell renders
+`Code quality review + 2 more`. Two failures:
+
+- `+ N more` is summary-style — it tells the user there is hidden info
+  without showing it, while the rows immediately below it (`✓ general-purpose:
+  Code reuse review` and `Efficiency review`) **are exactly those hidden
+  items, redundantly expanded**. The parallel line and the per-agent rows are
+  now telling the same story twice.
+- The `+` is an "and-more" sentinel. The user expects `+` to mean
+  **separator between actual descriptions** (because that's what the
+  heterogeneous cell does). Inconsistent semantics across the two cell kinds.
+
+**Fix:** the parallel cell becomes the *single source of truth* for the
+batch — join all descriptions with ` + `. Drop the per-agent rows for that
+batch from the agent list (don't render them twice). The `+ N more` phrase
+is removed entirely from the homogeneous path.
+
+### A3 — Affordance — heterogeneous with type repeats
+**Should fix.** A 4-agent batch with 2× `Explore` + 2× `code-reviewer`
+currently renders:
+
+```
+‖ ×4 parallel: Explore: a + Explore: b + code-reviewer: c + code-reviewer: d
+```
+
+Each `Type:` is repeated. **Fix:** when a heterogeneous batch contains
+**type-runs** (≥2 of the same type), bucket within the cell first, then join:
+
+```
+‖ ×4 parallel: Explore ×2 [a + b] + code-reviewer ×2 [c + d]
+```
+
+When a heterogeneous batch is fully diverse (every type unique), keep the
+current `type: desc` flat join.
+
+### A4 — Density & rhythm — completed-tool row
+**Must fix.** Current row:
+`✓ Bash ×251 | ✓ Edit ×193 | ✓ Read ×131 | ✓ Write ×16` — **then orphan
+`✓ Skill ×1` on the next row** because of `tools_per_line = 4`.
+
+Two structural problems:
+- Five `✓ ` glyph repetitions per logical "completed tools" group — the
+  checkmark column dominates the data column.
+- The orphan is **created by config**, not width pressure.
+
+**Fix:** one `✓ ` prefix per *row*, not per cell. Replace cell separator with
+a tighter mid-dot (`·`, 1 cell) instead of ` | ` (3 cells). Remove the `×`
+prefix on counts (it's implied by context). Drop the `tools_per_line` cap
+when not needed.
+
+```
+✓ Bash 251 · Edit 193 · Read 131 · Write 16 · Skill 1
+```
+
+That's a **47-char** row vs the current **two rows totaling ~78 chars** of
+chrome+data.
+
+### A5 — Density & rhythm — running-Bash target
+**Should fix.** `🔧 Bash: --- FAILED|^test result: ok\.   ---total---  …` is
+correctly preserving the regex payload (CommandSmart strategy), but the
+content **is** noise — runs of `-`, `|`, `\.` from grep arguments. The eye
+can't pattern-match what the command does.
+
+**Fix options (pick one):**
+- **A5a (cheap):** drop Bash ideal width from 50 → 40, so payloads truncate
+  earlier and the row stays scannable.
+- **A5b (smart):** when the Bash command starts with a known verb in
+  `{grep,rg,sed,awk,find}` AND a `-E|--extended-regexp|--regexp` flag is
+  present, display `<verb> -E '<truncated regex>' <last-arg>` — a tiny
+  pretty-printer for shell pipelines.
+- **A5c (dumbest, often best):** for any Bash payload longer than the cell
+  budget, switch to KeepHead instead of CommandSmart — show the verb +
+  early flags + ellipsis. Verb-first is a stronger affordance than
+  payload-first for "what is this command doing".
+
+Recommend **A5a + A5c combined** (drop ideal to 40, fall back to KeepHead
+when CommandSmart can't fit a meaningful payload at min_width 8).
+
+### A6 — Consistency — overflow language
+**Could fix.** `… + 5 more agents` uses the same `+` as the new parallel
+cell separator (per A2). Reads ambiguously after the change. Use
+`… (5 hidden)` or `↑5 more` instead.
+
+---
+
+## Adjustments — Must / Should / Could
+
+### Must
+- **A2 — drop "+ N more" in homogeneous parallel cell** — replace with
+  ` + `-joined description list. Remove the per-agent rows for any agent
+  that's already represented in a batch cell (no double-rendering).
+  *Touch:* `build_agent_homogeneous_cell`, `build_agent_rows`
+  (filter chosen agents against batch membership).
+- **A4 — completed-tool row redesign** — one `✓ ` prefix per row,
+  mid-dot separator, drop `×` on counts, remove the per-row cap when
+  width allows.
+  *Touch:* `build_completed_tool_cell` (drop the `✓ ` and `×` from cell
+  head), and `build_activity_rows` (prepend a single `✓ ` to the packed
+  row). New row separator constant.
+
+### Should
+- **A3 — type-bucketing inside heterogeneous cells** — when type repeats,
+  use `Type ×N [d1 + d2]` sub-bucket; otherwise keep flat join.
+  *Touch:* `build_agent_heterogeneous_cell`.
+- **A5a — tighten Bash truncation budget** — `target_strategy_for("Bash")`:
+  ideal 50 → 40.
+  *Touch:* `target_strategy_for`.
+- **A5c — Bash CommandSmart fallback to KeepHead** — when CommandSmart
+  output exceeds cell budget at `min_width`, fall back to KeepHead so the
+  verb survives.
+  *Touch:* `pack_with_separator` truncation chain, OR a new
+  `CommandSmartFallback` strategy variant.
+
+### Could
+- **A1 — promote all-done todo** — render the `✓ All todos complete` line
+  *first* in the activity stack (above completed-tools row) when present.
+  Defensible to skip — it's a once-per-session moment.
+- **A6 — overflow language change** — `… + N more agents` → `… (N hidden)`.
+
+---
+
+## Mode B — Body content variations for the parallel cell
+
+Three concrete options for the parallel-cell body, in increasing structure.
+
+### Variation B1 — flat join (simplest, recommended)
+
+Same body shape as the current heterogeneous cell. `+ ` joins descriptions
+in original arrival order.
+
+```
+🤖 general-purpose ×3: Code quality + Code reuse + Efficiency (avg 1m)
+‖ ×3: Explore: investigate + general-purpose: code reuse + code-reviewer: final pass (avg 2m)
+```
+
+When width is tight, the truncator (Sentence) shortens the *longest*
+sub-item first, preserving the count and the leading description.
+
+**Trade-off:** descriptions can collide visually if two start with the same
+word. Mitigated by the agent type prefix doing the disambiguation.
+
+### Variation B2 — bullet join
+
+Use a tiny visual separator instead of `+`.
+
+```
+🤖 general-purpose ×3: • Code quality • Code reuse • Efficiency (avg 1m)
+```
+
+**Trade-off:** `•` is one cell but visually weaker than `+`. May read as
+"one fragmented description" instead of "three discrete items".
+
+### Variation B3 — type-bucketed (heterogeneous only)
+
+For mixed-type batches, group by type first.
+
+```
+‖ ×4: Explore ×2 [investigate auth + parse JWT] + code-reviewer ×2 [first pass + final pass] (avg 1m 30s)
+```
+
+Flat join when no type repeats; bucketed when any type appears ≥2 times.
+**Recommended for the heterogeneous path** (Mode A item A3).
+
+**Recommendation:** ship **B1 for homogeneous** + **B3 for heterogeneous**.
+Same character (` + `) plays the join role in both — semantically
+consistent.
+
+---
+
+## Open questions
+
+1. **Double-render rule.** When the `Homogeneous` batch cell shows all 3
+   descriptions, do we still keep separate `✓ general-purpose: …` rows for
+   the completed individual agents? Strong recommendation: **no**, drop
+   them. But that means `max_agent_lines` semantics change (lines now equal
+   batches, not agents).
+
+2. **Bash pretty-printer (A5b).** Is the verb-detection special-case worth
+   it, or just go A5a+A5c? Pretty-printing is fragile (real shell grammar
+   is hard) — vote: skip B5b.
+
+3. **Mid-dot separator.** Does Tokyo Night's `separator` color render the
+   `·` (U+00B7) at sufficient contrast? If not, fall back to `space + space`
+   or `, ` for the completed-tool row.
+
+4. **All-done todo placement (A1).** Promote to top, leave at bottom, or
+   make it configurable? My vote: top of activity, structural color (so it
+   doesn't out-shout running activity).
+
+## Next step
+
+Confirm the **Must** list (A2 + A4) is what you want first — those alone
+collapse the screenshot from 10 lines to 7 with no information loss. Then
+A3 + A5 as a follow-up. If you sign off, I'll implement A2+A4 in one
+commit.
+

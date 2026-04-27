@@ -17,8 +17,11 @@ fn default_max_lines() -> usize {
 fn default_max_completed() -> usize {
     4
 }
-fn default_tools_per_line() -> usize {
-    6
+/// Hard cap on completed-tool rows. Width-aware packing fills rows
+/// greedily; once this many rows are filled, remaining items collapse
+/// into a `… + N more tools` summary line at the bottom.
+fn default_max_completed_lines() -> usize {
+    2
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -333,8 +336,8 @@ pub struct ToolSegmentConfig {
     pub max_lines: usize,
     #[serde(default = "default_max_completed")]
     pub max_completed: usize,
-    #[serde(default = "default_tools_per_line")]
-    pub tools_per_line: usize,
+    #[serde(default = "default_max_completed_lines")]
+    pub max_completed_lines: usize,
 }
 
 impl Default for ToolSegmentConfig {
@@ -343,7 +346,7 @@ impl Default for ToolSegmentConfig {
             enabled: true,
             max_lines: 2,
             max_completed: 4,
-            tools_per_line: 6,
+            max_completed_lines: 2,
         }
     }
 }
@@ -445,7 +448,7 @@ show_seven_day = false
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
-tools_per_line = 6      # completed tools per line
+max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
 
 [segments.agents]
 enabled = true
@@ -574,7 +577,7 @@ pub struct ProjectToolOverride {
     pub enabled: Option<bool>,
     pub max_lines: Option<usize>,
     pub max_completed: Option<usize>,
-    pub tools_per_line: Option<usize>,
+    pub max_completed_lines: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -763,8 +766,8 @@ pub fn merge_configs(
             if let Some(v) = tools.max_completed {
                 user.segments.tools.max_completed = v;
             }
-            if let Some(v) = tools.tools_per_line {
-                user.segments.tools.tools_per_line = v;
+            if let Some(v) = tools.max_completed_lines {
+                user.segments.tools.max_completed_lines = v;
             }
         }
         if let Some(agents) = &segments.agents {
@@ -945,7 +948,7 @@ pub fn default_project_config_toml() -> &'static str {
 # enabled = true
 # max_lines = 2
 # max_completed = 4
-# tools_per_line = 6
+# max_completed_lines = 2
 
 # [segments.agents]
 # enabled = true
@@ -1033,7 +1036,8 @@ pub struct RenderConfig {
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
-    pub tools_per_line: usize,
+    /// Hard cap on completed-tool rows. See `default_max_completed_lines`.
+    pub max_completed_lines: usize,
     pub max_agent_lines: usize,
     pub max_todo_lines: usize,
     pub show_tools: bool,
@@ -1086,7 +1090,7 @@ impl Default for RenderConfig {
             show_quota_seven_day: false,
             max_tool_lines: 2,
             max_completed_tools: 4,
-            tools_per_line: 6,
+            max_completed_lines: 2,
             max_agent_lines: 2,
             max_todo_lines: 2,
             show_tools: true,
@@ -1238,7 +1242,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
         max_completed_tools: pulseline.segments.tools.max_completed,
-        tools_per_line: pulseline.segments.tools.tools_per_line,
+        max_completed_lines: pulseline.segments.tools.max_completed_lines,
         max_agent_lines: pulseline.segments.agents.max_lines,
         max_todo_lines: pulseline.segments.todo.max_lines,
         show_tools: pulseline.segments.tools.enabled,

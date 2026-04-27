@@ -46,13 +46,12 @@ pub fn build_activity_rows(
                 .take(config.max_completed_tools.max(1))
                 .map(|c| build_completed_tool_cell(c, palette, color))
                 .collect();
-            rows.extend(pack_chunked(
+            rows.extend(build_completed_tool_rows(
                 &cells,
                 available_width,
                 &sep,
-                ROW_SEPARATOR_W,
-                config.tools_per_line,
-                color,
+                palette,
+                config,
             ));
         }
 
@@ -96,13 +95,62 @@ pub fn target_strategy_for(tool_name: &str) -> (TruncationStrategy, usize) {
     use TruncationStrategy::*;
     match tool_name {
         "Read" | "Write" | "Edit" | "NotebookEdit" => (KeepTail, 40),
-        "Bash" | "PowerShell" => (CommandSmart, 50),
+        // KeepHead so the verb (`grep`, `cargo`, `sed`, …) is always at the
+        // start of the rendered cell. The previous CommandSmart prioritised
+        // regex payloads over the verb, producing rows that were impossible
+        // to match to a command at a glance.
+        "Bash" | "PowerShell" => (KeepHead, 40),
         "Glob" | "Grep" => (KeepHead, 30),
         "WebFetch" => (KeepMiddle, 40),
         "WebSearch" | "Skill" | "Advisor" | "MCPSearch" | "AskUserQuestion" => (Sentence, 50),
         "SendMessage" | "LSP" | "Monitor" | "PushNotification" => (KeepHead, 30),
         _ => (KeepHead, 30),
     }
+}
+
+// ── Shared row helpers ────────────────────────────────────────────────
+
+/// `… + N more {label}` summary used by both the completed-tool overflow
+/// and the agent overflow. Picks the singular noun when `count == 1`.
+fn overflow_summary(
+    count: usize,
+    singular: &str,
+    plural: &str,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
+    let label = if count == 1 { singular } else { plural };
+    colorize(
+        &format!("\u{2026} + {count} more {label}"),
+        &p.structural,
+        color,
+    )
+}
+
+/// First non-empty line of an agent's description — the canonical short
+/// blurb used for cell bodies. Multi-line descriptions are common when the
+/// caller pastes a paragraph; everything past the first line is dropped
+/// to keep the row 1-line-tall.
+fn first_desc_line(a: &AgentSummary) -> &str {
+    a.description.lines().next().unwrap_or("")
+}
+
+/// Group agents by `agent_type`, preserving first-seen order. Each type
+/// appears exactly once; its descriptions accumulate in arrival order.
+/// Used by the heterogeneous parallel cell to surface type-runs as
+/// `Type ×N [d1 + d2]` instead of repeating the type prefix per agent.
+fn bucket_by_type<'a>(group: &[&'a AgentSummary]) -> Vec<(&'a str, Vec<&'a str>)> {
+    let mut buckets: Vec<(&str, Vec<&str>)> = Vec::with_capacity(group.len());
+    for a in group {
+        let t = a.agent_type.as_deref().unwrap_or("agent");
+        let d = first_desc_line(a);
+        if let Some(b) = buckets.iter_mut().find(|(ty, _)| *ty == t) {
+            b.1.push(d);
+        } else {
+            buckets.push((t, vec![d]));
+        }
+    }
+    buckets
 }
 
 // ── Tail fragment helpers (shared across the agent cell builders) ───
@@ -132,8 +180,61 @@ fn parens_pinned_tail(content: &str, p: &ThemePalette, color: bool) -> TailFragm
 
 // ── Cell builders ─────────────────────────────────────────────────────
 
+/// Width-adaptive multi-row packer for the completed-tool segment.
+/// `cells` are importance-sorted; greedily fills rows up to
+/// `config.max_completed_lines`, then collapses the remainder into a
+/// `… + N more tools` summary at the BOTTOM — hidden cells are the
+/// least-important, so the summary reads naturally below the visible rows.
+fn build_completed_tool_rows(
+    cells: &[Cell],
+    available_width: usize,
+    sep: &str,
+    palette: &ThemePalette,
+    config: &RenderConfig,
+) -> Vec<String> {
+    let color = config.color_enabled;
+    let max_rows = config.max_completed_lines.max(1);
+    let mut rows: Vec<String> = Vec::with_capacity(max_rows + 1);
+    let mut shown = 0usize;
+    let mut start = 0usize;
+
+    while start < cells.len() && rows.len() < max_rows {
+        let mut used = cells[start].min_required_width();
+        let mut end = start + 1;
+        while end < cells.len() {
+            let advance = ROW_SEPARATOR_W + cells[end].min_required_width();
+            if used + advance > available_width {
+                break;
+            }
+            used += advance;
+            end += 1;
+        }
+        let row = pack_with_separator(
+            &cells[start..end],
+            available_width,
+            sep,
+            ROW_SEPARATOR_W,
+            color,
+        );
+        if !row.is_empty() {
+            rows.push(row);
+            shown = end;
+        }
+        start = end;
+    }
+
+    let hidden = cells.len().saturating_sub(shown);
+    if hidden > 0 {
+        rows.push(overflow_summary(hidden, "tool", "tools", palette, color));
+    }
+
+    rows
+}
+
 fn build_completed_tool_cell(c: &CompletedToolCount, p: &ThemePalette, color: bool) -> Cell {
-    // `✓ Name ×N` — label-only, dropped from the right under width pressure.
+    // `✓ Name ×N` — `×N` reads as "N occurrences", disambiguating this
+    // row's frequency-count idiom from L2's existence-count idiom
+    // (`36 hooks`). Label-only, dropped from the right under width pressure.
     let check = colorize("\u{2713}", &p.completed_check, color);
     let name = colorize(&c.name, &p.completed_check, color);
     let count = colorize(&format!(" \u{00D7}{}", c.count), &p.secondary, color);
@@ -205,9 +306,11 @@ fn build_agent_rows(
 
     let dropped = groups.len().saturating_sub(chosen.len());
     if dropped > 0 {
-        rows.push(colorize(
-            &format!("\u{2026} + {dropped} more agents"),
-            &p.structural,
+        rows.push(overflow_summary(
+            dropped,
+            "agent",
+            "agents",
+            p,
             config.color_enabled,
         ));
     }
@@ -277,7 +380,7 @@ fn build_agent_single_cell(a: &AgentSummary, config: &RenderConfig, p: &ThemePal
         .unwrap_or(0);
     let head_w = visible_width(&prefix_glyph) + type_w;
 
-    let raw_desc = a.description.lines().next().unwrap_or("").to_string();
+    let raw_desc = first_desc_line(a).to_string();
     let body = if raw_desc.is_empty() {
         None
     } else {
@@ -326,43 +429,67 @@ fn build_agent_homogeneous_cell(
     let mode = config.glyph_mode;
     let n = group.len();
     let agent_type = group[0].agent_type.as_deref().unwrap_or("agent");
+    // Mirror the Single-agent contract: when every member of the batch
+    // has a `completed_at`, switch to the done glyph + completed_check
+    // accent. A partially-finished batch stays in the running aesthetic
+    // because there's still work in flight.
+    let all_completed = group.iter().all(|a| a.is_completed());
 
-    let prefix_glyph = glyph(mode, ICON_AGENT, "A:");
-    let prefix = colorize(&prefix_glyph, p.agent_purple(), color);
-    let type_str = colorize(agent_type, p.agent_purple(), color);
-    let count_str = colorize(&format!(" \u{00D7}{n}"), p.agent_purple(), color);
-    let parallel_lbl = colorize(" parallel", &p.structural, color);
-    let head = format!("{prefix}{type_str}{count_str}{parallel_lbl}: ");
+    // Layout: `🤖 type ×N [<descriptions joined by ` + `>] (avg <t>)`
+    // The bracket pair marks the type-bucket — same visual idiom the
+    // heterogeneous cell uses for inner buckets, applied here at the cell
+    // level since the entire body shares one type. The closing `]` lives
+    // in `tail` as a Pinned fragment so it survives body truncation.
+    let descriptions: Vec<String> = group
+        .iter()
+        .map(|a| first_desc_line(a).to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let has_body = !descriptions.is_empty();
+
+    let prefix_glyph = if all_completed {
+        match mode {
+            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
+            GlyphMode::Ascii => "A:".to_string(),
+        }
+    } else {
+        glyph(mode, ICON_AGENT, "A:")
+    };
+    let accent: &str = if all_completed {
+        p.completed_check.as_str()
+    } else {
+        p.agent_purple()
+    };
+    let prefix = colorize(&prefix_glyph, accent, color);
+    let type_str = colorize(agent_type, accent, color);
+    let count_str = colorize(&format!(" \u{00D7}{n}"), accent, color);
+    let bracket_open_raw = if has_body { " [" } else { "" };
+    let bracket_open = colorize(bracket_open_raw, &p.structural, color);
+    let head = format!("{prefix}{type_str}{count_str}{bracket_open}");
     let head_w = visible_width(&prefix_glyph)
         + agent_type.chars().count()
-        + 2 + count_digits(n as u64)         // " ×N"
-        + 9                                    // " parallel"
-        + 2; // ": "
+        + 2 + count_digits(n as u64)             // " ×N"
+        + bracket_open_raw.chars().count(); // " [" or empty
 
-    let first_desc = group[0]
-        .description
-        .lines()
-        .next()
-        .unwrap_or("")
-        .to_string();
-    let body_raw = if n > 1 {
-        format!("{first_desc} + {} more", n - 1)
-    } else {
-        first_desc
-    };
-    let body = if body_raw.is_empty() {
-        None
-    } else {
+    let body = if has_body {
         Some(CellBody {
-            raw: body_raw,
+            raw: descriptions.join(GROUP_SUBITEM_SEPARATOR),
             truncator: TruncationStrategy::Sentence,
             min_width: 16,
             ideal_width: 100,
             color: p.secondary.clone(),
         })
+    } else {
+        None
     };
 
     let mut tail: Vec<TailFragment> = Vec::new();
+    if has_body {
+        tail.push(TailFragment::Pinned {
+            text: colorize("]", &p.structural, color),
+            width: 1,
+        });
+    }
     tail.extend(model_slack_tail(&group[0].model, p, color));
     if let Some(avg_ms) = avg_elapsed_ms(group) {
         let avg = format_agent_elapsed(avg_ms / 1000);
@@ -386,10 +513,25 @@ fn build_agent_heterogeneous_cell(
     let color = config.color_enabled;
     let mode = config.glyph_mode;
     let n = group.len();
+    // See homogeneous cell: a fully-completed batch flips to the done
+    // glyph + completed_check accent so the row no longer looks running.
+    let all_completed = group.iter().all(|a| a.is_completed());
 
-    let prefix_glyph = glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1);
-    let prefix = colorize(&prefix_glyph, p.agent_purple(), color);
-    let count_str = colorize(&format!("\u{00D7}{n}"), p.agent_purple(), color);
+    let prefix_glyph = if all_completed {
+        match mode {
+            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
+            GlyphMode::Ascii => "||".to_string(),
+        }
+    } else {
+        glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1)
+    };
+    let accent: &str = if all_completed {
+        p.completed_check.as_str()
+    } else {
+        p.agent_purple()
+    };
+    let prefix = colorize(&prefix_glyph, accent, color);
+    let count_str = colorize(&format!("\u{00D7}{n}"), accent, color);
     let parallel_lbl = colorize(" parallel", &p.structural, color);
     let avg_str = avg_elapsed_ms(group)
         .map(|ms| format_agent_elapsed(ms / 1000))
@@ -407,15 +549,16 @@ fn build_agent_heterogeneous_cell(
         + avg_part.chars().count()
         + 2; // ": "
 
-    // Body: per-agent `<type>: <first-line desc>` joined by ` + `.
-    // We compose the body raw as plain text; truncator shortens the longest
-    // sub-item via Sentence first.
-    let sub_items: Vec<String> = group
-        .iter()
-        .map(|a| {
-            let t = a.agent_type.as_deref().unwrap_or("agent");
-            let d = a.description.lines().next().unwrap_or("");
-            format!("{t}: {d}")
+    // Body: bucket by `agent_type` so type-runs collapse to `Type ×N [a + b]`
+    // instead of repeating the type prefix on every member. When every type
+    // is unique the bucket size is 1 and the format degrades cleanly to
+    // `Type: desc`. The single sub-item separator (` + `) is reused at both
+    // levels — brackets disambiguate.
+    let sub_items: Vec<String> = bucket_by_type(group)
+        .into_iter()
+        .map(|(t, descs)| match descs.len() {
+            1 => format!("{t}: {}", descs[0]),
+            n => format!("{t} \u{00D7}{n} [{}]", descs.join(GROUP_SUBITEM_SEPARATOR)),
         })
         .collect();
     let body_raw = sub_items.join(GROUP_SUBITEM_SEPARATOR);
@@ -562,27 +705,6 @@ fn build_todo_inprogress_cell(
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-/// Pack cells into one or more rows, respecting an optional `cap` of cells
-/// per row. When `cap == 0`, treat as no cap (all that fit in one row).
-fn pack_chunked(
-    cells: &[Cell],
-    available: usize,
-    sep: &str,
-    sep_w: usize,
-    cap: usize,
-    color_enabled: bool,
-) -> Vec<String> {
-    if cells.is_empty() {
-        return Vec::new();
-    }
-    let chunk = if cap == 0 { cells.len() } else { cap.max(1) };
-    cells
-        .chunks(chunk)
-        .map(|slice| pack_with_separator(slice, available, sep, sep_w, color_enabled))
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 fn elapsed_for(a: &AgentSummary) -> String {
     if a.is_completed() {
         match (a.started_at, a.completed_at) {
@@ -644,10 +766,8 @@ mod tests {
     #[test]
     fn target_strategy_table_known_tools() {
         assert_eq!(target_strategy_for("Read").0, TruncationStrategy::KeepTail);
-        assert_eq!(
-            target_strategy_for("Bash").0,
-            TruncationStrategy::CommandSmart
-        );
+        // Bash uses KeepHead so the verb is always visible at row start.
+        assert_eq!(target_strategy_for("Bash").0, TruncationStrategy::KeepHead);
         assert_eq!(target_strategy_for("Glob").0, TruncationStrategy::KeepHead);
         assert_eq!(
             target_strategy_for("WebFetch").0,
@@ -690,17 +810,164 @@ mod tests {
         };
         let c = RenderConfig {
             max_completed_tools: 10,
-            tools_per_line: 0,
+            max_completed_lines: 2,
             ..cfg()
         };
         let rows = build_activity_rows(&frame, &c, &palette(), 200);
         assert_eq!(rows.len(), 1, "expected 1 packed row, got {rows:?}");
         let row = &rows[0];
         assert!(row.contains("Bash") && row.contains("Edit") && row.contains("Read"));
+        // Layout-standard ` | ` separator (vocabulary consistency w/ L1/L2/L3).
+        assert!(
+            row.contains(" | "),
+            "row must use layout-standard separator: {row:?}"
+        );
+        // `×` is the frequency disambiguator — without it, `Name N` would
+        // collide with L2's `count noun` idiom.
+        assert!(row.contains('\u{00D7}'), "row must keep × glyph: {row:?}");
     }
 
     #[test]
-    fn recent_tool_with_bash_target_uses_command_smart() {
+    fn completed_tools_wrap_to_second_row_when_narrow() {
+        // Width-adaptive: 6 cells at width 50 should split across 2 rows
+        // (each cell ~12 visible chars + 3-char separator). No overflow
+        // summary because everything fits within the 2-row cap.
+        let frame = RenderFrame {
+            completed_tools: (0..6)
+                .map(|i| CompletedToolCount {
+                    name: format!("Tool{i}"),
+                    count: 100 + i as u32,
+                    last_completed_at: None,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            max_completed_tools: 10,
+            max_completed_lines: 2,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 50);
+        assert!(
+            (1..=c.max_completed_lines).contains(&rows.len()),
+            "expected 1–{} rows at width 50, got {}: {rows:?}",
+            c.max_completed_lines,
+            rows.len()
+        );
+        // No overflow line — all 6 should fit within 2 rows.
+        assert!(
+            !rows.iter().any(|r| r.contains("more tool")),
+            "no overflow summary expected: {rows:?}"
+        );
+        for i in 0..6 {
+            let needle = format!("Tool{i}");
+            assert!(
+                rows.iter().any(|r| r.contains(&needle)),
+                "missing {needle}: {rows:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn completed_tools_overflow_summary_at_bottom() {
+        // 12 cells at width 50: 2 rows fit ~10 cells, the rest become
+        // `… + N more tools` at the BOTTOM (importance-ordered semantics —
+        // hidden items are the least-important, so they live below).
+        let frame = RenderFrame {
+            completed_tools: (0..12)
+                .map(|i| CompletedToolCount {
+                    name: format!("Tool{i:02}"),
+                    count: 1000 - i as u32,
+                    last_completed_at: None,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            max_completed_tools: 20,
+            max_completed_lines: 2,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 50);
+        // Exactly `max_completed_lines` packed rows + 1 overflow summary line.
+        assert_eq!(
+            rows.len(),
+            c.max_completed_lines + 1,
+            "expected {} rows + summary, got {rows:?}",
+            c.max_completed_lines
+        );
+        let last = rows.last().unwrap();
+        assert!(
+            last.contains("more tool"),
+            "bottom row must be the overflow summary: {last:?}"
+        );
+        assert!(
+            last.starts_with('\u{2026}'),
+            "summary must lead with `…`: {last:?}"
+        );
+        // Most-important (Tool00) must be in row 0; least-important (Tool11)
+        // must be hidden in the summary.
+        assert!(
+            rows[0].contains("Tool00"),
+            "Tool00 missing from top: {rows:?}"
+        );
+        assert!(
+            !rows[0].contains("Tool11") && !rows[1].contains("Tool11"),
+            "least-important Tool11 should be omitted: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn completed_tools_no_orphan_under_max_completed_lines() {
+        // 5 tool counts fit on a single packed row at typical widths.
+        let frame = RenderFrame {
+            completed_tools: vec![
+                CompletedToolCount {
+                    name: "Bash".to_string(),
+                    count: 251,
+                    last_completed_at: None,
+                },
+                CompletedToolCount {
+                    name: "Edit".to_string(),
+                    count: 193,
+                    last_completed_at: None,
+                },
+                CompletedToolCount {
+                    name: "Read".to_string(),
+                    count: 131,
+                    last_completed_at: None,
+                },
+                CompletedToolCount {
+                    name: "Write".to_string(),
+                    count: 16,
+                    last_completed_at: None,
+                },
+                CompletedToolCount {
+                    name: "Skill".to_string(),
+                    count: 1,
+                    last_completed_at: None,
+                },
+            ],
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            max_completed_tools: 10,
+            max_completed_lines: 2,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 200);
+        assert_eq!(
+            rows.len(),
+            1,
+            "must pack into ONE row regardless of cap: {rows:?}"
+        );
+        for name in ["Bash", "Edit", "Read", "Write", "Skill"] {
+            assert!(rows[0].contains(name), "row missing {name}: {:?}", rows[0]);
+        }
+    }
+
+    #[test]
+    fn recent_tool_with_bash_target_keeps_verb() {
         let frame = RenderFrame {
             tools: vec![ToolSummary {
                 id: "t1".to_string(),
@@ -718,12 +985,12 @@ mod tests {
         };
         let rows = build_activity_rows(&frame, &c, &palette(), 80);
         let row = &rows[0];
-        // CommandSmart should preserve the regex payload, not the verb 'sed'
+        // The verb (`sed`) anchors the cell so the operator can recognise the
+        // command at a glance; later tokens may be truncated with `…`.
         assert!(
-            row.contains("s/") || row.contains("pulseline.toml"),
-            "command_smart should surface payload: {row:?}"
+            row.contains("T:Bash: sed"),
+            "verb must be at row start: {row:?}"
         );
-        assert!(!row.starts_with("T:Bash: sed -i"));
     }
 
     #[test]
@@ -739,7 +1006,58 @@ mod tests {
     }
 
     #[test]
-    fn homogeneous_batch_collapses_with_parallel_label() {
+    fn homogeneous_batch_uses_done_glyph_when_all_completed() {
+        let frame = RenderFrame {
+            agents: vec![
+                agent("a1", Some("msg_X"), Some("general-purpose"), "review 1"),
+                agent("a2", Some("msg_X"), Some("general-purpose"), "review 2"),
+            ],
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            glyph_mode: GlyphMode::Icon,
+            max_agent_lines: 5,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 200);
+        assert!(
+            rows[0].contains(ICON_AGENT_DONE),
+            "all-completed batch must use done glyph: {:?}",
+            rows[0]
+        );
+        assert!(
+            !rows[0].contains(ICON_AGENT),
+            "all-completed batch must NOT use running glyph: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn homogeneous_batch_uses_running_glyph_when_partial() {
+        let mut a1 = agent("a1", Some("msg_X"), Some("general-purpose"), "review 1");
+        a1.completed_at = None; // still running
+        let frame = RenderFrame {
+            agents: vec![
+                a1,
+                agent("a2", Some("msg_X"), Some("general-purpose"), "review 2"),
+            ],
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            glyph_mode: GlyphMode::Icon,
+            max_agent_lines: 5,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 200);
+        assert!(
+            rows[0].contains(ICON_AGENT),
+            "partial batch must keep running glyph: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn homogeneous_batch_uses_bracketed_body() {
         let frame = RenderFrame {
             agents: vec![
                 agent(
@@ -778,14 +1096,37 @@ mod tests {
             "should show ×3 count: {:?}",
             rows[0]
         );
+        // Bracket pair marks the type-bucket; the literal word "parallel"
+        // is gone because `×3 [...]` already conveys the batch shape.
         assert!(
-            rows[0].contains("parallel"),
-            "should show parallel label: {:?}",
+            rows[0].contains(" [") && rows[0].contains("]"),
+            "body must be enclosed in brackets: {:?}",
             rows[0]
         );
         assert!(
-            rows[0].contains("+ 2 more"),
-            "should show '+ N more': {:?}",
+            !rows[0].contains("parallel"),
+            "redundant `parallel` label must be dropped: {:?}",
+            rows[0]
+        );
+        assert!(
+            !rows[0].contains("+ 2 more"),
+            "summary phrase must be removed: {:?}",
+            rows[0]
+        );
+        for desc in [
+            "Code reuse review",
+            "Code quality review",
+            "Efficiency review",
+        ] {
+            assert!(
+                rows[0].contains(desc),
+                "missing description {desc:?}: {:?}",
+                rows[0]
+            );
+        }
+        assert!(
+            rows[0].contains(" + "),
+            "descriptions joined by ` + `: {:?}",
             rows[0]
         );
     }
@@ -820,6 +1161,57 @@ mod tests {
         );
         assert!(rows[0].contains("Explore"));
         assert!(rows[0].contains("code-reviewer"));
+        // All types unique → no bucketing → no `[a + b]` brackets.
+        assert!(
+            !rows[0].contains('['),
+            "single-member buckets must not use brackets: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn heterogeneous_group_buckets_repeated_types() {
+        // Mixed types with a repeat: 2× Explore + 1× code-reviewer should
+        // render as `Explore ×2 [a + b] + code-reviewer: c`. The repeated
+        // type prefix is collapsed; the unique type stays in flat form.
+        let frame = RenderFrame {
+            agents: vec![
+                agent("a1", Some("msg_X"), Some("Explore"), "investigate auth"),
+                agent("a2", Some("msg_X"), Some("Explore"), "parse JWT"),
+                agent("a3", Some("msg_X"), Some("code-reviewer"), "final pass"),
+            ],
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            max_agent_lines: 5,
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 240);
+        assert_eq!(rows.len(), 1);
+        // Repeated type collapses into a bucket: `Explore ×2 [a + b]`.
+        assert!(
+            rows[0].contains("Explore \u{00D7}2 ["),
+            "expected `Explore ×2 […]` bucket: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[0].contains("investigate auth") && rows[0].contains("parse JWT"),
+            "both Explore descriptions must surface: {:?}",
+            rows[0]
+        );
+        // Unique type stays flat — no bracket, no `×N`.
+        assert!(
+            rows[0].contains("code-reviewer: final pass"),
+            "single-member type must use flat `Type: desc`: {:?}",
+            rows[0]
+        );
+        // Type prefix `Explore:` (with colon) must NOT appear — that's the
+        // anti-pattern bucketing exists to remove.
+        assert!(
+            !rows[0].contains("Explore: "),
+            "bucketed type must not also appear in flat form: {:?}",
+            rows[0]
+        );
     }
 
     #[test]
