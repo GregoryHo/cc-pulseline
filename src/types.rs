@@ -249,6 +249,12 @@ pub struct PendingTask {
     pub agent_type: Option<String>,
     pub model: Option<String>,
     pub event_ts: Option<u64>,
+    /// Anthropic API `message.id` of the assistant turn that emitted the
+    /// Agent tool_use. Propagated to `AgentSummary` on link so batch
+    /// detection can group agents from the same turn. `None` when the
+    /// transcript event lacks message envelope (Path 2/3 fallbacks).
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -269,6 +275,12 @@ pub struct AgentSummary {
     pub started_at: Option<u64>,
     pub model: Option<String>,
     pub completed_at: Option<u64>,
+    /// Anthropic API message ID of the assistant turn that spawned this
+    /// agent. Agents sharing this ID belong to one parallel batch (filled
+    /// by `providers/transcript.rs` Path-1 dispatcher). `None` for legacy
+    /// cache files or when CC's JSONL schema drifts.
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 impl AgentSummary {

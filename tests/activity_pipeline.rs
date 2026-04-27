@@ -1143,8 +1143,8 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
-        "3 TaskCreates should show TODO:3 tasks (0/3): got {joined}"
+        joined.contains("TODO: 3 tasks") && joined.contains("(0/3)"),
+        "3 TaskCreates should show TODO: 3 tasks (0/3): got {joined}"
     );
 
     // Event 3: TaskUpdate task 1 → in_progress → shows active_form text
@@ -1554,7 +1554,7 @@ fn todo_pending_only_shows_task_count() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
+        joined.contains("TODO: 3 tasks") && joined.contains("(0/3)"),
         "pending-only should show task count format: got {joined}"
     );
 }

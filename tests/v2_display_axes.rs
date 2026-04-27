@@ -32,6 +32,7 @@ fn frame_with_agent_and_quota() -> RenderFrame {
         started_at: None,
         model: None,
         completed_at: None,
+        message_id: None,
     });
     f.quota = QuotaMetrics {
         five_hour_pct: Some(75.0),

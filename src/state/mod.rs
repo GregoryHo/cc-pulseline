@@ -216,11 +216,12 @@ impl SessionState {
         agent_type: Option<String>,
         started_at: Option<u64>,
         model: Option<String>,
+        message_id: Option<String>,
     ) {
-        let (started_at, existing_model) =
+        let (started_at, existing_model, existing_message_id) =
             if let Some(position) = self.active_agents.iter().position(|agent| agent.id == id) {
                 let old = self.active_agents.remove(position);
-                (old.started_at, old.model)
+                (old.started_at, old.model, old.message_id)
             } else {
                 let ts = started_at.or_else(|| {
                     Some(
@@ -230,7 +231,7 @@ impl SessionState {
                             .as_millis() as u64,
                     )
                 });
-                (ts, None)
+                (ts, None, None)
             };
         self.active_agents.push(AgentSummary {
             id,
@@ -239,6 +240,7 @@ impl SessionState {
             started_at,
             model: model.or(existing_model),
             completed_at: None,
+            message_id: message_id.or(existing_message_id),
         });
     }
 
@@ -273,6 +275,7 @@ impl SessionState {
         agent_type: Option<String>,
         model: Option<String>,
         event_ts: Option<u64>,
+        message_id: Option<String>,
     ) {
         self.pending_tasks.push(PendingTask {
             tool_use_id,
@@ -280,6 +283,7 @@ impl SessionState {
             agent_type,
             model,
             event_ts,
+            message_id,
         });
     }
 

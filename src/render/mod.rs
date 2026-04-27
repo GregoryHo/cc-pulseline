@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod color;
 pub mod fmt;
 pub mod frames;
