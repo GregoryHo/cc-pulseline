@@ -206,10 +206,11 @@ fn cockpit_sparkline_hidden_in_ascii_mode_even_when_spec_includes_it() {
 fn v1_layouts_render_sparkline_when_context_visual_includes_it() {
     // The sparkline is layout-agnostic — any layout that emits the CTX
     // segment should pick it up when the user opts in. Flat layouts default
-    // to "text" so we set it explicitly here.
+    // to "text" so we set it explicitly here. Use "text+sparkline" so the
+    // legacy `(used/total)` annotation still appears alongside the trend.
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::None, true, 140);
-    cfg.context_visual = "gauge+sparkline".to_string();
+    cfg.context_visual = "text+sparkline".to_string();
     let lines = render_frame(&f, &cfg);
     // v1 L3 is the third line; identify it by the "(86.0k/200.0k)" pattern.
     let ctx = lines.iter().find(|l| l.contains("/200.0k")).expect("L3");
@@ -397,6 +398,129 @@ fn cockpit_with_context_visual_gauge_only_emits_no_sparkline() {
             "context_visual = \"gauge\" should not emit sparkline: {l:?}"
         );
     }
+}
+
+#[test]
+fn cockpit_with_cost_visual_text_only_has_no_arc() {
+    // Cockpit's default cost_visual is "text+arc"; opting down to "text"
+    // should drop the arc glyph completely (and the rate annotation
+    // re-appears since arc isn't there to convey burn rate).
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    cfg.cost_visual = "text".to_string();
+    let lines = render_frame(&f, &cfg);
+    let cluster = lines.iter().find(|l| l.contains("$3.50")).expect("cluster");
+    let arc_glyphs = ['\u{25CB}', '\u{25D4}', '\u{25D1}', '\u{25D5}', '\u{25CF}'];
+    assert!(
+        !cluster.chars().any(|c| arc_glyphs.contains(&c)),
+        "cost_visual = \"text\" should drop arc glyph: {cluster:?}"
+    );
+    assert!(
+        cluster.contains("/h)"),
+        "lone text widget should include rate annotation: {cluster:?}"
+    );
+}
+
+#[test]
+fn cockpit_with_cost_visual_arc_only_has_no_dollar_text() {
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
+    cfg.cost_visual = "arc".to_string();
+    let lines = render_frame(&f, &cfg);
+    // The cost cell is somewhere in the cluster row; identify it by looking
+    // for a row that has the arc but no `$3.50`.
+    let arc_glyphs = ['\u{25CB}', '\u{25D4}', '\u{25D1}', '\u{25D5}', '\u{25CF}'];
+    let cluster = lines
+        .iter()
+        .find(|l| l.chars().any(|c| arc_glyphs.contains(&c)))
+        .expect("cluster with arc");
+    assert!(
+        !cluster.contains("$3.50"),
+        "cost_visual = \"arc\" should drop dollar text: {cluster:?}"
+    );
+}
+
+#[test]
+fn cards_with_context_visual_gauge_emits_gauge_inside_card() {
+    // The headline composability proof from `designs/composable-redesign.md`:
+    // "cards + gauge" was impossible before Phase 3 because flat layouts
+    // hardcoded text rendering for L3. Now they dispatch through
+    // render_context_visual just like instrument-cluster layouts do.
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cards, true, 160);
+    cfg.context_visual = "gauge".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    // Card frame should be present (top + bottom borders).
+    assert!(
+        blob.contains('\u{256D}') && blob.contains('\u{2570}'),
+        "expected Cards frame chrome (╭ and ╰): {blob}"
+    );
+    // Gauge block chars should be present somewhere — proof that the gauge
+    // widget made it into the Cards frame.
+    assert!(
+        blob.contains('\u{2588}') || blob.contains('\u{258F}'),
+        "cards + context_visual = \"gauge\" should embed a gauge in the \
+         Budget card: {blob}"
+    );
+}
+
+#[test]
+fn cockpit_with_quota_visual_bar_emits_gauge_chars() {
+    // Cockpit's default quota_visual is "text"; opting up to "bar" should
+    // emit gauge block chars beside the percentage.
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 160);
+    cfg.show_quota = true;
+    cfg.show_quota_five_hour = true;
+    cfg.quota_visual = "bar".to_string();
+    let lines = render_frame(&f, &cfg);
+    let q5h = lines.iter().find(|l| l.contains("Q5h")).expect("Q5h cell");
+    assert!(
+        q5h.contains('\u{2588}') || q5h.contains('\u{258F}'),
+        "quota_visual = \"bar\" should emit gauge block chars: {q5h:?}"
+    );
+}
+
+#[test]
+fn console_with_quota_visual_text_drops_gauge() {
+    // Console's default quota_visual is "bar"; opting down to "text" should
+    // drop the gauge.
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
+    cfg.show_quota = true;
+    cfg.show_quota_five_hour = true;
+    cfg.quota_visual = "text".to_string();
+    let lines = render_frame(&f, &cfg);
+    let q5h = lines.iter().find(|l| l.contains("Q5h")).expect("Q5h cell");
+    let block_chars = ['\u{2588}', '\u{2589}', '\u{258F}', '\u{2591}'];
+    assert!(
+        !q5h.chars().any(|c| block_chars.contains(&c)),
+        "quota_visual = \"text\" should drop gauge: {q5h:?}"
+    );
+    assert!(q5h.contains("75%"), "should still show pct: {q5h:?}");
+}
+
+#[test]
+fn cockpit_with_tools_visual_list_drops_inline_tape() {
+    // Inline tools_visual="list" is meaningless inside the cockpit ticker
+    // (it's a single line); render_tools_visual_inline silently drops it.
+    // The user can still see completed-tool counts on the same row, but the
+    // running tools tape disappears.
+    let f = frame_with_tools_for_ascii_contract();
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 160);
+    cfg.tools_visual = "list".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    assert!(
+        !blob.contains('\u{25B6}'),
+        "tools_visual = \"list\" should drop the running-tools tape (no ▶): {blob}"
+    );
+    // Completed-tool checkmark still appears.
+    assert!(
+        blob.contains('\u{2713}'),
+        "completed-tool ✓ should still render: {blob}"
+    );
 }
 
 #[test]

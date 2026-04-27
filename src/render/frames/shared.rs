@@ -378,7 +378,7 @@ pub fn render_context_visual(
                 // Ascii so we don't need to gate here.
                 ctx_sparkline(history, mode, p, color_enabled)
             }
-            "text" => ctx_text_cell(line3, p, color_enabled),
+            "text" => ctx_text_cell(line3, mode, p, color_enabled),
             _ => String::new(), // unknown widget — silently drop
         };
         if !cell.is_empty() {
@@ -388,23 +388,47 @@ pub fn render_context_visual(
     parts.join(" ")
 }
 
-/// CTX text cell — bare `43% (86.0k/200.0k)` form, no gauge or sparkline.
-/// Used when `context_visual` includes `"text"`.
-pub fn ctx_text_cell(line3: &Line3Metrics, p: &ThemePalette, color_enabled: bool) -> String {
-    let pct = line3.context_used_percentage.unwrap_or(0);
-    let pct_color = p.color_for_ctx_pct(pct, line3.context_window_size);
-    let label = colorize("CTX  ", &p.structural, color_enabled);
-    let pct_str = colorize(&format!("{pct}%"), pct_color, color_enabled);
-    if let Some(size) = line3.context_window_size {
-        let used = ((size as f64) * (pct as f64) / 100.0) as u64;
-        let open = colorize(" (", &p.separator, color_enabled);
-        let used_str = colorize(&format_number(used), &p.primary, color_enabled);
-        let sep = colorize("/", &p.separator, color_enabled);
-        let total = colorize(&format_number(size), &p.primary, color_enabled);
-        let close = colorize(")", &p.separator, color_enabled);
-        format!("{label}{pct_str}{open}{used_str}{sep}{total}{close}")
-    } else {
-        format!("{label}{pct_str}")
+/// CTX text cell — `<glyph>43% (86.0k/200.0k)` form (or `CTX:43%...` under
+/// Ascii). No gauge or sparkline. Used when `context_visual` includes
+/// `"text"`. Format unified with the legacy v1 `format_context_segment`
+/// so flat layouts route through `render_context_visual` without changing
+/// their rendered output.
+pub fn ctx_text_cell(
+    line3: &Line3Metrics,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    use crate::render::icons::{glyph, ICON_CONTEXT};
+    match (line3.context_used_percentage, line3.context_window_size) {
+        (Some(pct), Some(size)) => {
+            let pct_color = p.color_for_ctx_pct(pct, Some(size));
+            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color_enabled);
+            let pct_str = colorize(&format!("{pct}%"), pct_color, color_enabled);
+            let used = ((size as f64) * (pct as f64) / 100.0) as u64;
+            let open = colorize(" (", &p.separator, color_enabled);
+            let used_str = colorize(&format_number(used), &p.primary, color_enabled);
+            let sep = colorize("/", &p.separator, color_enabled);
+            let total = colorize(&format_number(size), &p.primary, color_enabled);
+            let close = colorize(")", &p.separator, color_enabled);
+            format!("{label}{pct_str}{open}{used_str}{sep}{total}{close}")
+        }
+        _ => {
+            // No data yet: render the same `CTX:--% (--/--)` placeholder the
+            // v1 path emits, so dispatch parity holds even before the first
+            // context-aware response.
+            let label = colorize(
+                &glyph(mode, ICON_CONTEXT, "CTX:"),
+                &p.structural,
+                color_enabled,
+            );
+            let dash = colorize("--", &p.structural, color_enabled);
+            let pct_sign = colorize("%", &p.structural, color_enabled);
+            let open = colorize(" (", &p.separator, color_enabled);
+            let sep = colorize("/", &p.separator, color_enabled);
+            let close = colorize(")", &p.separator, color_enabled);
+            format!("{label}{dash}{pct_sign}{open}{dash}{sep}{dash}{close}")
+        }
     }
 }
 
@@ -460,8 +484,43 @@ pub fn token_rate_cell(
 /// Cost cell — `$3.50 ◐` with the burn arc when icons are on; falls back to
 /// `$3.50 ($1.5/h)` text under `icons = false` so non-Nerd-Font terminals
 /// still get the same information.
+///
+/// Kept as a thin wrapper over `render_cost_visual` so callers that don't
+/// expose `cost_visual` to the user (legacy code paths) get the cockpit
+/// default behaviour `"text+arc"`.
 pub fn cost_cell(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
-    let color = config.color_enabled;
+    render_cost_visual(
+        "text+arc",
+        line3,
+        config.glyph_mode,
+        p,
+        config.color_enabled,
+    )
+}
+
+/// Compose a cost cell from a `+`-separated visual spec.
+///
+/// Recognized widget names: `text`, `arc`. Both is the cockpit/console
+/// default `"text+arc"`; either alone produces a stripped variant for
+/// minimal layouts.
+///
+/// **Compound behaviour for `text+arc`**: the `arc` widget is icon-only
+/// (returns empty under `GlyphMode::Ascii`), so under Ascii mode the `text`
+/// widget picks up the `($X.X/h)` rate annotation that arc would normally
+/// carry pictographically. Under Icon mode `text` is bare `$X.XX` and `arc`
+/// supplies the burn glyph. Net: `text+arc` always conveys both total and
+/// burn rate, in whichever form the terminal supports.
+///
+/// Lone `text` always shows the rate when available (no arc to compensate).
+/// Lone `arc` shows only the glyph (returns empty in Ascii — caller should
+/// drop the empty cell).
+pub fn render_cost_visual(
+    spec: &str,
+    line3: &Line3Metrics,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
     let total = line3.total_cost_usd.unwrap_or(0.0);
     let per_hour = line3
         .total_duration_ms
@@ -469,17 +528,99 @@ pub fn cost_cell(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) 
         .map(|d| total / ((d as f64) / 3_600_000.0))
         .unwrap_or(0.0);
 
-    let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color);
-    if config.glyph_mode.is_icon() {
-        let arc = widgets::arc::render(per_hour, config.glyph_mode, p, color);
-        return format!("{total_str} {arc}");
-    }
-    if per_hour > 0.0 {
-        let rate = colorize(&format!("(${per_hour:.1}/h)"), &p.structural, color);
-        format!("{total_str} {rate}")
+    let widgets: Vec<&str> = spec
+        .split('+')
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let want_text = widgets.contains(&"text");
+    let want_arc = widgets.contains(&"arc");
+
+    // When arc is requested but will silently return "" (Ascii mode), text
+    // picks up the rate annotation as compensation. This preserves the
+    // cockpit's "always shows burn rate, in icon or text form" promise.
+    let arc_cell = if want_arc {
+        widgets::arc::render(per_hour, mode, p, color_enabled)
     } else {
-        total_str
+        String::new()
+    };
+    let arc_will_render = !arc_cell.is_empty();
+
+    let mut parts: Vec<String> = Vec::new();
+    if want_text {
+        let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color_enabled);
+        let with_rate = !want_arc || !arc_will_render;
+        if with_rate && per_hour > 0.0 {
+            let rate = colorize(&format!("(${per_hour:.1}/h)"), &p.structural, color_enabled);
+            parts.push(format!("{total_str} {rate}"));
+        } else {
+            parts.push(total_str);
+        }
     }
+    if !arc_cell.is_empty() {
+        parts.push(arc_cell);
+    }
+    parts.join(" ")
+}
+
+/// Quota gauge bar width when rendered as `bar`. Tuned to match the console's
+/// existing `QUOTA_GAUGE_WIDTH` so visual specs stay consistent across
+/// layouts that opt into bar form.
+pub const QUOTA_BAR_WIDTH: usize = 12;
+
+/// Compose a quota cell from a visual spec.
+///
+/// Recognized widget names: `text`, `bar`. `text` gives the existing
+/// `Q5h 75% 02h 0m` form; `bar` gives `Q5h ████░░░░ 75% 02h 0m` (gauge +
+/// pct + reset). Unknown names drop silently. When `pct` is `None` the cell
+/// is empty regardless of spec.
+///
+/// `label` is the leading text (`"Q5h "` or `"Q7d "`), so this hub serves
+/// both windows from one entry point.
+pub fn render_quota_visual(
+    spec: &str,
+    label: &str,
+    pct: Option<f64>,
+    reset_min: Option<u64>,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let pct = match pct {
+        Some(v) => v,
+        None => return String::new(),
+    };
+    let widgets: Vec<&str> = spec
+        .split('+')
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let want_bar = widgets.contains(&"bar");
+    let want_text = widgets.contains(&"text") || !want_bar;
+
+    let lbl = colorize(label, &p.structural, color_enabled);
+    let mut body = lbl;
+    if want_bar {
+        let bar = widgets::gauge::render(pct as u64, QUOTA_BAR_WIDTH, mode, p, color_enabled);
+        body.push_str(&bar);
+    }
+    if want_text {
+        let pct_str = colorize(
+            &format!("{}{pct:.0}%", if want_bar { "  " } else { "" }),
+            p.color_for_quota_pct(pct),
+            color_enabled,
+        );
+        body.push_str(&pct_str);
+        if let Some(m) = reset_min {
+            let reset = colorize(
+                &format!(" {}", format_reset_duration(m)),
+                &p.structural,
+                color_enabled,
+            );
+            body.push_str(&reset);
+        }
+    }
+    body
 }
 
 /// Quota text cell — `Q5h 75% 02h 0m`. Returns empty if no five-hour data.
@@ -543,7 +684,8 @@ pub fn activity_ticker(frame: &RenderFrame, config: &RenderConfig, p: &ThemePale
 
     if config.show_tools {
         if !frame.tools.is_empty() {
-            let tape = widgets::tape::render(
+            let tape = render_tools_visual_inline(
+                config.effective_tools_visual(),
                 &frame.tools,
                 config.max_tool_lines.max(1),
                 config.glyph_mode,
@@ -688,6 +830,44 @@ pub fn tools_tape(
     color: bool,
 ) -> String {
     widgets::tape::render(tools, max_items, mode, p, color)
+}
+
+/// Compose an inline (single-line) tools cell from a visual spec.
+///
+/// Recognized widget names: `tape`. The `list` widget produces multi-row
+/// output and is consumed via the activity row builder
+/// (`render::activity::build_activity_rows`) — for inline cluster contexts
+/// (cockpit / console / flightstrip activity ticker) only `tape` makes
+/// sense, so `list` is silently dropped here. Unknown names also drop.
+///
+/// Empty `tools` produces an empty string regardless of spec.
+pub fn render_tools_visual_inline(
+    spec: &str,
+    tools: &[ToolSummary],
+    max_items: usize,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
+    if tools.is_empty() || max_items == 0 {
+        return String::new();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for raw in spec.split('+') {
+        match raw.trim() {
+            "tape" => {
+                let cell = widgets::tape::render(tools, max_items, mode, p, color);
+                if !cell.is_empty() {
+                    parts.push(cell);
+                }
+            }
+            // `list` is multi-row; not renderable in a single-line cell. The
+            // multi-row activity builder handles it via `show_tools` instead.
+            "" | "list" => {}
+            _ => {} // unknown widget — silently drop
+        }
+    }
+    parts.join(" ")
 }
 
 /// Bare cost text — `$X.XX` colored with `cost_base`. Shared between Cockpit

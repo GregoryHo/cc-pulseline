@@ -52,13 +52,25 @@ fn strip_l1(
     let pct = frame.line3.context_used_percentage.unwrap_or(0);
     let pct_color = p.color_for_ctx_pct(pct, frame.line3.context_window_size);
     let pct_str = colorize(&format!("{pct}%"), pct_color, color);
-    let gauge_w = if width >= 90 {
-        FULL_GAUGE_WIDTH
+    // Flightstrip's L1 puts pct *before* the bar (reversed from cockpit) —
+    // keep that bespoke format but honour `context_visual` enough to drop
+    // the gauge when the user opts down to "text".
+    let want_gauge = config
+        .effective_context_visual()
+        .split('+')
+        .any(|w| w.trim() == "gauge");
+    if want_gauge {
+        let gauge_w = if width >= 90 {
+            FULL_GAUGE_WIDTH
+        } else {
+            NARROW_GAUGE_WIDTH
+        };
+        let gauge =
+            crate::render::widgets::gauge::render(pct, gauge_w, config.glyph_mode, p, color);
+        parts.push(format!("{pct_str} {gauge}"));
     } else {
-        NARROW_GAUGE_WIDTH
-    };
-    let gauge = crate::render::widgets::gauge::render(pct, gauge_w, config.glyph_mode, p, color);
-    parts.push(format!("{pct_str} {gauge}"));
+        parts.push(pct_str);
+    }
 
     if width >= 90 && config.show_cost {
         parts.push(shared::cost_text_only(&frame.line3, p, color));

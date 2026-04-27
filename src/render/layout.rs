@@ -431,54 +431,33 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
     status
 }
 
+/// Sizing hint for the gauge widget when a flat layout dispatches a v1 L3
+/// row through `render_context_visual`. Roughly matches cockpit's
+/// `FULL_GAUGE_WIDTH` so `cards + context_visual = "gauge"` reads at the
+/// same density as `cockpit + gauge`.
+const V1_GAUGE_WIDTH: usize = 18;
+
 fn format_context_segment(
     line3: &Line3Metrics,
     config: &RenderConfig,
     p: &ThemePalette,
     history: &[u8],
 ) -> String {
-    let color = config.color_enabled;
-    let mode = config.glyph_mode;
-
-    match (line3.context_used_percentage, line3.context_window_size) {
-        (Some(used_pct), Some(size)) => {
-            let pct_color = p.color_for_ctx_pct(used_pct, Some(size));
-
-            let used_tokens = (size as f64 * used_pct as f64 / 100.0) as u64;
-
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color);
-            let pct = colorize(&format!("{}%", used_pct), pct_color, color);
-            let open_paren = colorize(" (", &p.separator, color);
-            let usage = colorize(&format_number(used_tokens), &p.primary, color);
-            let sep = colorize("/", &p.separator, color);
-            let total = colorize(&format_number(size), &p.primary, color);
-            let close_paren = colorize(")", &p.separator, color);
-
-            // Layout-agnostic sparkline opt-in: when the resolved
-            // `context_visual` spec includes "sparkline" *and* a Nerd Font is
-            // in use, append the braille trend after CTX. Instrument-cluster
-            // layouts gate the same way via `frames::shared::sparkline_enabled`.
-            let spark = if frames::shared::sparkline_enabled(config) && !history.is_empty() {
-                format!(
-                    " {}",
-                    crate::render::widgets::sparkline::render(history, config.glyph_mode, p, color)
-                )
-            } else {
-                String::new()
-            };
-
-            format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}{spark}")
-        }
-        _ => {
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), &p.structural, color);
-            let dash = colorize("--", &p.structural, color);
-            let pct_sign = colorize("%", &p.structural, color);
-            let open_paren = colorize(" (", &p.separator, color);
-            let sep = colorize("/", &p.separator, color);
-            let close_paren = colorize(")", &p.separator, color);
-            format!("{label}{dash}{pct_sign}{open_paren}{dash}{sep}{dash}{close_paren}")
-        }
-    }
+    // Dispatches through the visual hub so flat layouts inherit the same
+    // composability as instrument-cluster layouts. Default for flat layouts
+    // is `text` — produces the legacy `CTX:43% (86.0k/200.0k)` form
+    // unchanged. Users who set `context_visual = "gauge"` on a flat layout
+    // get a gauge inside e.g. a Cards frame ("cards + gauge", the headline
+    // composability proof).
+    frames::shared::render_context_visual(
+        config.effective_context_visual(),
+        line3,
+        history,
+        V1_GAUGE_WIDTH,
+        config.glyph_mode,
+        p,
+        config.color_enabled,
+    )
 }
 
 fn format_tokens_segment(

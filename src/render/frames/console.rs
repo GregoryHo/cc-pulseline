@@ -20,12 +20,10 @@
 use crate::config::RenderConfig;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::icons::{FRAME_BL, FRAME_BR, FRAME_H, FRAME_TL, FRAME_TR, FRAME_V};
-use crate::render::widgets;
 
 use super::{cockpit, flightstrip, shared};
 
 const GAUGE_WIDTH: usize = 22;
-const QUOTA_GAUGE_WIDTH: usize = 12;
 const FRAME_INNER_PAD: usize = 4; // "│  " left + "│" right + 1 trailing space
 
 pub fn render(
@@ -130,14 +128,21 @@ fn inner_rule(p: &ThemePalette, inner: usize, color: bool) -> String {
 
 fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
-    let pct = frame.line3.context_used_percentage.unwrap_or(0);
-    let label = colorize("CTX  ", &p.structural, color);
-    let bar = widgets::gauge::render(pct, GAUGE_WIDTH, config.glyph_mode, p, color);
-    let pct_str = colorize(
-        &format!("  {pct}%"),
-        p.color_for_ctx_pct(pct, frame.line3.context_window_size),
+    // Console's CTX row honours `context_visual`. Pass GAUGE_WIDTH as the
+    // sizing hint — render_context_visual passes this through to the gauge
+    // widget so console keeps its wider bar regardless of the spec.
+    let cell = shared::render_context_visual(
+        config.effective_context_visual(),
+        &frame.line3,
+        &frame.ctx_history,
+        GAUGE_WIDTH,
+        config.glyph_mode,
+        p,
         color,
     );
+    // Console-specific annotation: append `/ <total>` after the cell when
+    // a context window size is known. Reads as supplementary info to the
+    // pct, distinct from text widget's `(used/total)` form.
     let total_str = frame
         .line3
         .context_window_size
@@ -149,15 +154,23 @@ fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePa
             )
         })
         .unwrap_or_default();
-    let spark = if shared::sparkline_enabled(config) {
-        shared::ctx_sparkline(&frame.ctx_history, config.glyph_mode, p, color)
+    if total_str.is_empty() {
+        cell
     } else {
-        String::new()
-    };
-    if spark.is_empty() {
-        format!("{label}{bar}{pct_str}{total_str}")
-    } else {
-        format!("{label}{bar}{pct_str}{total_str}    {spark}")
+        // Insert the `/ total` annotation right after the pct text. The
+        // gauge/text widgets end at `<pct>%`; sparkline (if present) sits
+        // beyond. Splitting on the last `%` keeps the rendered output
+        // compatible with each visual spec.
+        match cell.rfind('%') {
+            Some(idx) => {
+                let mut buf = String::with_capacity(cell.len() + total_str.len());
+                buf.push_str(&cell[..=idx]);
+                buf.push_str(&total_str);
+                buf.push_str(&cell[idx + 1..]);
+                buf
+            }
+            None => format!("{cell}{total_str}"),
+        }
     }
 }
 
@@ -178,61 +191,49 @@ fn tok_cost_quota_row(
     }
     if config.show_cost {
         let cost_lbl = colorize("COST  ", &p.structural, color);
-        parts.push(format!(
-            "{cost_lbl}{}",
-            shared::cost_cell(&frame.line3, config, p)
-        ));
+        let cost_body = shared::render_cost_visual(
+            config.effective_cost_visual(),
+            &frame.line3,
+            config.glyph_mode,
+            p,
+            color,
+        );
+        if !cost_body.is_empty() {
+            parts.push(format!("{cost_lbl}{cost_body}"));
+        }
     }
     if config.show_quota {
+        let quota_spec = config.effective_quota_visual();
         if config.show_quota_five_hour {
-            if let Some(pct) = frame.quota.five_hour_pct {
-                parts.push(quota_gauge_segment(
-                    "Q5h  ",
-                    pct,
-                    frame.quota.five_hour_reset_minutes,
-                    config.glyph_mode,
-                    p,
-                    color,
-                ));
+            let q = shared::render_quota_visual(
+                quota_spec,
+                "Q5h  ",
+                frame.quota.five_hour_pct,
+                frame.quota.five_hour_reset_minutes,
+                config.glyph_mode,
+                p,
+                color,
+            );
+            if !q.is_empty() {
+                parts.push(q);
             }
         }
         if config.show_quota_seven_day {
-            if let Some(pct) = frame.quota.seven_day_pct {
-                parts.push(quota_gauge_segment(
-                    "Q7d  ",
-                    pct,
-                    frame.quota.seven_day_reset_minutes,
-                    config.glyph_mode,
-                    p,
-                    color,
-                ));
+            let q = shared::render_quota_visual(
+                quota_spec,
+                "Q7d  ",
+                frame.quota.seven_day_pct,
+                frame.quota.seven_day_reset_minutes,
+                config.glyph_mode,
+                p,
+                color,
+            );
+            if !q.is_empty() {
+                parts.push(q);
             }
         }
     }
     parts.join("    ")
-}
-
-fn quota_gauge_segment(
-    label: &str,
-    pct: f64,
-    reset_min: Option<u64>,
-    mode: crate::config::GlyphMode,
-    p: &ThemePalette,
-    color: bool,
-) -> String {
-    let bar = widgets::gauge::render(pct as u64, QUOTA_GAUGE_WIDTH, mode, p, color);
-    let pct_str = colorize(&format!("  {pct:.0}%"), p.color_for_quota_pct(pct), color);
-    let lbl = colorize(label, &p.structural, color);
-    let reset_part = reset_min
-        .map(|m| {
-            colorize(
-                &format!("  {}", crate::render::fmt::format_reset_duration(m)),
-                &p.structural,
-                color,
-            )
-        })
-        .unwrap_or_default();
-    format!("{lbl}{bar}{pct_str}{reset_part}")
 }
 
 fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
@@ -242,7 +243,8 @@ fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &Theme
     }
     let mut parts: Vec<String> = Vec::new();
     if !frame.tools.is_empty() {
-        let tape = shared::tools_tape(
+        let tape = shared::render_tools_visual_inline(
+            config.effective_tools_visual(),
             &frame.tools,
             config.max_tool_lines.max(2),
             config.glyph_mode,

@@ -130,22 +130,47 @@ fn cluster_row(
     }
 
     if config.show_cost {
-        if width >= 100 {
-            cells.push(shared::cost_cell(&frame.line3, config, p));
+        // Below the cluster's full-width budget, force "text" — the arc adds
+        // a glyph that's not worth its column on narrow renders. Otherwise
+        // honour the user's `cost_visual` (defaults to "text+arc").
+        let cost_spec = if width >= 100 {
+            config.effective_cost_visual().to_string()
         } else {
-            cells.push(shared::cost_text_only(&frame.line3, p, color));
+            "text".to_string()
+        };
+        let cell =
+            shared::render_cost_visual(&cost_spec, &frame.line3, config.glyph_mode, p, color);
+        if !cell.is_empty() {
+            cells.push(cell);
         }
     }
 
     if width >= 120 && config.show_quota {
+        let quota_spec = config.effective_quota_visual();
         if config.show_quota_five_hour {
-            let q = shared::quota_text_cell(&frame.quota, p, color);
+            let q = shared::render_quota_visual(
+                quota_spec,
+                "Q5h ",
+                frame.quota.five_hour_pct,
+                frame.quota.five_hour_reset_minutes,
+                config.glyph_mode,
+                p,
+                color,
+            );
             if !q.is_empty() {
                 cells.push(q);
             }
         }
         if config.show_quota_seven_day {
-            let q = shared::quota_seven_day_cell(&frame.quota, p, color);
+            let q = shared::render_quota_visual(
+                quota_spec,
+                "Q7d ",
+                frame.quota.seven_day_pct,
+                frame.quota.seven_day_reset_minutes,
+                config.glyph_mode,
+                p,
+                color,
+            );
             if !q.is_empty() {
                 cells.push(q);
             }
