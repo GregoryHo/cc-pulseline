@@ -723,14 +723,15 @@ pub fn pack_agent_cells(
         return Vec::new();
     }
     let sep = colorize(widgets::tape::SEPARATOR, &p.separator, config.color_enabled);
-    pack_multi_row(
+    let (rows, _consumed) = pack_multi_row(
         &cells,
         width,
         &sep,
         widgets::tape::SEPARATOR_W,
         config.color_enabled,
         Some(config.max_agent_lines.max(1)),
-    )
+    );
+    rows
 }
 
 fn format_completed_summary(

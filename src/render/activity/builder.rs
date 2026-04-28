@@ -175,7 +175,7 @@ fn build_completed_tool_rows(
 ) -> Vec<String> {
     let color = config.color_enabled;
     let max_rows = config.max_completed_lines.max(1);
-    let mut rows = pack_multi_row(
+    let (mut rows, shown) = pack_multi_row(
         cells,
         available_width,
         sep,
@@ -183,31 +183,10 @@ fn build_completed_tool_rows(
         color,
         Some(max_rows),
     );
-
-    // Count how many cells fit into the rows we kept so we know how many
-    // got pushed out by the cap. We re-run the same fitting walk because
-    // `pack_multi_row` doesn't return per-row cell counts.
-    let mut shown = 0usize;
-    let mut start = 0usize;
-    for _ in 0..rows.len() {
-        let mut used = cells[start].min_required_width();
-        let mut end = start + 1;
-        while end < cells.len() {
-            let advance = ROW_SEPARATOR_W + cells[end].min_required_width();
-            if used + advance > available_width {
-                break;
-            }
-            used += advance;
-            end += 1;
-        }
-        shown = end;
-        start = end;
-    }
     let hidden = cells.len().saturating_sub(shown);
     if hidden > 0 {
         rows.push(overflow_summary(hidden, "tool", "tools", palette, color));
     }
-
     rows
 }
 

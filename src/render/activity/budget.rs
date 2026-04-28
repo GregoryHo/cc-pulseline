@@ -130,9 +130,12 @@ fn separators_width(cells: usize, sep_w: usize) -> usize {
 /// per-cell slack budget. When `max_rows` is `Some(n)`, additional rows
 /// beyond `n` are dropped silently — caller handles overflow framing.
 ///
+/// Returns `(rows, consumed)` where `consumed` is the number of cells
+/// rendered into rows so the caller can compute `cells.len() - consumed`
+/// for an overflow summary without re-walking the fitting algorithm.
+///
 /// Used by both flat-row's completed-tool segment and cluster layouts'
-/// agent / tool segments — wherever "lay these cells across multiple
-/// rows when one isn't enough" is the desired width handling.
+/// agent / tool segments.
 pub fn pack_multi_row(
     cells: &[Cell],
     available: usize,
@@ -140,10 +143,11 @@ pub fn pack_multi_row(
     sep_w: usize,
     color_enabled: bool,
     max_rows: Option<usize>,
-) -> Vec<String> {
+) -> (Vec<String>, usize) {
     let cap = max_rows.unwrap_or(usize::MAX).max(1);
     let mut rows: Vec<String> = Vec::new();
     let mut start = 0usize;
+    let mut consumed = 0usize;
     while start < cells.len() && rows.len() < cap {
         let mut used = cells[start].min_required_width();
         let mut end = start + 1;
@@ -164,10 +168,11 @@ pub fn pack_multi_row(
         );
         if !row.is_empty() {
             rows.push(row);
+            consumed = end;
         }
         start = end;
     }
-    rows
+    (rows, consumed)
 }
 
 #[cfg(test)]
