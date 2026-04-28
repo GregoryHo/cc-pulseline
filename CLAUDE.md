@@ -70,7 +70,7 @@ stdin JSON → StdinPayload (deserialize)
   - `layout.rs` — Formats the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines. Dispatches to instrument-cluster layouts (`Cockpit`/`Console`/`Flightstrip`/`Auto`) which own their full pipeline; flat layouts (`None`/`Zones`/`Grid`/`Cards`/`Sections`) fall through to the v1-style line assembly.
   - `pane.rs` — `LayoutStyle` enum (9 variants) + `PaneConfig` chrome wrapper. `apply_pane()` decorates flat-layout output with frame chrome.
   - `frames/` — Per-layout `render()` fns: `cockpit`, `console`, `flightstrip`, `auto`, `cards`, `sections`, `grid`, `zones`. `frames/shared.rs` holds widget call helpers, dispatch hubs (`render_context_visual`, `render_cost_visual`, `render_quota_visual`, `render_tools_visual_inline`), and frame chrome glyph tables. `frames/mod.rs::default_visuals_for(LayoutStyle)` is the per-layout `*_visual` defaults table.
-  - `widgets/` — Atomic widget renderers: `gauge` (block / `#`-`-`), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take `(data, …, mode, palette, color)`; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly.
+  - `widgets/` — Atomic widget renderers: `gauge` (bracket-framed `[████▎      ]` — fill block + space empty in Icon, `[####------]` in Ascii), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take `(data, …, mode, palette, color)`; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly. `gauge`'s `width` parameter is the *interior* cell count — visible width is `width + 2` for the `[ ]` brackets.
   - `color.rs` — `ThemePalette` struct (31 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
@@ -89,8 +89,8 @@ Full layout × visual reference: `docs/layouts.md`.
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)` (text form; instrument-cluster layouts may render as gauge / sparkline / arc per `*_visual`)
-- **Quota**: `Q: 5h: 75% (resets 2h 0m)` (usage quota from CC's native `rate_limits` field, between L3 and activity)
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)` (v1 flat layouts; instrument-cluster layouts render as `CTX [████▎      ] 43% / 200.0k` per `context_visual`)
+- **Quota**: `Q: 5h: 75% (resets 2h 0m)` for v1 flat layouts (single `Q:` group prefix); instrument-cluster layouts render each window as a separate cell `5h [████▎      ] 75% (resets 2h 0m)` with no `Q` prefix per cell. Driven by CC's native `rate_limits` field.
 - **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed tool counts — stable, accumulates over session; capped by `max_completed_lines` rows)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools with targets — volatile)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)` (agents — active first, then recent completed)

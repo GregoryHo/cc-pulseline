@@ -135,7 +135,7 @@ activity ticker.
 ```
 Opus 4.7  feat/x ↑3  ~/cc-pulseline                              43%·86k
 CFG  󰈙1  󰱇5  󰧜2  󱭧1  󰆧2  󰐱4  1h
-CTX  ███████▋░░░░░░░░░░ 43% ⠀⠀⠀⠀⠀⢠   TOK 1.2K/s   $3.50 ◑   Q5h 17%
+CTX  [██████▋          ] 43% ⠀⠀⠀⠀⠀⢠   TOK 1.2K/s   $3.50 ◑   5h [██▏        ] 17% (resets 2h 0m)
 ▶ Read · ▶ Bash   ✓ ×8   A:Explore (2m)   • 6/6 todos
 ```
 
@@ -216,12 +216,12 @@ visual = "list"                     # flat-layout default (per-row T:Read: ...)
 
 ### Recognized widgets per segment
 
-| Segment | Widgets | ASCII fallback |
-|---------|---------|----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` → `#`/`-`; `sparkline` → empty (braille has no ASCII analogue); `text` → unchanged |
-| `cost_visual` | `text`, `arc` | `arc` → empty under `display.icons = false`; lone `text` always carries `($X.X/h)` rate annotation; compound `text+arc` text picks up the rate when arc disappears (so the user always sees burn rate, in icon or text form) |
-| `quota_visual` | `text`, `bar` | `bar` → gauge falls back to `#`/`-` cells |
-| `tools_visual` | `tape`, `list` | `tape` arrow `▶` → `>`; `list` is multi-row (used by flat-layout activity rows) — silently dropped from inline cluster contexts |
+| Segment | Widgets | Visual contract |
+|---------|---------|-----------------|
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracket-framed (`[████▎      ]` icon, `[####------]` ascii); empty cells are literal whitespace inside the frame so they read as "unused capacity" regardless of fill colour. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the legacy `<glyph>43% (86.0k/200.0k)` form. |
+| `cost_visual` | `text`, `arc` | `arc` is icon-only — empty under `display.icons = false`. Lone `text` always carries `($X.X/h)` rate annotation; compound `text+arc` text picks up the rate when arc disappears (so the user always sees burn rate, in icon or text form). |
+| `quota_visual` | `text`, `bar` | `bar` adds a gauge before the pct text — same bracket-framed visual as `context_visual`'s `gauge`. **pct number and `(resets …)` annotation render unconditionally** when their data is available; `bar` is purely additional visualisation. |
+| `tools_visual` | `tape`, `list` | `tape` arrow `▶` → `>` under ASCII; `list` is multi-row (used by flat-layout activity rows) — silently dropped from inline cluster contexts. |
 
 ### Per-layout defaults
 
@@ -333,3 +333,30 @@ The branch was unreleased so this is a clean break — no deprecation
 shim. `lib.rs` still gates the `ctx_history` allocation copy on whether
 the resolved spec includes `sparkline`, so nothing leaks for users who
 don't opt in.
+
+### Quota labels: `Q5h`/`Q7d` → `5h`/`7d`
+
+Cluster-row quota cells used to repeat the `Q` prefix on every window
+(`Q5h 17%   Q7d 60%`). Now each cell carries a bare label (`5h …`,
+`7d …`); the v1 flat layout still uses a single `Q:` group prefix
+followed by `5h: 75%` / `7d: 60%` (unchanged). No config migration —
+the prefix is a render-time string, not a setting.
+
+### Gauge visual: bracket-framed
+
+The `gauge` widget changed from a colour-only "battery" texture
+(filled `█` in fill colour, empty `█` in `structural`) to a
+bracket-framed indicator (`[████▎      ]`). The interior empty cells
+are now literal whitespace inside `[ ]` brackets. The `width`
+parameter passed to `widgets::gauge::render(pct, width, …)` is the
+*interior* cell count — visible width is `width + 2`. Sub-cell
+precision (`▏▎▍▌▋▊▉`) at the fill boundary is preserved.
+
+### Quota cell: pct + `(resets …)` always shown
+
+`render_quota_visual` previously bound `pct` text to the `text`
+widget and `(reset)` to text mode only. Now both render unconditionally
+whenever the data is available, regardless of whether the spec asks
+for `bar`. The `bar` widget is purely additional visualisation in
+front of the pct — opting into `bar` no longer drops the precise
+percentage or the reset countdown.

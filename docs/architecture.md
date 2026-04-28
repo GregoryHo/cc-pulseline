@@ -143,7 +143,7 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/widgets/` -- Atomic Widgets
 
-`gauge` (block / `#`-`-`), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width.
+`gauge` (bracket-framed `[████▎      ]` — fill block + space empty in Icon mode, `[####------]` in Ascii), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` parameter is the *interior* cell count — visible width is `width + 2` to accommodate the `[ ]` frame.
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
