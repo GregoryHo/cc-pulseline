@@ -20,10 +20,10 @@
 use crate::config::RenderConfig;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::icons::{FRAME_BL, FRAME_BR, FRAME_H, FRAME_TL, FRAME_TR, FRAME_V};
+use crate::render::pane::LayoutStyle;
 
 use super::{cockpit, flightstrip, shared};
 
-const GAUGE_WIDTH: usize = 22;
 const FRAME_INNER_PAD: usize = 4; // "│  " left + "│" right + 1 trailing space
 /// Visible chars `framed()` consumes inside `inner` for its leading "  "
 /// indent before the content starts. Subtract from `inner` to get the
@@ -56,6 +56,7 @@ pub fn render(
 
     let inner = width.saturating_sub(FRAME_INNER_PAD);
     let drop_inner_rule = width < 130;
+    let (ctx_gauge_w, quota_gauge_w) = shared::gauge_widths_for(LayoutStyle::Console, width);
 
     let color = config.color_enabled;
     let mut lines: Vec<String> = Vec::with_capacity(7);
@@ -69,9 +70,14 @@ pub fn render(
         }
     }
 
-    lines.push(framed(&ctx_row(frame, config, p), p, inner, color));
     lines.push(framed(
-        &tok_cost_quota_row(frame, config, p),
+        &ctx_row(frame, config, p, ctx_gauge_w),
+        p,
+        inner,
+        color,
+    ));
+    lines.push(framed(
+        &tok_cost_quota_row(frame, config, p, quota_gauge_w),
         p,
         inner,
         color,
@@ -134,17 +140,22 @@ fn inner_rule(p: &ThemePalette, inner: usize, color: bool) -> String {
     )
 }
 
-fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
-    // Console's CTX row honours `context_visual`. Pass GAUGE_WIDTH as the
-    // sizing hint — render_context_visual passes this through to the gauge
-    // widget so console keeps its wider bar regardless of the spec. The
-    // gauge cell now embeds `<used>/<total>` itself, so no further
+fn ctx_row(
+    frame: &crate::types::RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    gauge_w: usize,
+) -> String {
+    // Console's CTX row honours `context_visual`. The sizing hint comes from
+    // `gauge_widths_for(width).0` — render_context_visual passes it through
+    // to the gauge widget so console keeps its hero-instrument width.
+    // The gauge cell embeds `<used>/<total>` itself, so no further
     // annotation is needed here.
     shared::render_context_visual(
         config.effective_context_visual(),
         &frame.line3,
         &frame.ctx_history,
-        GAUGE_WIDTH,
+        gauge_w,
         config.glyph_mode,
         p,
         config.color_enabled,
@@ -155,6 +166,7 @@ fn tok_cost_quota_row(
     frame: &crate::types::RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
+    quota_bar_w: usize,
 ) -> String {
     let color = config.color_enabled;
     let mut parts: Vec<String> = Vec::new();
@@ -187,6 +199,7 @@ fn tok_cost_quota_row(
                 "5h  ",
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
+                quota_bar_w,
                 config.glyph_mode,
                 p,
                 color,
@@ -201,6 +214,7 @@ fn tok_cost_quota_row(
                 "7d  ",
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
+                quota_bar_w,
                 config.glyph_mode,
                 p,
                 color,
@@ -351,6 +365,7 @@ mod tests {
             color_enabled: false,
             terminal_width: Some(width),
             palette: resolve_palette("tokyo-night", Some("dark"), &Default::default()),
+            pane_style: LayoutStyle::Console,
             ..RenderConfig::default()
         }
     }
@@ -385,5 +400,27 @@ mod tests {
         assert!(!lines.first().unwrap().starts_with(FRAME_TL));
         // Flightstrip at <90 cols drops cost from L1
         assert!(!lines[0].contains("$3.50"));
+    }
+
+    /// CTX row no-data state: when the payload arrives before the first API
+    /// call (`context_used_percentage` is `None`), the gauge widget must not
+    /// render an empty bracket — it must show the same `--% --/--`
+    /// placeholder as `ctx_text_cell`. Otherwise the placeholder visually
+    /// outweighs every populated cell on row 4.
+    #[test]
+    fn console_ctx_row_shows_placeholder_when_no_pct_data() {
+        let mut f = frame_basic();
+        f.line3.context_used_percentage = None;
+        f.line3.context_window_size = None;
+        let c = cfg(140);
+        let lines = render(&f, &c, &c.palette.clone());
+        let ctx_row = lines
+            .iter()
+            .find(|l| l.contains("--%"))
+            .expect("CTX row with `--%` placeholder should exist");
+        assert!(
+            ctx_row.contains("--/--"),
+            "expected `--/--` placeholder on no-data CTX row, got: {ctx_row:?}"
+        );
     }
 }

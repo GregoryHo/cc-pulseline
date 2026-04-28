@@ -7,16 +7,17 @@
 //! Width handling:
 //!   ≥ 110   full
 //!   90..110 drop quota cluster
-//!   70..90  drop sparkline; gauge → 6 cells; drop cost from L1
+//!   70..90  drop sparkline; narrow gauge; drop cost from L1
 //!   < 70    single row only (identity + pct + cost)
+//!
+//! Concrete gauge widths live in `shared::gauge_widths_for` — the layout
+//! reads them from there so re-tuning happens in one place.
 
 use crate::config::RenderConfig;
 use crate::render::color::{colorize, ThemePalette};
+use crate::render::pane::LayoutStyle;
 
 use super::shared;
-
-const FULL_GAUGE_WIDTH: usize = 12;
-const NARROW_GAUGE_WIDTH: usize = 6;
 
 pub fn render(
     frame: &crate::types::RenderFrame,
@@ -65,11 +66,7 @@ fn strip_l1(
         .split('+')
         .any(|w| w.trim() == "gauge");
     if want_gauge {
-        let gauge_w = if width >= 90 {
-            FULL_GAUGE_WIDTH
-        } else {
-            NARROW_GAUGE_WIDTH
-        };
+        let (gauge_w, _) = shared::gauge_widths_for(LayoutStyle::Flightstrip, width);
         let gauge = crate::render::widgets::gauge::render(
             pct,
             gauge_w,
@@ -110,11 +107,13 @@ fn strip_l2(
     }
 
     if width >= 110 && config.show_quota && config.show_quota_five_hour {
+        let (_, quota_bar_w) = shared::gauge_widths_for(LayoutStyle::Flightstrip, width);
         let q = shared::render_quota_visual(
             config.effective_quota_visual(),
             "5h ",
             frame.quota.five_hour_pct,
             frame.quota.five_hour_reset_minutes,
+            quota_bar_w,
             config.glyph_mode,
             p,
             color,

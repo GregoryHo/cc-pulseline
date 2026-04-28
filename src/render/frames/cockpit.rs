@@ -16,11 +16,9 @@
 
 use crate::config::RenderConfig;
 use crate::render::color::ThemePalette;
+use crate::render::pane::LayoutStyle;
 
 use super::shared;
-
-const FULL_GAUGE_WIDTH: usize = 18;
-const COMPACT_GAUGE_WIDTH: usize = 12;
 
 pub fn render(
     frame: &crate::types::RenderFrame,
@@ -93,11 +91,10 @@ fn cluster_row(
     let color = config.color_enabled;
     let mut cells: Vec<String> = Vec::new();
 
-    let gauge_w = if width >= 100 {
-        FULL_GAUGE_WIDTH
-    } else {
-        COMPACT_GAUGE_WIDTH
-    };
+    // Width-keyed gauge sizing for both CTX and quota — see
+    // `shared::gauge_widths_for` for the full breakpoint table. Keeping the
+    // mapping in one place is the whole point.
+    let (gauge_w, quota_bar_w) = shared::gauge_widths_for(LayoutStyle::Cockpit, width);
     // Dispatch CTX rendering through the visual spec — the layout supplies
     // its preferred sizing (gauge_w) but the user's `context_visual` config
     // chooses which widgets to actually render.
@@ -158,6 +155,7 @@ fn cluster_row(
                 "5h ",
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
+                quota_bar_w,
                 config.glyph_mode,
                 p,
                 color,
@@ -172,6 +170,7 @@ fn cluster_row(
                 "7d ",
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
+                quota_bar_w,
                 config.glyph_mode,
                 p,
                 color,

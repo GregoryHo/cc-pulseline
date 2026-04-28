@@ -19,7 +19,7 @@ use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration, format_speed};
 use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING};
 use crate::render::layout;
-use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
+use crate::render::pane::{LayoutStyle, LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
 use crate::types::{
     CompletedToolCount, Line1Metrics, Line3Metrics, RenderFrame, TodoSummary, ToolSummary,
@@ -441,6 +441,11 @@ pub fn ctx_text_cell(
 /// CTX gauge cell — `<icon> [gauge] 80.0k/1.0M`. Same shape as
 /// `ctx_text_cell`, with the gauge bar replacing the `%` text. Numbers
 /// stay because the gauge can't convey precise token counts.
+///
+/// No-data state delegates to `ctx_text_cell` so an empty `[          ]`
+/// never becomes the visually heaviest cell on the row. The gauge widget
+/// is for showing fill, not absence — the text variant already owns a
+/// clean `--% --/--` placeholder, so reuse it.
 pub fn ctx_gauge_cell(
     line3: &Line3Metrics,
     gauge_width: usize,
@@ -449,13 +454,12 @@ pub fn ctx_gauge_cell(
     color_enabled: bool,
 ) -> String {
     use crate::render::icons::{glyph, ICON_CONTEXT};
-    let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
-    let pct = line3.context_used_percentage.unwrap_or(0);
-    let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
-    let icon = colorize(&icon_glyph, fill_color, color_enabled);
-    let bar = widgets::gauge::render(pct, gauge_width, mode, fill_color, p, color_enabled);
     match (line3.context_used_percentage, line3.context_window_size) {
-        (Some(_), Some(size)) => {
+        (Some(pct), Some(size)) => {
+            let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
+            let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
+            let icon = colorize(&icon_glyph, fill_color, color_enabled);
+            let bar = widgets::gauge::render(pct, gauge_width, mode, fill_color, p, color_enabled);
             let used = ((size as f64) * (pct as f64) / 100.0) as u64;
             let used_str = colorize(
                 &format!(" {}", format_number(used)),
@@ -466,7 +470,7 @@ pub fn ctx_gauge_cell(
             let total_str = colorize(&format_number(size), &p.secondary, color_enabled);
             format!("{icon} {bar}{used_str}{slash}{total_str}")
         }
-        _ => format!("{icon} {bar}"),
+        _ => ctx_text_cell(line3, mode, p, color_enabled),
     }
 }
 
@@ -585,10 +589,70 @@ pub fn render_cost_visual(
     parts.join(" ")
 }
 
-/// Quota gauge bar width when rendered as `bar`. Tuned to match the console's
-/// existing `QUOTA_GAUGE_WIDTH` so visual specs stay consistent across
-/// layouts that opt into bar form.
+/// Default quota gauge bar width when callers can't supply one (e.g. a
+/// layout that doesn't expose a width context). Cluster layouts should call
+/// `gauge_widths_for(width).1` instead and pass the result into
+/// `render_quota_visual`.
 pub const QUOTA_BAR_WIDTH: usize = 12;
+
+/// Gauge widths for the cluster layouts (Console / Cockpit / Flightstrip),
+/// keyed off the layout style and the pane's available width. Returns
+/// `(ctx_width, quota_width)` — interior cells (visible width is `+2` for
+/// the `[ ]` brackets each gauge wraps around).
+///
+/// **Invariant**: CTX is the hero instrument; it is wider than quota at
+/// every breakpoint so the eye reads CTX as the primary metric and quota
+/// as supporting reference info. CTX/Quota ratio sits between ~1.25× and
+/// ~1.5× across all breakpoints — the ratio matters more than the
+/// absolute size. See `designs/console-gauge-rethink.md` for the full
+/// rationale (Option 3a numbers).
+///
+/// Why layout-aware (instead of width-only): at a shared physical width
+/// like 85 cols, Cockpit-compact uses CTX=12 while Flightstrip-narrow uses
+/// CTX=8 — the gauge size is a property of the layout's information
+/// density, not of the terminal alone.
+///
+/// Width breakpoints (intent): each layout shrinks both gauges together as
+/// the pane budget tightens, while preserving CTX > Quota.
+///
+/// | Layout breakpoint                   | CTX | Quota |
+/// |-------------------------------------|-----|-------|
+/// | Console (≥ 130)                     |  18 |  12   |
+/// | Cockpit / Auto full   (width ≥ 100) |  16 |  10   |
+/// | Cockpit / Auto compact (width < 100)|  12 |   8   |
+/// | Flightstrip full      (width ≥  90) |  10 |   8   |
+/// | Flightstrip narrow    (width <  90) |   8 |   6   |
+///
+/// Layouts not in the cluster family (None / Zones / Grid / Cards /
+/// Sections) currently size their CTX gauge via `V1_GAUGE_WIDTH` in
+/// `render/layout.rs`; this helper does not yet cover them.
+pub fn gauge_widths_for(layout: LayoutStyle, width: usize) -> (usize, usize) {
+    match layout {
+        LayoutStyle::Console => (18, 12),
+        LayoutStyle::Cockpit | LayoutStyle::Auto => {
+            if width >= 100 {
+                (16, 10)
+            } else {
+                (12, 8)
+            }
+        }
+        LayoutStyle::Flightstrip => {
+            if width >= 90 {
+                (10, 8)
+            } else {
+                (8, 6)
+            }
+        }
+        // Flat layouts: caller still uses `V1_GAUGE_WIDTH`. Mirror the v1
+        // constant (18) so any future caller picking up the helper inherits
+        // the same number until those layouts are migrated.
+        LayoutStyle::None
+        | LayoutStyle::Zones
+        | LayoutStyle::Grid
+        | LayoutStyle::Cards
+        | LayoutStyle::Sections => (18, QUOTA_BAR_WIDTH),
+    }
+}
 
 /// Compose a quota cell from a visual spec.
 ///
@@ -608,12 +672,19 @@ pub const QUOTA_BAR_WIDTH: usize = 12;
 /// flat layout uses a single `Q:` group prefix instead of repeating it per
 /// window).
 ///
+/// `bar_width` is the gauge interior cell count when the spec includes
+/// `"bar"`. Cluster layouts pass `gauge_widths_for(layout, width).1`;
+/// callers that don't have a width context can pass `QUOTA_BAR_WIDTH`
+/// directly.
+///
 /// Returns empty string when `pct` is `None` (no data — entire cell drops).
+#[allow(clippy::too_many_arguments)]
 pub fn render_quota_visual(
     spec: &str,
     label: &str,
     pct: Option<f64>,
     reset_min: Option<u64>,
+    bar_width: usize,
     mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
@@ -627,14 +698,7 @@ pub fn render_quota_visual(
     let mut body = colorize(label, &p.structural, color_enabled);
     if want_bar {
         let fill_color = p.color_for_quota_pct(pct);
-        let bar = widgets::gauge::render(
-            pct as u64,
-            QUOTA_BAR_WIDTH,
-            mode,
-            fill_color,
-            p,
-            color_enabled,
-        );
+        let bar = widgets::gauge::render(pct as u64, bar_width, mode, fill_color, p, color_enabled);
         body.push_str(&bar);
         body.push_str(&colorize("  ", &p.structural, color_enabled));
     }

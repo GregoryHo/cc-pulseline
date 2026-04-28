@@ -147,7 +147,6 @@ fn render_hash_glyphs(pct: u64, width: usize) -> String {
     out
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,7 +205,14 @@ mod tests {
         // No interior → no brackets either.
         assert_eq!(render_glyphs(50, 0, GlyphMode::Icon), "");
         assert_eq!(
-            render(50, 0, GlyphMode::Icon, "FILL", &aurora_marker_palette(), true),
+            render(
+                50,
+                0,
+                GlyphMode::Icon,
+                "FILL",
+                &aurora_marker_palette(),
+                true
+            ),
             ""
         );
     }
@@ -279,7 +285,14 @@ mod tests {
             '\u{258F}', '\u{2591}',
         ];
         for pct in [0, 25, 50, 75, 100] {
-            let s = render(pct, 10, GlyphMode::Ascii, "X", &aurora_marker_palette(), false);
+            let s = render(
+                pct,
+                10,
+                GlyphMode::Ascii,
+                "X",
+                &aurora_marker_palette(),
+                false,
+            );
             assert!(
                 !s.chars().any(|c| BLOCKS.contains(&c)),
                 "pct={pct} produced a block char: {s:?}"
