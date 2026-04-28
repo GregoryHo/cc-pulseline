@@ -333,16 +333,14 @@ pub fn config_row(
         |c| c.show_claude_md = false,
     ];
 
-    let prefix = colorize("CFG  ", &p.structural, config.color_enabled);
-    let prefix_w = visible_width(&prefix);
-
-    // Fast path: try with the user's config first; only clone when shrinking.
+    // No leading label — each segment already carries its own icon + count
+    // + noun, so a `CFG  ` prefix would be redundant noise.
     let body = layout::format_line2(frame, config, "  ", p);
     if body.is_empty() {
         return String::new();
     }
-    if prefix_w + visible_width(&body) <= max_width {
-        return format!("{prefix}{body}");
+    if visible_width(&body) <= max_width {
+        return body;
     }
 
     let mut shrunk = config.clone();
@@ -353,14 +351,11 @@ pub fn config_row(
         if last_body.is_empty() {
             return String::new();
         }
-        if prefix_w + visible_width(&last_body) <= max_width {
-            return format!("{prefix}{last_body}");
+        if visible_width(&last_body) <= max_width {
+            return last_body;
         }
     }
-    // Even after dropping every optional segment we still overflow — emit the
-    // last (still over-budget) body and let CC clip it visibly. Better than a
-    // blank row.
-    format!("{prefix}{last_body}")
+    last_body
 }
 
 /// Compose a CTX cell from a `+`-separated visual spec.
@@ -408,51 +403,36 @@ pub fn render_context_visual(
     parts.join(" ")
 }
 
-/// CTX text cell — `<glyph>43% (86.0k/200.0k)` form (or `CTX:43%...` under
-/// Ascii). No gauge or sparkline. Used when `context_visual` includes
-/// `"text"`. Format unified with the legacy v1 `format_context_segment`
-/// so flat layouts route through `render_context_visual` without changing
-/// their rendered output.
+/// CTX text cell — `86.0k/200.0k` form. No `CTX` label, no `%` — the
+/// concrete `used/total` carries enough information; the percentage is
+/// either implicit from the ratio or shown by the gauge cell when
+/// composed alongside.
 pub fn ctx_text_cell(
     line3: &Line3Metrics,
-    mode: GlyphMode,
+    _mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
-    use crate::render::icons::{glyph, ICON_CONTEXT};
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(pct), Some(size)) => {
-            let pct_color = p.color_for_ctx_pct(pct, Some(size));
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color_enabled);
-            let pct_str = colorize(&format!("{pct}%"), pct_color, color_enabled);
             let used = ((size as f64) * (pct as f64) / 100.0) as u64;
-            let open = colorize(" (", &p.separator, color_enabled);
-            let used_str = colorize(&format_number(used), &p.primary, color_enabled);
+            let used_color = p.color_for_ctx_pct(pct, Some(size));
+            let used_str = colorize(&format_number(used), used_color, color_enabled);
             let sep = colorize("/", &p.separator, color_enabled);
-            let total = colorize(&format_number(size), &p.primary, color_enabled);
-            let close = colorize(")", &p.separator, color_enabled);
-            format!("{label}{pct_str}{open}{used_str}{sep}{total}{close}")
+            let total = colorize(&format_number(size), &p.secondary, color_enabled);
+            format!("{used_str}{sep}{total}")
         }
         _ => {
-            // No data yet: render the same `CTX:--% (--/--)` placeholder the
-            // v1 path emits, so dispatch parity holds even before the first
-            // context-aware response.
-            let label = colorize(
-                &glyph(mode, ICON_CONTEXT, "CTX:"),
-                &p.structural,
-                color_enabled,
-            );
             let dash = colorize("--", &p.structural, color_enabled);
-            let pct_sign = colorize("%", &p.structural, color_enabled);
-            let open = colorize(" (", &p.separator, color_enabled);
             let sep = colorize("/", &p.separator, color_enabled);
-            let close = colorize(")", &p.separator, color_enabled);
-            format!("{label}{dash}{pct_sign}{open}{dash}{sep}{dash}{close}")
+            format!("{dash}{sep}{dash}")
         }
     }
 }
 
-/// CTX gauge cell — `gauge_width` cells, followed by `% used` text.
+/// CTX gauge cell — `[gauge_width cells] 86.0k/200.0k`. No `CTX` label
+/// or `%` — the gauge already conveys the ratio visually; concrete
+/// numbers add precision that `%` can't.
 pub fn ctx_gauge_cell(
     line3: &Line3Metrics,
     gauge_width: usize,
@@ -461,11 +441,10 @@ pub fn ctx_gauge_cell(
     color_enabled: bool,
 ) -> String {
     let pct = line3.context_used_percentage.unwrap_or(0);
-    let label = colorize("CTX  ", &p.structural, color_enabled);
-    let bar = widgets::gauge::render(pct, gauge_width, mode, p, color_enabled);
-    let pct_color = p.color_for_ctx_pct(pct, line3.context_window_size);
-    let pct_str = colorize(&format!(" {pct}%"), pct_color, color_enabled);
-    format!("{label}{bar}{pct_str}")
+    let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
+    let bar = widgets::gauge::render(pct, gauge_width, mode, fill_color, p, color_enabled);
+    let numbers = ctx_text_cell(line3, mode, p, color_enabled);
+    format!("{bar} {numbers}")
 }
 
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
@@ -624,7 +603,15 @@ pub fn render_quota_visual(
 
     let mut body = colorize(label, &p.structural, color_enabled);
     if want_bar {
-        let bar = widgets::gauge::render(pct as u64, QUOTA_BAR_WIDTH, mode, p, color_enabled);
+        let fill_color = p.color_for_quota_pct(pct);
+        let bar = widgets::gauge::render(
+            pct as u64,
+            QUOTA_BAR_WIDTH,
+            mode,
+            fill_color,
+            p,
+            color_enabled,
+        );
         body.push_str(&bar);
         body.push_str(&colorize("  ", &p.structural, color_enabled));
     }

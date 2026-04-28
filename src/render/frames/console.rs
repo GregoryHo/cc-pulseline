@@ -135,51 +135,20 @@ fn inner_rule(p: &ThemePalette, inner: usize, color: bool) -> String {
 }
 
 fn ctx_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
-    let color = config.color_enabled;
     // Console's CTX row honours `context_visual`. Pass GAUGE_WIDTH as the
     // sizing hint — render_context_visual passes this through to the gauge
-    // widget so console keeps its wider bar regardless of the spec.
-    let cell = shared::render_context_visual(
+    // widget so console keeps its wider bar regardless of the spec. The
+    // gauge cell now embeds `<used>/<total>` itself, so no further
+    // annotation is needed here.
+    shared::render_context_visual(
         config.effective_context_visual(),
         &frame.line3,
         &frame.ctx_history,
         GAUGE_WIDTH,
         config.glyph_mode,
         p,
-        color,
-    );
-    // Console-specific annotation: append `/ <total>` after the cell when
-    // a context window size is known. Reads as supplementary info to the
-    // pct, distinct from text widget's `(used/total)` form.
-    let total_str = frame
-        .line3
-        .context_window_size
-        .map(|s| {
-            colorize(
-                &format!(" / {}", crate::render::fmt::format_number(s)),
-                &p.secondary,
-                color,
-            )
-        })
-        .unwrap_or_default();
-    if total_str.is_empty() {
-        cell
-    } else {
-        // Insert the `/ total` annotation right after the pct text. The
-        // gauge/text widgets end at `<pct>%`; sparkline (if present) sits
-        // beyond. Splitting on the last `%` keeps the rendered output
-        // compatible with each visual spec.
-        match cell.rfind('%') {
-            Some(idx) => {
-                let mut buf = String::with_capacity(cell.len() + total_str.len());
-                buf.push_str(&cell[..=idx]);
-                buf.push_str(&total_str);
-                buf.push_str(&cell[idx + 1..]);
-                buf
-            }
-            None => format!("{cell}{total_str}"),
-        }
-    }
+        config.color_enabled,
+    )
 }
 
 fn tok_cost_quota_row(
@@ -393,7 +362,9 @@ mod tests {
         let lines = render(&f, &c, &c.palette.clone());
         assert!(lines.first().unwrap().starts_with(FRAME_TL));
         assert!(lines.last().unwrap().starts_with(FRAME_BL));
-        assert!(lines.iter().any(|l| l.contains("CTX")));
+        // CTX row is identified by `used/total` numbers (label dropped).
+        // 200k window × 43% = 86k → `86.0k/200.0k`.
+        assert!(lines.iter().any(|l| l.contains("/200.0k")));
         assert!(lines.iter().any(|l| l.contains("$3.50")));
     }
 

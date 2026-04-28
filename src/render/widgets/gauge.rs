@@ -57,6 +57,7 @@ pub fn render(
     pct: u64,
     width: usize,
     mode: GlyphMode,
+    fill_color: &str,
     palette: &ThemePalette,
     color_enabled: bool,
 ) -> String {
@@ -68,9 +69,10 @@ pub fn render(
         return format!("{FRAME_LEFT}{raw}{FRAME_RIGHT}");
     }
     // Split the interior into filled (full + optional partial) and empty
-    // halves so each gets its own colour. Only the filled half carries the
-    // `color_for_pct` tone; the empty half is literal whitespace (Icon) or
-    // dashes (Ascii) and does not need re-colouring.
+    // halves so each gets its own colour. The caller supplies the fill
+    // tone (so CTX uses `color_for_ctx_pct` and quota uses
+    // `color_for_quota_pct`); the empty half is literal whitespace
+    // (Icon) or dashes (Ascii) and reuses the structural frame tone.
     let pct_clamped = pct.min(100);
     let total_eighths = (width as u64 * 8 * pct_clamped) / 100;
     let full_cells = (total_eighths / 8) as usize;
@@ -79,7 +81,6 @@ pub fn render(
 
     let filled: String = raw.chars().take(filled_count).collect();
     let empty: String = raw.chars().skip(filled_count).collect();
-    let fill_color = color_for_pct(pct_clamped, palette);
     let frame_color = &palette.structural;
 
     let mut out = String::with_capacity(filled.len() + empty.len() + 32);
@@ -146,15 +147,6 @@ fn render_hash_glyphs(pct: u64, width: usize) -> String {
     out
 }
 
-fn color_for_pct(pct: u64, palette: &ThemePalette) -> &str {
-    if pct >= 70 {
-        &palette.alert_red
-    } else if pct >= 55 {
-        &palette.active_amber
-    } else {
-        &palette.aurora_mid
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -214,27 +206,26 @@ mod tests {
         // No interior → no brackets either.
         assert_eq!(render_glyphs(50, 0, GlyphMode::Icon), "");
         assert_eq!(
-            render(50, 0, GlyphMode::Icon, &aurora_marker_palette(), true),
+            render(50, 0, GlyphMode::Icon, "FILL", &aurora_marker_palette(), true),
             ""
         );
     }
 
     #[test]
-    fn render_picks_color_by_threshold() {
+    fn render_uses_caller_supplied_fill_color() {
+        // Threshold logic now lives at the call site (palette's
+        // `color_for_ctx_pct` / `color_for_quota_pct`); the gauge just
+        // applies whatever colour the caller passes to the filled cells.
         let p = aurora_marker_palette();
-        let mut pal = p.clone();
-        pal.active_amber = "AMBER".to_string();
-        pal.alert_red = "RED".to_string();
-
-        assert!(render(40, 4, GlyphMode::Icon, &pal, true).contains("MID"));
-        assert!(render(60, 4, GlyphMode::Icon, &pal, true).contains("AMBER"));
-        assert!(render(80, 4, GlyphMode::Icon, &pal, true).contains("RED"));
+        assert!(render(40, 4, GlyphMode::Icon, "GREEN", &p, true).contains("GREEN"));
+        assert!(render(60, 4, GlyphMode::Icon, "AMBER", &p, true).contains("AMBER"));
+        assert!(render(80, 4, GlyphMode::Icon, "RED", &p, true).contains("RED"));
     }
 
     #[test]
     fn render_wraps_interior_in_brackets() {
         let p = aurora_marker_palette();
-        let s = render(50, 4, GlyphMode::Icon, &p, false);
+        let s = render(50, 4, GlyphMode::Icon, "X", &p, false);
         assert!(s.starts_with('['), "missing opening bracket: {s:?}");
         assert!(s.ends_with(']'), "missing closing bracket: {s:?}");
         // 4 interior cells + 2 brackets = 6 visible chars.
@@ -270,24 +261,12 @@ mod tests {
     }
 
     #[test]
-    fn fill_uses_pct_color_empty_uses_no_fill_color() {
-        // The empty interior is literal whitespace and gets the structural
-        // tone (same as the brackets), so colour markers from the threshold
-        // table never appear when there's no filled portion.
-        let mut p = aurora_marker_palette();
-        p.aurora_mid = "MID".to_string();
-        p.active_amber = "AMBER".to_string();
-        p.alert_red = "RED".to_string();
-
-        assert!(render(40, 8, GlyphMode::Icon, &p, true).contains("MID"));
-        assert!(render(60, 8, GlyphMode::Icon, &p, true).contains("AMBER"));
-        assert!(render(80, 8, GlyphMode::Icon, &p, true).contains("RED"));
-
-        // 0% — no filled portion → no fill-tone marker present.
-        let zero = render(0, 8, GlyphMode::Icon, &p, true);
-        assert!(!zero.contains("MID"));
-        assert!(!zero.contains("AMBER"));
-        assert!(!zero.contains("RED"));
+    fn empty_interior_does_not_carry_fill_color() {
+        // 0% → no filled portion → caller-supplied fill colour never
+        // makes it into the rendered string.
+        let p = aurora_marker_palette();
+        let zero = render(0, 8, GlyphMode::Icon, "FILL", &p, true);
+        assert!(!zero.contains("FILL"));
     }
 
     #[test]
@@ -300,7 +279,7 @@ mod tests {
             '\u{258F}', '\u{2591}',
         ];
         for pct in [0, 25, 50, 75, 100] {
-            let s = render(pct, 10, GlyphMode::Ascii, &aurora_marker_palette(), false);
+            let s = render(pct, 10, GlyphMode::Ascii, "X", &aurora_marker_palette(), false);
             assert!(
                 !s.chars().any(|c| BLOCKS.contains(&c)),
                 "pct={pct} produced a block char: {s:?}"

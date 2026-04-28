@@ -73,8 +73,9 @@ fn console_emits_framed_borders_at_full_width() {
         "expected ╰ bottom frame, got {:?}",
         lines.last()
     );
-    // CTX gauge row inside the frame
-    assert!(lines.iter().any(|l| l.contains("CTX")));
+    // CTX gauge row inside the frame — identified by `used/total`
+    // (label + `%` dropped from the row format).
+    assert!(lines.iter().any(|l| l.contains("/200.0k")));
     assert!(lines.iter().any(|l| l.contains("$3.50")));
 }
 

@@ -85,10 +85,13 @@ fn auto_picks_cockpit_in_110_to_129_band() {
         !lines.first().unwrap().starts_with(FRAME_TL),
         "expected unframed cockpit at 120 cols"
     );
-    // Cockpit puts CTX on its own (cluster) row separately from identity.
+    // Cockpit puts the CTX gauge on its own (cluster) row, identified by
+    // the `used/total` numbers (label + `%` dropped from the row format).
     assert!(
-        lines.iter().any(|l| l.contains("CTX") && l.contains("43%")),
-        "expected CTX 43% cluster row at 120 cols, got {lines:?}"
+        lines
+            .iter()
+            .any(|l| l.contains("/200.0k") && !l.starts_with("Opus")),
+        "expected CTX cluster row at 120 cols, got {lines:?}"
     );
 }
 

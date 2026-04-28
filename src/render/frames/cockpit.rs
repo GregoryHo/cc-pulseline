@@ -260,9 +260,12 @@ mod tests {
         c.show_skills = false;
         c.show_plugins = false;
         let lines = render(&f, &c, &c.palette.clone());
+        // L2 row no longer carries a `CFG ` prefix (each segment has its
+        // own icon + count + noun, so the label was redundant). The row
+        // is identified by its content — `CLAUDE.md` here.
         assert!(
-            lines.iter().any(|l| l.contains("CFG ")),
-            "expected CFG row when a config toggle is on, got {lines:?}"
+            lines.iter().any(|l| l.contains("CLAUDE.md")),
+            "expected config row when a toggle is on, got {lines:?}"
         );
     }
 

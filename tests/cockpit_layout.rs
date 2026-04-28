@@ -71,10 +71,14 @@ fn cockpit_renders_identity_and_cluster_at_full_width() {
     // Identity row + cluster row (no config row, no activity)
     assert!(lines.len() >= 2, "expected >=2 rows, got {lines:?}");
     assert!(lines[0].contains("Opus 4.7"), "identity row missing model");
-    // Cluster row contains the CTX label and the percentage.
+    // Cluster row identified by the `used/total` numbers (CTX label and
+    // `%` were dropped from the row format — the gauge already conveys
+    // the ratio visually; the numbers add the precision `%` can't).
     assert!(
-        lines.iter().any(|l| l.contains("CTX") && l.contains("43%")),
-        "expected CTX 43% in cluster: {lines:?}"
+        lines
+            .iter()
+            .any(|l| l.contains("/200.0k") && !l.starts_with("Opus")),
+        "expected CTX cluster row with used/total: {lines:?}"
     );
 }
 
@@ -105,9 +109,11 @@ fn cockpit_inserts_optional_config_row_when_toggle_on() {
     let mut runner = PulseLineRunner::default().with_user_home(tmp.path().join("fake_home"));
 
     let lines = runner.run_from_str(&payload(cwd), cfg).expect("render");
+    // L2 row no longer carries a `CFG ` prefix — segments stand on their
+    // own icons + counts. Identify by content.
     assert!(
-        lines.iter().any(|l| l.contains("CFG ")),
-        "expected CFG row, got {lines:?}"
+        lines.iter().any(|l| l.contains("CLAUDE.md")),
+        "expected config row with CLAUDE.md count, got {lines:?}"
     );
 }
 
@@ -133,7 +139,7 @@ fn cockpit_pushes_ctx_history_across_invocations() {
 
     let cluster = lines2
         .iter()
-        .find(|l| l.contains("CTX"))
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
         .expect("cluster row");
     assert!(
         cluster

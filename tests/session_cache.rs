@@ -91,12 +91,13 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
             )
             .expect("render should succeed");
         let joined = lines.join("\n");
+        // Context segment now `<used>/<total>` — 200k × 43% = 86k.
         assert!(
-            joined.contains("43%"),
+            joined.contains("86.0k/200.0k"),
             "first invocation should show context: got {joined}"
         );
         assert!(
-            !joined.contains("CTX:--%"),
+            !joined.contains("--/--"),
             "first invocation should have real context data: got {joined}"
         );
     }
@@ -113,8 +114,8 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("CTX:--%"),
-            "partial payload should show CTX:--% skeleton (no field-level merge): got {joined}"
+            joined.contains("--/--"),
+            "partial payload should show context skeleton (no field-level merge): got {joined}"
         );
         assert!(
             joined.contains("$4.00"),
@@ -145,7 +146,7 @@ fn empty_l3_payload_falls_back_to_cached_values() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("43%"),
+            joined.contains("86.0k/200.0k"),
             "first run should show context: got {joined}"
         );
         assert!(
@@ -174,7 +175,7 @@ fn empty_l3_payload_falls_back_to_cached_values() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("43%"),
+            joined.contains("86.0k/200.0k"),
             "empty L3 should fall back to cached context: got {joined}"
         );
         assert!(

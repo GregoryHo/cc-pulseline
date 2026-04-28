@@ -157,7 +157,13 @@ fn line3_hides_tokens_segment() {
         !lines[2].contains("TOK"),
         "L3 should not contain tokens when show_tokens=false"
     );
-    assert!(lines[2].contains("CTX:"), "L3 should still show context");
+    // Context segment now identified by the `used/total` numbers
+    // (`CTX:` label dropped). Basic input: 200k window × 43% = 86k.
+    assert!(
+        lines[2].contains("86.0k/200.0k"),
+        "L3 should still show context: {:?}",
+        lines[2]
+    );
     assert!(lines[2].contains("$3.50"), "L3 should still show cost");
 }
 
@@ -169,8 +175,9 @@ fn line3_hides_context_segment() {
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
     assert!(
-        !lines[2].contains("CTX:"),
-        "L3 should not contain context when show_context=false"
+        !lines[2].contains("86.0k/200.0k"),
+        "L3 should not contain context when show_context=false: {:?}",
+        lines[2]
     );
     assert!(lines[2].contains("TOK"), "L3 should still show tokens");
     assert!(lines[2].contains("$3.50"), "L3 should still show cost");
@@ -184,7 +191,10 @@ fn line3_shows_only_cost() {
         ..RenderConfig::default()
     };
     let lines = run_from_str(&basic_input(), config).unwrap();
-    assert!(!lines[2].contains("CTX:"), "L3 should not contain context");
+    assert!(
+        !lines[2].contains("86.0k/200.0k"),
+        "L3 should not contain context"
+    );
     assert!(!lines[2].contains("TOK"), "L3 should not contain tokens");
     assert!(lines[2].contains("$3.50"), "L3 should only show cost");
     // Should not have leading separators

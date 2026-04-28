@@ -70,8 +70,14 @@ fn strip_l1(
         } else {
             NARROW_GAUGE_WIDTH
         };
-        let gauge =
-            crate::render::widgets::gauge::render(pct, gauge_w, config.glyph_mode, p, color);
+        let gauge = crate::render::widgets::gauge::render(
+            pct,
+            gauge_w,
+            config.glyph_mode,
+            pct_color,
+            p,
+            color,
+        );
         parts.push(format!("{pct_str} {gauge}"));
     } else {
         parts.push(pct_str);

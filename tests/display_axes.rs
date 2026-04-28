@@ -179,7 +179,10 @@ fn cockpit_sparkline_appears_with_layout_default() {
         "test premise: empty user value"
     );
     let lines = render_frame(&f, &cfg);
-    let cluster = lines.iter().find(|l| l.contains("CTX")).expect("cluster");
+    let cluster = lines
+        .iter()
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
+        .expect("cluster");
     assert!(
         cluster
             .chars()
@@ -387,7 +390,10 @@ fn cockpit_with_context_visual_gauge_only_emits_no_sparkline() {
     let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     cfg.context_visual = "gauge".to_string();
     let lines = render_frame(&f, &cfg);
-    let cluster = lines.iter().find(|l| l.contains("CTX")).expect("cluster");
+    let cluster = lines
+        .iter()
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
+        .expect("cluster");
     // Gauge present.
     assert!(
         cluster.contains('\u{2588}') || cluster.contains('\u{258F}'),
