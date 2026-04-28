@@ -55,12 +55,14 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             context_visual: "gauge+sparkline",
             cost_visual: "text+arc",
             quota_visual: "bar",
-            // Console is the wide-screen framed dashboard (≥130 cols
-            // recommended) — there's room for detailed per-tool format
-            // showing what each running tool is reading / executing.
-            // Cockpit and Flightstrip default to brief tape because
-            // their narrower budgets favour glance-friendly compactness.
-            tools_visual: "tape+detail",
+            // Default to brief tape — bisect of an earlier "tape+detail"
+            // default showed it still broke multi-line output for at
+            // least one user even after the recent_tool sanitiser fix
+            // (root cause not yet identified). Users who want the
+            // detailed per-tool format can opt in explicitly:
+            //     [segments.tools]
+            //     visual = "tape+detail"
+            tools_visual: "tape",
         },
         LayoutStyle::Flightstrip => SegmentVisualDefaults {
             context_visual: "gauge",

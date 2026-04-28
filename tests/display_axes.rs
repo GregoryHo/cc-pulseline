@@ -600,7 +600,7 @@ fn layout_defaults_round_trip_via_default_visuals_for() {
     // stay brief so their narrower row budgets don't overflow.
     assert_eq!(
         default_visuals_for(LayoutStyle::Console).tools_visual,
-        "tape+detail"
+        "tape"
     );
     assert_eq!(
         default_visuals_for(LayoutStyle::Cockpit).tools_visual,
