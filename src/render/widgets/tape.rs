@@ -1,13 +1,27 @@
 //! Recent-tools tape — horizontal strip summarising the latest tool uses.
 //!
-//! Reads `recent_tools` chronologically (oldest → newest) and emits one cell
-//! per tool: `▶ Read`, `▶ Bash`, etc., separated by a tonal middle-dot. Used
-//! by the v2 Cockpit / Flightstrip activity rows where the standard
-//! per-line tool listing is too tall.
+//! Two modes selected via `with_target`:
+//! - **brief** (`tools_visual = "tape"`): `▶ Read · ▶ Bash`.
+//!   Just an "is running" indicator with the running-arrow icon.
+//! - **detailed** (`tools_visual = "tape+detail"`): defers to
+//!   `widgets::recent_tool::format_recent_tool_inline`, producing
+//!   `<icon> Read: src/main.rs · <icon> Bash: cargo test` — same per-tool
+//!   format as the flat-row layouts' `tools_visual = "list"` activity
+//!   rows. The shared formatter inherits flat-row's smart truncation
+//!   (`target_strategy_for(name)`).
 //!
-//! Color is uniformly `aurora_mid` for the icon (the eye learns the shape,
-//! not a color per tool) and `secondary` for the text. The whole tape is one
-//! visual cluster — separators stay in `separator` tone.
+//! Tape semantics: this widget is for **running / very recent** tools
+//! (`SessionState::recent_tools`). Completed-count summaries (`✓ Read ×8`)
+//! live in a separate widget (`completed_tool_chips`) and stay description-
+//! free — the count is the whole point. The split keeps "what's happening
+//! now" (target-rich, in detail mode) visually distinct from "what's been
+//! done" (count-only).
+//!
+//! Color in brief mode: `aurora_mid` for the icon (the eye learns the
+//! shape, not a colour per tool) and `secondary` for the text. The whole
+//! tape is one visual cluster — separators stay in `separator` tone.
+//! Detail mode adopts the shared formatter's `tool_blue` + `secondary`
+//! palette so it lines up with flat-row.
 
 use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
@@ -20,14 +34,17 @@ const SEP: &str = " \u{00B7} "; // ' · ' — middle dot, broad font support
 /// Render a tape from `tools`, capped at `max_items`. When `tools` is empty
 /// returns an empty string (caller is expected to skip the segment).
 ///
-/// The leading per-tool arrow uses U+25B6 (▶) under `GlyphMode::Icon` and
-/// `>` under `GlyphMode::Ascii` — the rest of the cell is identical.
+/// `with_target` selects between brief (`▶ Read · ▶ Bash`) and detailed
+/// (`<icon> Read: main.rs · <icon> Bash: cargo test`) per-tool format.
+/// The detailed branch defers to `recent_tool::format_recent_tool_inline`
+/// so format / colour / truncation match flat-row layouts' `list` widget.
 pub fn render(
     tools: &[ToolSummary],
     max_items: usize,
     mode: GlyphMode,
     palette: &ThemePalette,
     color_enabled: bool,
+    with_target: bool,
 ) -> String {
     if tools.is_empty() || max_items == 0 {
         return String::new();
@@ -39,12 +56,18 @@ pub fn render(
     let sep = colorize(SEP, &palette.separator, color_enabled);
     let parts: Vec<String> = slice
         .iter()
-        .map(|t| format_one(t, mode, palette, color_enabled))
+        .map(|t| {
+            if with_target {
+                super::recent_tool::format_recent_tool_inline(t, mode, palette, color_enabled)
+            } else {
+                format_one_brief(t, mode, palette, color_enabled)
+            }
+        })
         .collect();
     parts.join(&sep)
 }
 
-fn format_one(
+fn format_one_brief(
     tool: &ToolSummary,
     mode: GlyphMode,
     palette: &ThemePalette,
@@ -75,13 +98,16 @@ mod tests {
     #[test]
     fn empty_tools_renders_empty_string() {
         let p = aurora_marker_palette();
-        assert_eq!(render(&[], 5, GlyphMode::Icon, &p, false), "");
+        assert_eq!(render(&[], 5, GlyphMode::Icon, &p, false, false), "");
     }
 
     #[test]
     fn max_items_zero_renders_empty_string() {
         let p = aurora_marker_palette();
-        assert_eq!(render(&[t("Read")], 0, GlyphMode::Icon, &p, false), "");
+        assert_eq!(
+            render(&[t("Read")], 0, GlyphMode::Icon, &p, false, false),
+            ""
+        );
     }
 
     #[test]
@@ -90,7 +116,7 @@ mod tests {
         // newest (Edit, Bash), in chronological order.
         let p = aurora_marker_palette();
         let tools = vec![t("Read"), t("Grep"), t("Edit"), t("Bash")];
-        let s = render(&tools, 2, GlyphMode::Icon, &p, false);
+        let s = render(&tools, 2, GlyphMode::Icon, &p, false, false);
         assert!(s.contains("Edit"));
         assert!(s.contains("Bash"));
         assert!(!s.contains("Read"));
@@ -105,7 +131,7 @@ mod tests {
     fn separator_between_items() {
         let p = aurora_marker_palette();
         let tools = vec![t("A"), t("B"), t("C")];
-        let s = render(&tools, 5, GlyphMode::Icon, &p, false);
+        let s = render(&tools, 5, GlyphMode::Icon, &p, false, false);
         // Two separators for three items.
         assert_eq!(s.matches(SEP).count(), 2);
     }
@@ -113,7 +139,7 @@ mod tests {
     #[test]
     fn single_tool_has_no_separator() {
         let p = aurora_marker_palette();
-        let s = render(&[t("Bash")], 5, GlyphMode::Icon, &p, false);
+        let s = render(&[t("Bash")], 5, GlyphMode::Icon, &p, false, false);
         assert!(!s.contains(SEP));
         assert!(s.contains("Bash"));
         assert!(s.contains(ICON_RUNNING));
@@ -123,7 +149,7 @@ mod tests {
     fn color_uses_aurora_mid_for_icon() {
         let mut p = aurora_marker_palette();
         p.secondary = "SEC".to_string();
-        let s = render(&[t("Read")], 5, GlyphMode::Icon, &p, true);
+        let s = render(&[t("Read")], 5, GlyphMode::Icon, &p, true, false);
         assert!(s.contains("MID"));
         assert!(s.contains("SEC"));
     }
@@ -131,7 +157,7 @@ mod tests {
     #[test]
     fn ascii_mode_uses_gt_arrow_not_unicode_triangle() {
         let p = aurora_marker_palette();
-        let s = render(&[t("Bash")], 5, GlyphMode::Ascii, &p, false);
+        let s = render(&[t("Bash")], 5, GlyphMode::Ascii, &p, false, false);
         assert!(s.contains(ASCII_RUNNING), "expected '>' in {s:?}");
         assert!(
             !s.contains(ICON_RUNNING),
@@ -146,7 +172,14 @@ mod tests {
         // plain-text terminals, so we keep it under Ascii mode rather than
         // collapsing to spaces.
         let p = aurora_marker_palette();
-        let s = render(&[t("Read"), t("Bash")], 5, GlyphMode::Ascii, &p, false);
+        let s = render(
+            &[t("Read"), t("Bash")],
+            5,
+            GlyphMode::Ascii,
+            &p,
+            false,
+            false,
+        );
         assert_eq!(s.matches(SEP).count(), 1);
     }
 }

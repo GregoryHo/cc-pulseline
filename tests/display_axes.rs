@@ -508,6 +508,54 @@ fn console_with_quota_visual_text_drops_gauge() {
 }
 
 #[test]
+fn cockpit_with_tools_visual_tape_brief_omits_target() {
+    // Default `tape` spec — brief format, just the running-arrow icon and
+    // the tool name. Targets are deliberately suppressed so the cluster
+    // row stays narrow.
+    use cc_pulseline::types::ToolSummary;
+    let mut f = frame_with_agent_and_quota();
+    f.tools = vec![ToolSummary {
+        id: "1".to_string(),
+        name: "Read".to_string(),
+        target: Some("src/main.rs".to_string()),
+    }];
+    let cfg = cfg_for(LayoutStyle::Cockpit, true, 160);
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("\u{25B6}") && blob.contains("Read"),
+        "brief tape should show ▶ and tool name: {blob}"
+    );
+    assert!(
+        !blob.contains("src/main.rs"),
+        "brief tape should NOT show target: {blob}"
+    );
+}
+
+#[test]
+fn cockpit_with_tools_visual_tape_detail_shows_target() {
+    // `tape+detail` spec — opt-in detailed format. Per-tool layout
+    // matches the flat-row `list` widget exactly (shared formatter via
+    // `widgets::recent_tool::format_recent_tool_inline`).
+    use cc_pulseline::types::ToolSummary;
+    let mut f = frame_with_agent_and_quota();
+    f.tools = vec![ToolSummary {
+        id: "1".to_string(),
+        name: "Read".to_string(),
+        target: Some("src/main.rs".to_string()),
+    }];
+    let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 160);
+    cfg.tools_visual = "tape+detail".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    // Format `<icon> Read: src/main.rs` — colon separator + target string.
+    assert!(
+        blob.contains("Read: src/main.rs"),
+        "tape+detail should show name + ': ' + target: {blob}"
+    );
+}
+
+#[test]
 fn cockpit_with_tools_visual_list_drops_inline_tape() {
     // Inline tools_visual="list" is meaningless inside the cockpit ticker
     // (it's a single line); render_tools_visual_inline silently drops it.
@@ -546,6 +594,21 @@ fn layout_defaults_round_trip_via_default_visuals_for() {
     assert_eq!(
         default_visuals_for(LayoutStyle::Flightstrip).context_visual,
         "gauge"
+    );
+    // Console is the only layout that defaults `tools_visual` to detailed
+    // — its wide framed dashboard has the room. Cockpit & Flightstrip
+    // stay brief so their narrower row budgets don't overflow.
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Console).tools_visual,
+        "tape+detail"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Cockpit).tools_visual,
+        "tape"
+    );
+    assert_eq!(
+        default_visuals_for(LayoutStyle::Flightstrip).tools_visual,
+        "tape"
     );
     assert_eq!(
         default_visuals_for(LayoutStyle::None).context_visual,

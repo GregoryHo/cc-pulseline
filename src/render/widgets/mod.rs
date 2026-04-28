@@ -1,11 +1,12 @@
-//! v2 widgets: hand-rolled instrument-cluster glyphs.
+//! Atomic widgets: hand-rolled instrument-cluster glyphs.
 //!
-//! Each widget renders to a small `String` (with optional ANSI) so v2 layouts
-//! can compose them like any other segment. No new deps — just Unicode blocks
-//! and braille from the BMP.
+//! Each widget renders to a small `String` (with optional ANSI) so layouts
+//! can compose them like any other segment. No new deps — just Unicode
+//! blocks and braille from the BMP.
 
 pub mod arc;
 pub mod gauge;
+pub mod recent_tool;
 pub mod sparkline;
 pub mod tape;
 

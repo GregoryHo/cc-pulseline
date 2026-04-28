@@ -18,7 +18,7 @@ use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{
     format_agent_elapsed, format_number, format_reset_duration, format_speed,
 };
-use crate::render::icons::{glyph, ICON_AGENT};
+use crate::render::icons::{glyph, ICON_AGENT, ICON_EFFORT, ICON_THINKING};
 use crate::render::layout;
 use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
@@ -216,6 +216,28 @@ pub fn identity_headline(line1: &Line1Metrics, config: &RenderConfig, p: &ThemeP
 
     if config.show_model {
         parts.push(colorize(&line1.model, &p.primary, color));
+    }
+
+    // Effort + thinking pills sit between model and agent — same order as
+    // v1 `format_line1` so the eye lands on them in the same position
+    // regardless of which layout is active.
+    if config.show_effort {
+        if let Some(level) = &line1.effort_level {
+            let effort_color = p.color_for_effort_level(level);
+            let label = colorize(
+                &glyph(config.glyph_mode, ICON_EFFORT, "E:"),
+                effort_color,
+                color,
+            );
+            let val = colorize(level, effort_color, color);
+            parts.push(format!("{label}{val}"));
+        }
+    }
+
+    if config.show_thinking && line1.thinking_enabled == Some(true) {
+        // Label-only pill — no value; absent / `enabled: false` → omitted.
+        let raw = glyph(config.glyph_mode, ICON_THINKING, "[T]");
+        parts.push(colorize(raw.trim_end(), &p.active_purple, color));
     }
 
     if config.show_agent {
@@ -770,26 +792,21 @@ pub fn completed_tool_chips(
     chips.join("  ")
 }
 
-/// Render the recent-tools tape with up to `max_items`.
-pub fn tools_tape(
-    tools: &[ToolSummary],
-    max_items: usize,
-    mode: GlyphMode,
-    p: &ThemePalette,
-    color: bool,
-) -> String {
-    widgets::tape::render(tools, max_items, mode, p, color)
-}
-
 /// Compose an inline (single-line) tools cell from a visual spec.
 ///
-/// Recognized widget names: `tape`. The `list` widget produces multi-row
-/// output and is consumed via the activity row builder
-/// (`render::activity::build_activity_rows`) — for inline cluster contexts
-/// (cockpit / console / flightstrip activity ticker) only `tape` makes
-/// sense, so `list` is silently dropped here. Unknown names also drop.
+/// Recognized atoms (`+`-joined):
+/// - `tape` — required to render anything; without it the cell is empty.
+/// - `detail` — opt-in modifier on `tape`; flips per-tool format from
+///   brief (`▶ Read · ▶ Bash`) to detailed
+///   (`<icon> Read: src/main.rs · <icon> Bash: cargo test`). Detailed
+///   format mirrors the flat-row `tools_visual = "list"` per-tool format
+///   (shared via `widgets::recent_tool::format_recent_tool_inline`).
+/// - `list` — silently dropped here. `list` is multi-row and rendered by
+///   the activity row builder via `show_tools` in flat-row layouts; in
+///   inline cluster contexts it has no sensible single-line shape.
 ///
-/// Empty `tools` produces an empty string regardless of spec.
+/// Unknown atoms drop silently. Empty `tools` produces an empty string
+/// regardless of spec.
 pub fn render_tools_visual_inline(
     spec: &str,
     tools: &[ToolSummary],
@@ -801,20 +818,20 @@ pub fn render_tools_visual_inline(
     if tools.is_empty() || max_items == 0 {
         return String::new();
     }
+    let atoms: Vec<&str> = spec
+        .split('+')
+        .map(|w| w.trim())
+        .filter(|w| !w.is_empty())
+        .collect();
+    let want_tape = atoms.contains(&"tape");
+    let with_target = atoms.contains(&"detail");
+    if !want_tape {
+        return String::new();
+    }
     let mut parts: Vec<String> = Vec::new();
-    for raw in spec.split('+') {
-        match raw.trim() {
-            "tape" => {
-                let cell = widgets::tape::render(tools, max_items, mode, p, color);
-                if !cell.is_empty() {
-                    parts.push(cell);
-                }
-            }
-            // `list` is multi-row; not renderable in a single-line cell. The
-            // multi-row activity builder handles it via `show_tools` instead.
-            "" | "list" => {}
-            _ => {} // unknown widget — silently drop
-        }
+    let cell = widgets::tape::render(tools, max_items, mode, p, color, with_target);
+    if !cell.is_empty() {
+        parts.push(cell);
     }
     parts.join(" ")
 }
