@@ -77,7 +77,7 @@ fn cockpit_renders_identity_and_cluster_at_full_width() {
     assert!(
         lines
             .iter()
-            .any(|l| l.contains(" 200.0k") && !l.starts_with("Opus")),
+            .any(|l| l.contains("/200.0k") && !l.starts_with("Opus")),
         "expected CTX cluster row with used/total: {lines:?}"
     );
 }
@@ -139,7 +139,7 @@ fn cockpit_pushes_ctx_history_across_invocations() {
 
     let cluster = lines2
         .iter()
-        .find(|l| l.contains(" 200.0k") && !l.starts_with("Opus"))
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
         .expect("cluster row");
     assert!(
         cluster

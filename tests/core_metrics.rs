@@ -149,7 +149,7 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
     // ASCII fallback for the Nerd Font icon (test runs without icons).
     assert_eq!(
         lines[2],
-        "CTX 43% 86.0k 200.0k | TOK I:10 O:20 C:30/40 | $3.50 ($3.50/h)"
+        "CTX 43% 86.0k/200.0k | TOK I:10 O:20 C:30/40 | $3.50 ($3.50/h)"
     );
 }
 
@@ -349,7 +349,7 @@ fn falls_back_when_stdin_fields_are_missing() {
     );
     assert_eq!(
         lines[2],
-        "CTX --% -- -- | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)"
+        "CTX --% --/-- | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)"
     );
 }
 

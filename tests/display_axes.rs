@@ -181,7 +181,7 @@ fn cockpit_sparkline_appears_with_layout_default() {
     let lines = render_frame(&f, &cfg);
     let cluster = lines
         .iter()
-        .find(|l| l.contains(" 200.0k") && !l.starts_with("Opus"))
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
         .expect("cluster");
     assert!(
         cluster
@@ -216,7 +216,7 @@ fn v1_layouts_render_sparkline_when_context_visual_includes_it() {
     cfg.context_visual = "text+sparkline".to_string();
     let lines = render_frame(&f, &cfg);
     // v1 L3 is the third line; identify it by the "(86.0k/200.0k)" pattern.
-    let ctx = lines.iter().find(|l| l.contains(" 200.0k")).expect("L3");
+    let ctx = lines.iter().find(|l| l.contains("/200.0k")).expect("L3");
     assert!(
         ctx.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
         "v1 layout should show sparkline when opt-in: {ctx:?}"
@@ -392,7 +392,7 @@ fn cockpit_with_context_visual_gauge_only_emits_no_sparkline() {
     let lines = render_frame(&f, &cfg);
     let cluster = lines
         .iter()
-        .find(|l| l.contains(" 200.0k") && !l.starts_with("Opus"))
+        .find(|l| l.contains("/200.0k") && !l.starts_with("Opus"))
         .expect("cluster");
     // Gauge present.
     assert!(

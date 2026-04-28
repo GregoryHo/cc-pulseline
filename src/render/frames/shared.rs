@@ -403,12 +403,8 @@ pub fn render_context_visual(
     parts.join(" ")
 }
 
-/// CTX text cell — `86.0k/200.0k` form. No `CTX` label, no `%` — the
-/// concrete `used/total` carries enough information; the percentage is
-/// either implicit from the ratio or shown by the gauge cell when
-/// composed alongside.
-/// CTX text cell — `<icon> 8% 80.0k 1.0M`. Icon + percentage + concrete
-/// `used total` numbers. Used color matches the threshold; total stays
+/// CTX text cell — `<icon> 8% 80.0k/1.0M`. Icon + percentage + concrete
+/// `used/total` numbers. Used color matches the threshold; total stays
 /// in `secondary` so the eye reads the active number first. Used when
 /// `context_visual` includes `"text"` (and the gauge widget is absent).
 pub fn ctx_text_cell(
@@ -430,23 +426,19 @@ pub fn ctx_text_cell(
                 &p.primary,
                 color_enabled,
             );
-            let total_str = colorize(
-                &format!(" {}", format_number(size)),
-                &p.secondary,
-                color_enabled,
-            );
-            format!("{icon}{pct_str}{used_str}{total_str}")
+            let slash = colorize("/", &p.separator, color_enabled);
+            let total_str = colorize(&format_number(size), &p.secondary, color_enabled);
+            format!("{icon}{pct_str}{used_str}{slash}{total_str}")
         }
         _ => {
             let icon = colorize(&icon_glyph, &p.structural, color_enabled);
-            let dash = colorize(" --%", &p.structural, color_enabled);
-            let blank = colorize(" -- --", &p.structural, color_enabled);
-            format!("{icon}{dash}{blank}")
+            let dash = colorize(" --% --/--", &p.structural, color_enabled);
+            format!("{icon}{dash}")
         }
     }
 }
 
-/// CTX gauge cell — `<icon> [gauge] 80.0k 1.0M`. Same shape as
+/// CTX gauge cell — `<icon> [gauge] 80.0k/1.0M`. Same shape as
 /// `ctx_text_cell`, with the gauge bar replacing the `%` text. Numbers
 /// stay because the gauge can't convey precise token counts.
 pub fn ctx_gauge_cell(
@@ -470,12 +462,9 @@ pub fn ctx_gauge_cell(
                 &p.primary,
                 color_enabled,
             );
-            let total_str = colorize(
-                &format!(" {}", format_number(size)),
-                &p.secondary,
-                color_enabled,
-            );
-            format!("{icon} {bar}{used_str}{total_str}")
+            let slash = colorize("/", &p.separator, color_enabled);
+            let total_str = colorize(&format_number(size), &p.secondary, color_enabled);
+            format!("{icon} {bar}{used_str}{slash}{total_str}")
         }
         _ => format!("{icon} {bar}"),
     }

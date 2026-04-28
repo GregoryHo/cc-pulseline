@@ -90,7 +90,7 @@ fn auto_picks_cockpit_in_110_to_129_band() {
     assert!(
         lines
             .iter()
-            .any(|l| l.contains(" 200.0k") && !l.starts_with("Opus")),
+            .any(|l| l.contains("/200.0k") && !l.starts_with("Opus")),
         "expected CTX cluster row at 120 cols, got {lines:?}"
     );
 }
