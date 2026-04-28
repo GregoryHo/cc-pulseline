@@ -13,7 +13,7 @@ use crate::render::widgets::recent_tool::build_recent_tool_cell;
 use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
 use super::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
-use super::budget::pack_with_separator;
+use super::budget::{pack_multi_row, pack_with_separator};
 use super::cell::{Cell, CellBody, CellPriority, TailFragment};
 use super::truncate::TruncationStrategy;
 
@@ -175,11 +175,21 @@ fn build_completed_tool_rows(
 ) -> Vec<String> {
     let color = config.color_enabled;
     let max_rows = config.max_completed_lines.max(1);
-    let mut rows: Vec<String> = Vec::with_capacity(max_rows + 1);
+    let mut rows = pack_multi_row(
+        cells,
+        available_width,
+        sep,
+        ROW_SEPARATOR_W,
+        color,
+        Some(max_rows),
+    );
+
+    // Count how many cells fit into the rows we kept so we know how many
+    // got pushed out by the cap. We re-run the same fitting walk because
+    // `pack_multi_row` doesn't return per-row cell counts.
     let mut shown = 0usize;
     let mut start = 0usize;
-
-    while start < cells.len() && rows.len() < max_rows {
+    for _ in 0..rows.len() {
         let mut used = cells[start].min_required_width();
         let mut end = start + 1;
         while end < cells.len() {
@@ -190,20 +200,9 @@ fn build_completed_tool_rows(
             used += advance;
             end += 1;
         }
-        let row = pack_with_separator(
-            &cells[start..end],
-            available_width,
-            sep,
-            ROW_SEPARATOR_W,
-            color,
-        );
-        if !row.is_empty() {
-            rows.push(row);
-            shown = end;
-        }
+        shown = end;
         start = end;
     }
-
     let hidden = cells.len().saturating_sub(shown);
     if hidden > 0 {
         rows.push(overflow_summary(hidden, "tool", "tools", palette, color));

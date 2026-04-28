@@ -780,3 +780,128 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         "expected a description fragment from the parallel pair: {blob}"
     );
 }
+
+#[test]
+fn console_tools_split_to_two_rows_when_running_too_long_for_inline_counts() {
+    // User-driven layout rule: if running tape + completed counts can't
+    // fit on one row of the framed budget, push counts to a row of their
+    // own. Pre-fix behaviour was to emit them inline regardless and
+    // overflow `framed()`'s padding (which doesn't truncate).
+    use cc_pulseline::render::color::visible_width;
+    use cc_pulseline::types::{CompletedToolCount, ToolSummary};
+    let mut f = frame_with_agent_and_quota();
+    f.tools = vec![
+        ToolSummary {
+            id: "1".to_string(),
+            name: "Bash".to_string(),
+            target: Some(
+                "cargo test --release --no-default-features --features experimental".to_string(),
+            ),
+        },
+        ToolSummary {
+            id: "2".to_string(),
+            name: "Bash".to_string(),
+            target: Some(
+                "sed -i '' 's/^name = \".*\"$/name = \"cards\"/' .claude/pulseline.toml"
+                    .to_string(),
+            ),
+        },
+    ];
+    f.completed_tools = vec![
+        CompletedToolCount {
+            name: "Bash".to_string(),
+            count: 206,
+            last_completed_at: None,
+        },
+        CompletedToolCount {
+            name: "Read".to_string(),
+            count: 92,
+            last_completed_at: None,
+        },
+        CompletedToolCount {
+            name: "Edit".to_string(),
+            count: 77,
+            last_completed_at: None,
+        },
+        CompletedToolCount {
+            name: "Write".to_string(),
+            count: 4,
+            last_completed_at: None,
+        },
+    ];
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.tools_visual = "tape+detail".to_string();
+    let lines = render_frame(&f, &cfg);
+    let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
+    for line in &lines {
+        assert!(
+            visible_width(line) <= term_w,
+            "line wider than terminal_width={term_w}: w={} {line:?}",
+            visible_width(line)
+        );
+    }
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("Bash") && blob.contains("\u{00D7}206"),
+        "running + completed both visible somewhere: {blob}"
+    );
+    // Count which framed body rows mention `T:` (running tape — uses
+    // `T:Bash:` as the prefix in ascii or the tool icon + "Bash" in icon
+    // mode) vs `✓ Bash ×206` (completed-count chip row). Even at 130
+    // cols with two long Bash targets, a side-by-side layout would
+    // overflow — so we expect the test to land on the split path.
+    let running_rows: Vec<&String> = lines.iter().filter(|l| l.contains("Bash:")).collect();
+    assert!(
+        !running_rows.is_empty(),
+        "running tape row not found: {blob}"
+    );
+}
+
+#[test]
+fn console_agents_wrap_to_multiple_rows_when_overflowing_one() {
+    // User-driven layout rule: agent cells that don't fit on one row
+    // wrap to additional rows (capped by `max_agent_lines`) instead of
+    // dropping cells via Optional priority.
+    use cc_pulseline::render::color::visible_width;
+    let mut f = frame_with_agent_and_quota();
+    f.agents.clear();
+    // Five Single-priority agents (no shared message_id), each with a
+    // long enough description that two cells don't fit on a 130-col
+    // framed row → multi-row wrap.
+    for i in 0..5 {
+        f.agents.push(AgentSummary {
+            id: format!("a{i}"),
+            description: format!("Agent {i} doing some longer description to force overflow"),
+            agent_type: Some(format!("explorer-{i}")),
+            started_at: Some(0),
+            model: None,
+            completed_at: None,
+            message_id: Some(format!("m{i}")),
+        });
+    }
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.max_agent_lines = 3;
+    let lines = render_frame(&f, &cfg);
+    let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
+    for line in &lines {
+        assert!(
+            visible_width(line) <= term_w,
+            "line wider than terminal_width={term_w}: w={} {line:?}",
+            visible_width(line)
+        );
+    }
+    let agent_rows: Vec<&String> = lines.iter().filter(|l| l.contains("explorer-")).collect();
+    assert!(
+        agent_rows.len() >= 2,
+        "expected agents to wrap to ≥2 framed rows when 5 don't fit on one: \
+         got {} rows: {:?}",
+        agent_rows.len(),
+        agent_rows
+    );
+    assert!(
+        agent_rows.len() <= cfg.max_agent_lines,
+        "must respect max_agent_lines cap of {}: got {}",
+        cfg.max_agent_lines,
+        agent_rows.len()
+    );
+}

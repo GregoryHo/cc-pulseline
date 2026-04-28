@@ -13,7 +13,7 @@
 use std::ops::Range;
 
 use crate::config::{GlyphMode, RenderConfig};
-use crate::render::activity::budget::pack_with_separator;
+use crate::render::activity::budget::{pack_multi_row, pack_with_separator};
 use crate::render::activity::builder::{build_agent_cells, ROW_SEPARATOR, ROW_SEPARATOR_W};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration, format_speed};
@@ -681,8 +681,12 @@ pub fn activity_ticker(
     }
 
     if config.show_agents && !frame.agents.is_empty() {
-        let row = pack_agent_cells(&frame.agents, config, p, width);
-        if !row.is_empty() {
+        // Each row is its own ticker entry — `parts.join("   ")` then
+        // separates them from the rest of the ticker on the same line.
+        // Cluster `activity_ticker` is single-line by contract; multiple
+        // agent rows would still concatenate inline. (Console — which
+        // CAN render multiple lines — handles agent rows differently.)
+        for row in pack_agent_cells(&frame.agents, config, p, width) {
             parts.push(row);
         }
     }
@@ -696,25 +700,35 @@ pub fn activity_ticker(
     parts.join("   ")
 }
 
-/// Build the cluster agent row from `agents`, packed against `width`.
+/// Build cluster agent rows from `agents`, packed against `width`.
 ///
 /// Shared between Cockpit/Flightstrip's `activity_ticker` and Console's
 /// `agent_todo_row`. Pulls cells from the flat-row builder so cluster
 /// agents inherit parallel grouping (`message_id` buckets), description
-/// bodies, and the budgeter's width-aware truncation. Returns an empty
-/// string when no cells survive — caller skips the segment.
+/// bodies, and width-aware truncation.
+///
+/// Cells that don't fit on one row of `width` wrap to additional rows,
+/// capped at `config.max_agent_lines`. Returns empty vec when no cells
+/// survive — caller skips the segment.
 pub fn pack_agent_cells(
     agents: &[crate::types::AgentSummary],
     config: &RenderConfig,
     p: &ThemePalette,
     width: usize,
-) -> String {
+) -> Vec<String> {
     let cells = build_agent_cells(agents, config, p);
     if cells.is_empty() {
-        return String::new();
+        return Vec::new();
     }
     let sep = colorize(ROW_SEPARATOR, &p.separator, config.color_enabled);
-    pack_with_separator(&cells, width, &sep, ROW_SEPARATOR_W, config.color_enabled)
+    pack_multi_row(
+        &cells,
+        width,
+        &sep,
+        ROW_SEPARATOR_W,
+        config.color_enabled,
+        Some(config.max_agent_lines.max(1)),
+    )
 }
 
 fn format_completed_summary(

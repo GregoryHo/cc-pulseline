@@ -81,13 +81,11 @@ pub fn render(
         lines.push(framed(&inner_rule(p, inner, color), p, inner, color));
     }
 
-    let tools_row = tools_row(frame, config, p, inner);
-    if !tools_row.is_empty() {
-        lines.push(framed(&tools_row, p, inner, color));
+    for row in tools_rows(frame, config, p, inner) {
+        lines.push(framed(&row, p, inner, color));
     }
-    let agent_todo = agent_todo_row(frame, config, p, inner);
-    if !agent_todo.is_empty() {
-        lines.push(framed(&agent_todo, p, inner, color));
+    for row in agent_todo_rows(frame, config, p, inner) {
+        lines.push(framed(&row, p, inner, color));
     }
 
     lines.push(bottom_frame(p, inner, color));
@@ -246,62 +244,91 @@ fn tok_cost_quota_row(
     parts.join("    ")
 }
 
-fn tools_row(
+/// Tools segment as zero or more framed rows.
+///
+/// Layout rule (per user preference):
+/// - When the running tape + the completed-count chips fit together on a
+///   single row, render them side-by-side (`tape    counts`).
+/// - When the running tape alone is too long for the budget, push the
+///   completed counts to a row of their own. Counts then render on a new
+///   line below the running tape rather than overflowing the pane.
+///
+/// Returns rows in display order (top→bottom). Caller frames each row.
+fn tools_rows(
     frame: &crate::types::RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
     inner: usize,
-) -> String {
+) -> Vec<String> {
     let color = config.color_enabled;
     if !config.show_tools {
-        return String::new();
+        return Vec::new();
     }
-    let mut parts: Vec<String> = Vec::new();
-    if !frame.tools.is_empty() {
-        let tape = shared::render_tools_visual_inline(
+    let budget = inner.saturating_sub(FRAMED_CONTENT_INSET);
+
+    let tape = if frame.tools.is_empty() {
+        String::new()
+    } else {
+        shared::render_tools_visual_inline(
             config.effective_tools_visual(),
             &frame.tools,
             config.max_tool_lines.max(2),
-            inner.saturating_sub(FRAMED_CONTENT_INSET),
+            budget,
             config.glyph_mode,
             p,
             color,
-        );
-        if !tape.is_empty() {
-            parts.push(tape);
-        }
+        )
+    };
+    let counts = if frame.completed_tools.is_empty() {
+        String::new()
+    } else {
+        shared::completed_tool_chips(&frame.completed_tools, 4, p, color)
+    };
+
+    let mut rows: Vec<String> = Vec::with_capacity(2);
+    if tape.is_empty() && counts.is_empty() {
+        return rows;
     }
-    if !frame.completed_tools.is_empty() {
-        parts.push(shared::completed_tool_chips(
-            &frame.completed_tools,
-            4,
-            p,
-            color,
-        ));
+    if tape.is_empty() {
+        rows.push(counts);
+        return rows;
     }
-    parts.join("    ")
+    if counts.is_empty() {
+        rows.push(tape);
+        return rows;
+    }
+    // Both present — try side-by-side first.
+    const INLINE_GAP: usize = 4;
+    let combined_w = visible_width(&tape) + INLINE_GAP + visible_width(&counts);
+    if combined_w <= budget {
+        rows.push(format!("{tape}    {counts}"));
+    } else {
+        rows.push(tape);
+        rows.push(counts);
+    }
+    rows
 }
 
-fn agent_todo_row(
+/// Agents + todo segment as zero or more framed rows.
+///
+/// Agent cells wrap to additional rows when they don't fit on one (via
+/// `pack_agent_cells`'s multi-row packer, capped by `max_agent_lines`).
+/// The todo chip — when present — sits inline at the end of the *last*
+/// agent row if it fits, else gets its own row.
+fn agent_todo_rows(
     frame: &crate::types::RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
     inner: usize,
-) -> String {
+) -> Vec<String> {
     let color = config.color_enabled;
-    let mut parts: Vec<String> = Vec::new();
+    let budget = inner.saturating_sub(FRAMED_CONTENT_INSET);
 
-    if config.show_agents && !frame.agents.is_empty() {
-        let row = shared::pack_agent_cells(
-            &frame.agents,
-            config,
-            p,
-            inner.saturating_sub(FRAMED_CONTENT_INSET),
-        );
-        if !row.is_empty() {
-            parts.push(row);
-        }
-    }
+    let mut rows: Vec<String> = if config.show_agents && !frame.agents.is_empty() {
+        shared::pack_agent_cells(&frame.agents, config, p, budget)
+    } else {
+        Vec::new()
+    };
 
     if config.show_todo {
         if let Some(todo) = &frame.todo {
@@ -311,11 +338,23 @@ fn agent_todo_row(
                 p.todo_teal(),
                 color,
             );
-            parts.push(format!("{bullet}{txt}"));
+            let chip = format!("{bullet}{txt}");
+            const INLINE_GAP: usize = 4;
+            // Try to attach to the last agent row; fall back to its own row.
+            if let Some(last) = rows.last_mut() {
+                if visible_width(last) + INLINE_GAP + visible_width(&chip) <= budget {
+                    last.push_str("    ");
+                    last.push_str(&chip);
+                } else {
+                    rows.push(chip);
+                }
+            } else {
+                rows.push(chip);
+            }
         }
     }
 
-    parts.join("    ")
+    rows
 }
 
 #[cfg(test)]
