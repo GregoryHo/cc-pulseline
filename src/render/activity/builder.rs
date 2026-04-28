@@ -9,8 +9,7 @@ use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::format_agent_elapsed;
 use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO};
-#[cfg(test)]
-use crate::types::ToolSummary;
+use crate::render::widgets::recent_tool::build_recent_tool_cell;
 use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
 use super::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
@@ -87,12 +86,6 @@ pub fn build_activity_rows(
 
     rows
 }
-
-// `target_strategy_for` and `build_recent_tool_cell` moved to
-// `crate::render::widgets::recent_tool` so cluster-layout consumers
-// (tape widget) can share the same per-tool builder. Re-exported here
-// to keep existing import paths working during the migration.
-pub use crate::render::widgets::recent_tool::{build_recent_tool_cell, target_strategy_for};
 
 // ── Shared row helpers ────────────────────────────────────────────────
 
@@ -690,6 +683,7 @@ mod tests {
     use super::*;
     use crate::config::GlyphMode;
     use crate::render::color::resolve_palette;
+    use crate::types::ToolSummary;
 
     fn palette() -> ThemePalette {
         resolve_palette("tokyo-night", Some("dark"), &Default::default())
@@ -717,22 +711,6 @@ mod tests {
             completed_at: Some(61_000),
             message_id: msg.map(String::from),
         }
-    }
-
-    #[test]
-    fn target_strategy_table_known_tools() {
-        assert_eq!(target_strategy_for("Read").0, TruncationStrategy::KeepTail);
-        // Bash uses KeepHead so the verb is always visible at row start.
-        assert_eq!(target_strategy_for("Bash").0, TruncationStrategy::KeepHead);
-        assert_eq!(target_strategy_for("Glob").0, TruncationStrategy::KeepHead);
-        assert_eq!(
-            target_strategy_for("WebFetch").0,
-            TruncationStrategy::KeepMiddle
-        );
-        assert_eq!(
-            target_strategy_for("UnknownTool").0,
-            TruncationStrategy::KeepHead
-        );
     }
 
     #[test]

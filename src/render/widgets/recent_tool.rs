@@ -30,9 +30,7 @@ use crate::render::fmt::sanitize_single_line;
 use crate::render::icons::{glyph, ICON_TOOL};
 use crate::types::ToolSummary;
 
-/// Per-tool truncation strategy + ideal target width. Single source of
-/// truth that replaced the per-tool `truncate_str(_, N)` constants
-/// scattered across `providers/transcript.rs::extract_target`.
+/// Per-tool truncation strategy + ideal target width.
 pub fn target_strategy_for(tool_name: &str) -> (TruncationStrategy, usize) {
     use TruncationStrategy::*;
     match tool_name {

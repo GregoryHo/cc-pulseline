@@ -25,6 +25,10 @@ use super::{cockpit, flightstrip, shared};
 
 const GAUGE_WIDTH: usize = 22;
 const FRAME_INNER_PAD: usize = 4; // "│  " left + "│" right + 1 trailing space
+/// Visible chars `framed()` consumes inside `inner` for its leading "  "
+/// indent before the content starts. Subtract from `inner` to get the
+/// width budget any row's content can actually use.
+const FRAMED_CONTENT_INSET: usize = 2;
 
 pub fn render(
     frame: &crate::types::RenderFrame,
@@ -119,8 +123,7 @@ fn bottom_frame(p: &ThemePalette, inner: usize, color: bool) -> String {
 
 fn framed(content: &str, p: &ThemePalette, inner: usize, color: bool) -> String {
     let content_w = visible_width(content);
-    // 2 = leading "  " visual indent inside the frame walls.
-    let pad = inner.saturating_sub(content_w + 2);
+    let pad = inner.saturating_sub(content_w + FRAMED_CONTENT_INSET);
     let bar = colorize(&FRAME_V.to_string(), &p.separator, color);
     format!("{bar}  {content}{}{bar}", " ".repeat(pad))
 }
@@ -259,7 +262,7 @@ fn tools_row(
             config.effective_tools_visual(),
             &frame.tools,
             config.max_tool_lines.max(2),
-            inner.saturating_sub(2),
+            inner.saturating_sub(FRAMED_CONTENT_INSET),
             config.glyph_mode,
             p,
             color,

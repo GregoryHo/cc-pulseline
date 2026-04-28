@@ -1,37 +1,28 @@
 //! Recent-tools tape — horizontal strip summarising the latest tool uses.
 //!
 //! Two modes selected via `with_target`:
-//! - **brief** (`tools_visual = "tape"`): `▶ Read · ▶ Bash`.
-//!   Just an "is running" indicator with the running-arrow icon.
-//! - **detailed** (`tools_visual = "tape+detail"`):
-//!   `<icon> Read: src/main.rs · <icon> Bash: cargo test` — same per-tool
-//!   format as the flat-row layouts' `tools_visual = "list"` activity rows.
+//! - **brief** (`tools_visual = "tape"`): `▶ Read · ▶ Bash` — running-arrow
+//!   icon (`aurora_mid`) + name (`secondary`); presence-only indicator.
+//! - **detailed** (`tools_visual = "tape+detail"`): delegates per-tool
+//!   format to `widgets::recent_tool::build_recent_tool_cell`, the same
+//!   builder flat-row layouts use for `tools_visual = "list"`.
 //!
 //! Tape semantics: this widget is for **running / very recent** tools
 //! (`SessionState::recent_tools`). Completed-count summaries (`✓ Read ×8`)
 //! live in a separate widget (`completed_tool_chips`) and stay description-
-//! free — the count is the whole point. The split keeps "what's happening
-//! now" (target-rich, in detail mode) visually distinct from "what's been
-//! done" (count-only).
+//! free — the count is the whole point.
 //!
 //! ## Widget contract
 //!
 //! `render` returns a `Vec<Cell>` rather than a finished string. The
 //! caller (typically `render::frames::shared::render_tools_visual_inline`)
-//! is the row composer — it knows the pane's actual width budget and
-//! feeds the cells through `pack_with_separator`. This is the same
-//! widget→cells→budgeter→string flow the flat-row activity builder uses,
-//! so cluster layouts inherit the same width-aware truncation.
-//!
-//! Color in brief mode: `aurora_mid` for the icon (the eye learns the
-//! shape, not a colour per tool) and `secondary` for the text. The whole
-//! tape is one visual cluster — separators stay in `separator` tone.
-//! Detail mode adopts `tool_blue` + `secondary` (matching the flat-row
-//! per-tool format).
+//! is the row composer — it knows the pane's width budget and feeds the
+//! cells through `pack_with_separator`. Inter-cell separator stays in
+//! `separator` tone.
 
 use crate::config::GlyphMode;
 use crate::render::activity::cell::{Cell, CellPriority};
-use crate::render::color::{colorize, ThemePalette};
+use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::types::ToolSummary;
 
 const ICON_RUNNING: &str = "\u{25B6}"; // ▶ (Nerd Font / wide-coverage Unicode)
@@ -94,11 +85,11 @@ fn build_brief_cell(
         GlyphMode::Icon => ICON_RUNNING,
         GlyphMode::Ascii => ASCII_RUNNING,
     };
-    let icon = colorize(&format!("{arrow} "), &palette.aurora_mid, color_enabled);
+    let icon_text = format!("{arrow} ");
+    let icon = colorize(&icon_text, &palette.aurora_mid, color_enabled);
     let name = colorize(&tool.name, &palette.secondary, color_enabled);
     let head = format!("{icon}{name}");
-    // arrow (1 col) + space + name chars
-    let head_w = 2 + tool.name.chars().count();
+    let head_w = visible_width(&icon_text) + visible_width(&tool.name);
     Cell::label(head, head_w, CellPriority::Optional)
 }
 

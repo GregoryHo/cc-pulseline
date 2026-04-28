@@ -14,6 +14,7 @@ use std::ops::Range;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{GlyphMode, RenderConfig};
+use crate::render::activity::budget::pack_with_separator;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{
     format_agent_elapsed, format_number, format_reset_duration, format_speed,
@@ -850,13 +851,7 @@ pub fn render_tools_visual_inline(
         return String::new();
     }
     let sep = colorize(widgets::tape::SEPARATOR, &p.separator, color);
-    crate::render::activity::budget::pack_with_separator(
-        &cells,
-        max_width,
-        &sep,
-        widgets::tape::SEPARATOR_W,
-        color,
-    )
+    pack_with_separator(&cells, max_width, &sep, widgets::tape::SEPARATOR_W, color)
 }
 
 /// Bare cost text — `$X.XX` colored with `cost_base`. Shared between Cockpit
