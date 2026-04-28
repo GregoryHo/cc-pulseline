@@ -362,9 +362,9 @@ mod tests {
         let lines = render(&f, &c, &c.palette.clone());
         assert!(lines.first().unwrap().starts_with(FRAME_TL));
         assert!(lines.last().unwrap().starts_with(FRAME_BL));
-        // CTX row is identified by `used/total` numbers (label dropped).
-        // 200k window × 43% = 86k → `86.0k/200.0k`.
-        assert!(lines.iter().any(|l| l.contains("/200.0k")));
+        // CTX row is identified by the total tokens. 200k window × 43%
+        // = 86k → `<icon> [gauge] 86.0k 200.0k`.
+        assert!(lines.iter().any(|l| l.contains("200.0k")));
         assert!(lines.iter().any(|l| l.contains("$3.50")));
     }
 

@@ -407,32 +407,48 @@ pub fn render_context_visual(
 /// concrete `used/total` carries enough information; the percentage is
 /// either implicit from the ratio or shown by the gauge cell when
 /// composed alongside.
+/// CTX text cell — `<icon> 8% 80.0k 1.0M`. Icon + percentage + concrete
+/// `used total` numbers. Used color matches the threshold; total stays
+/// in `secondary` so the eye reads the active number first. Used when
+/// `context_visual` includes `"text"` (and the gauge widget is absent).
 pub fn ctx_text_cell(
     line3: &Line3Metrics,
-    _mode: GlyphMode,
+    mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
+    use crate::render::icons::{glyph, ICON_CONTEXT};
+    let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(pct), Some(size)) => {
+            let pct_color = p.color_for_ctx_pct(pct, Some(size));
+            let icon = colorize(&icon_glyph, pct_color, color_enabled);
+            let pct_str = colorize(&format!(" {pct}%"), pct_color, color_enabled);
             let used = ((size as f64) * (pct as f64) / 100.0) as u64;
-            let used_color = p.color_for_ctx_pct(pct, Some(size));
-            let used_str = colorize(&format_number(used), used_color, color_enabled);
-            let sep = colorize("/", &p.separator, color_enabled);
-            let total = colorize(&format_number(size), &p.secondary, color_enabled);
-            format!("{used_str}{sep}{total}")
+            let used_str = colorize(
+                &format!(" {}", format_number(used)),
+                &p.primary,
+                color_enabled,
+            );
+            let total_str = colorize(
+                &format!(" {}", format_number(size)),
+                &p.secondary,
+                color_enabled,
+            );
+            format!("{icon}{pct_str}{used_str}{total_str}")
         }
         _ => {
-            let dash = colorize("--", &p.structural, color_enabled);
-            let sep = colorize("/", &p.separator, color_enabled);
-            format!("{dash}{sep}{dash}")
+            let icon = colorize(&icon_glyph, &p.structural, color_enabled);
+            let dash = colorize(" --%", &p.structural, color_enabled);
+            let blank = colorize(" -- --", &p.structural, color_enabled);
+            format!("{icon}{dash}{blank}")
         }
     }
 }
 
-/// CTX gauge cell — `[gauge_width cells] 86.0k/200.0k`. No `CTX` label
-/// or `%` — the gauge already conveys the ratio visually; concrete
-/// numbers add precision that `%` can't.
+/// CTX gauge cell — `<icon> [gauge] 80.0k 1.0M`. Same shape as
+/// `ctx_text_cell`, with the gauge bar replacing the `%` text. Numbers
+/// stay because the gauge can't convey precise token counts.
 pub fn ctx_gauge_cell(
     line3: &Line3Metrics,
     gauge_width: usize,
@@ -440,11 +456,29 @@ pub fn ctx_gauge_cell(
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
+    use crate::render::icons::{glyph, ICON_CONTEXT};
+    let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
     let pct = line3.context_used_percentage.unwrap_or(0);
     let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
+    let icon = colorize(&icon_glyph, fill_color, color_enabled);
     let bar = widgets::gauge::render(pct, gauge_width, mode, fill_color, p, color_enabled);
-    let numbers = ctx_text_cell(line3, mode, p, color_enabled);
-    format!("{bar} {numbers}")
+    match (line3.context_used_percentage, line3.context_window_size) {
+        (Some(_), Some(size)) => {
+            let used = ((size as f64) * (pct as f64) / 100.0) as u64;
+            let used_str = colorize(
+                &format!(" {}", format_number(used)),
+                &p.primary,
+                color_enabled,
+            );
+            let total_str = colorize(
+                &format!(" {}", format_number(size)),
+                &p.secondary,
+                color_enabled,
+            );
+            format!("{icon} {bar}{used_str}{total_str}")
+        }
+        _ => format!("{icon} {bar}"),
+    }
 }
 
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*

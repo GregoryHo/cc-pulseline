@@ -93,7 +93,7 @@ fn l3_values_persist_across_fresh_runners_via_cache() {
         let joined = lines.join("\n");
         // Context segment now `<used>/<total>` — 200k × 43% = 86k.
         assert!(
-            joined.contains("86.0k/200.0k"),
+            joined.contains(" 86.0k") && joined.contains(" 200.0k"),
             "first invocation should show context: got {joined}"
         );
         assert!(
@@ -146,7 +146,7 @@ fn empty_l3_payload_falls_back_to_cached_values() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("86.0k/200.0k"),
+            joined.contains(" 86.0k") && joined.contains(" 200.0k"),
             "first run should show context: got {joined}"
         );
         assert!(
@@ -175,7 +175,7 @@ fn empty_l3_payload_falls_back_to_cached_values() {
             .expect("render should succeed");
         let joined = lines.join("\n");
         assert!(
-            joined.contains("86.0k/200.0k"),
+            joined.contains(" 86.0k") && joined.contains(" 200.0k"),
             "empty L3 should fall back to cached context: got {joined}"
         );
         assert!(
