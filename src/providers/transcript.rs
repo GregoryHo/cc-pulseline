@@ -335,7 +335,18 @@ fn apply_content_block(
                 .unwrap_or("unknown-id")
                 .to_string();
 
-            // Agent tool → push to pending queue for agent linking
+            // Agent tool → register the sub-agent as ACTIVE immediately,
+            // and also push to the pending queue so a later `agent_progress`
+            // event (when CC ever emits one) can link by id.
+            //
+            // History: this previously only pushed to `pending_tasks` and
+            // waited for an `agent_progress` event to promote the agent to
+            // `active_agents`. CC's Task tool does NOT emit progress events
+            // for sub-agents — only the assistant `tool_use` and eventually
+            // the `tool_result`. Without this immediate `upsert_agent`, the
+            // running agents stay invisible in the statusline until they
+            // finish, at which point `complete_tool_result` promotes them
+            // and immediately moves them to `completed_agents`.
             if name == "Agent" {
                 let input = block.get("input");
                 let description = input
@@ -352,7 +363,15 @@ fn apply_content_block(
                 let model = input
                     .and_then(|i| i.get("model").and_then(Value::as_str))
                     .map(ToString::to_string);
-                state.push_pending_task(id, description, agent_type, model, event_ts, message_id);
+                state.push_pending_task(
+                    id.clone(),
+                    description.clone(),
+                    agent_type.clone(),
+                    model.clone(),
+                    event_ts,
+                    message_id.clone(),
+                );
+                state.upsert_agent(id, description, agent_type, event_ts, model, message_id);
                 return;
             }
 
@@ -420,6 +439,12 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
     let is_new = !state.active_agents.iter().any(|a| a.id == agent_id);
     if is_new {
         if let Some(pending) = state.link_agent_to_pending_task(&agent_id) {
+            // The `Agent` tool_use already inserted an active agent keyed
+            // by `tool_use_id` (so the running agent shows immediately
+            // even when CC never emits a progress event). Drop that
+            // placeholder before re-keying under the runtime `agent_id`
+            // — otherwise the same logical agent renders twice.
+            state.discard_active_agent(&pending.tool_use_id);
             // Use the Agent tool's description and type instead of agent_progress prompt
             state.upsert_agent(
                 agent_id,
@@ -435,6 +460,17 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
 
     // For already-linked agents, skip description overwrite from agent_progress prompt
     if state.is_task_linked_agent(&agent_id) {
+        return;
+    }
+    // The Agent tool_use path already inserted an active agent keyed by
+    // `tool_use_id`. When the runtime `agent_id` from the progress event
+    // happens to equal that `tool_use_id` (e.g. test fixtures or future
+    // CC versions reusing the id), `is_new` is false and the link branch
+    // above is skipped — but the existing entry already has the correct
+    // description from the Agent tool's `input`. Don't fall through to
+    // the standalone path, which would clobber it with the fallback
+    // `"Agent"` literal pulled from the empty progress event.
+    if !is_new {
         return;
     }
 

@@ -262,6 +262,16 @@ impl SessionState {
         }
     }
 
+    /// Drop an agent from the active list without recording it as
+    /// completed. Used when an agent_progress event re-keys an existing
+    /// active agent under a new id (e.g. progress assigns a runtime
+    /// `agent_id` distinct from the original `tool_use_id`).
+    pub fn discard_active_agent(&mut self, id: &str) {
+        if let Some(pos) = self.active_agents.iter().position(|a| a.id == id) {
+            self.active_agents.remove(pos);
+        }
+    }
+
     pub fn set_todo(&mut self, todo: Option<TodoSummary>) {
         self.todo = todo;
     }
