@@ -14,7 +14,7 @@ use std::ops::Range;
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::activity::budget::{pack_multi_row, pack_with_separator};
-use crate::render::activity::builder::{build_agent_cells, ROW_SEPARATOR, ROW_SEPARATOR_W};
+use crate::render::activity::builder::build_agent_cells;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration, format_speed};
 use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING};
@@ -707,9 +707,11 @@ pub fn activity_ticker(
 /// agents inherit parallel grouping (`message_id` buckets), description
 /// bodies, and width-aware truncation.
 ///
-/// Cells that don't fit on one row of `width` wrap to additional rows,
-/// capped at `config.max_agent_lines`. Returns empty vec when no cells
-/// survive — caller skips the segment.
+/// Inter-cell separator is `' · '` (middle dot), matching the cluster
+/// tools tape — `' | '` is the flat-row idiom and would clash with the
+/// cluster's softer visual rhythm. Cells that don't fit on one row of
+/// `width` wrap to additional rows, capped at `config.max_agent_lines`.
+/// Returns empty vec when no cells survive — caller skips the segment.
 pub fn pack_agent_cells(
     agents: &[crate::types::AgentSummary],
     config: &RenderConfig,
@@ -720,12 +722,12 @@ pub fn pack_agent_cells(
     if cells.is_empty() {
         return Vec::new();
     }
-    let sep = colorize(ROW_SEPARATOR, &p.separator, config.color_enabled);
+    let sep = colorize(widgets::tape::SEPARATOR, &p.separator, config.color_enabled);
     pack_multi_row(
         &cells,
         width,
         &sep,
-        ROW_SEPARATOR_W,
+        widgets::tape::SEPARATOR_W,
         config.color_enabled,
         Some(config.max_agent_lines.max(1)),
     )
