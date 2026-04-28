@@ -85,7 +85,7 @@ pub fn render(
     if !tools_row.is_empty() {
         lines.push(framed(&tools_row, p, inner, color));
     }
-    let agent_todo = agent_todo_row(frame, config, p);
+    let agent_todo = agent_todo_row(frame, config, p, inner);
     if !agent_todo.is_empty() {
         lines.push(framed(&agent_todo, p, inner, color));
     }
@@ -286,41 +286,30 @@ fn agent_todo_row(
     frame: &crate::types::RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
+    inner: usize,
 ) -> String {
     let color = config.color_enabled;
     let mut parts: Vec<String> = Vec::new();
 
-    if config.show_agents {
-        let agents: Vec<String> = frame
-            .agents
-            .iter()
-            .take(config.max_agent_lines.max(1))
-            .map(|a| {
-                let prefix = shared::agent_prefix(config, p);
-                let name = match &a.agent_type {
-                    Some(t) => t.clone(),
-                    None => a
-                        .description
-                        .lines()
-                        .next()
-                        .unwrap_or("")
-                        .chars()
-                        .take(28)
-                        .collect::<String>(),
-                };
-                let model_part = a
-                    .model
-                    .as_ref()
-                    .map(|m| colorize(&format!(" [{m}]"), &p.structural, color))
-                    .unwrap_or_default();
-                format!(
-                    "{prefix}{}{model_part}",
-                    colorize(&name, p.agent_purple(), color)
-                )
-            })
-            .collect();
-        if !agents.is_empty() {
-            parts.push(agents.join("  "));
+    if config.show_agents && !frame.agents.is_empty() {
+        // Reuse the flat-row builder so cluster agents inherit parallel
+        // grouping (`message_id` buckets), description bodies, and the
+        // budgeter's width-aware truncation. Without this the cluster
+        // path used to overflow the framed pane on long descriptions
+        // and showed only `agent_type` (no description, no parallel).
+        let cells = crate::render::activity::builder::build_agent_cells(&frame.agents, config, p);
+        if !cells.is_empty() {
+            let sep = colorize(" | ", &p.separator, color);
+            let row = crate::render::activity::budget::pack_with_separator(
+                &cells,
+                inner.saturating_sub(FRAMED_CONTENT_INSET),
+                &sep,
+                3,
+                color,
+            );
+            if !row.is_empty() {
+                parts.push(row);
+            }
         }
     }
 

@@ -223,6 +223,51 @@ fn build_completed_tool_cell(c: &CompletedToolCount, p: &ThemePalette, color: bo
     Cell::label(head, head_w, CellPriority::Optional)
 }
 
+/// Build cells for the agent activity segment, one per group.
+///
+/// Pipeline: `classify(agents)` → bucket into `Single` / `Homogeneous` /
+/// `Heterogeneous` parallel groups via shared `message_id` → produce
+/// one `Cell` per group via the appropriate cell builder. Cells inherit
+/// the group kind's body (description, parallel summary, etc.).
+///
+/// Ordering: active groups (any running agent) come first, then
+/// completed. Within each tier the most recent group (tail of insertion
+/// order) is preferred. Cell priority encodes the same rule for the
+/// budgeter: active groups → `Required`, completed → `Optional` so a
+/// still-running task is never dropped to surface a finished one.
+///
+/// Caller decides packing: flat-row puts each cell on its own row;
+/// cluster layouts pack them into one row via `pack_with_separator`.
+pub fn build_agent_cells(
+    agents: &[AgentSummary],
+    config: &RenderConfig,
+    p: &ThemePalette,
+) -> Vec<Cell> {
+    let groups = classify(agents);
+    let mut active: Vec<Cell> = Vec::new();
+    let mut completed: Vec<Cell> = Vec::new();
+    for group in &groups {
+        let is_active = group_has_active(group);
+        let mut cell = match group {
+            AgentGroup::Single(a) => build_agent_single_cell(a, config, p),
+            AgentGroup::Homogeneous(g) => build_agent_homogeneous_cell(g, config, p),
+            AgentGroup::Heterogeneous(g) => build_agent_heterogeneous_cell(g, config, p),
+        };
+        cell.priority = if is_active {
+            CellPriority::Required
+        } else {
+            CellPriority::Optional
+        };
+        if is_active {
+            active.push(cell);
+        } else {
+            completed.push(cell);
+        }
+    }
+    active.append(&mut completed);
+    active
+}
+
 fn build_agent_rows(
     agents: &[AgentSummary],
     config: &RenderConfig,
@@ -230,31 +275,32 @@ fn build_agent_rows(
     available: usize,
     sep: &str,
 ) -> Vec<String> {
-    let groups = classify(agents);
+    let cells = build_agent_cells(agents, config, p);
     let max_lines = config.max_agent_lines.max(1);
-    let mut rows: Vec<String> = Vec::with_capacity(groups.len().min(max_lines + 1));
+    let mut rows: Vec<String> = Vec::with_capacity(cells.len().min(max_lines + 1));
 
-    // Picking which groups to render under width pressure follows two rules:
-    //   1. Groups with any running agent ("active") win priority over fully-
-    //      completed groups — a still-running task should never be hidden by
-    //      finished history.
-    //   2. Within each tier, prefer the most recent (tail of insertion order).
-    // The overflow summary, when emitted, sits at the TOP so the rendered
-    // rows below it read as "newest activity, with K older items hidden above".
-    let active_groups: Vec<&AgentGroup> = groups.iter().filter(|g| group_has_active(g)).collect();
-    let completed_groups: Vec<&AgentGroup> =
-        groups.iter().filter(|g| !group_has_active(g)).collect();
+    // Cells come back as `[active.., completed..]`, both tiers in
+    // insertion order. Under the cap: keep the newest `max_lines` of
+    // active first, then fill any remaining slots with the newest
+    // completed. Active that doesn't fit IS dropped (rare — would mean
+    // the user has more parallel running agents than `max_agent_lines`).
+    let active_count = cells
+        .iter()
+        .position(|c| c.priority == CellPriority::Optional)
+        .unwrap_or(cells.len());
+    let active = &cells[..active_count];
+    let completed = &cells[active_count..];
 
-    let active_skip = active_groups.len().saturating_sub(max_lines);
-    let mut chosen: Vec<&AgentGroup> = active_groups.iter().copied().skip(active_skip).collect();
-    let remaining = max_lines.saturating_sub(chosen.len());
-    if remaining > 0 {
-        let completed_skip = completed_groups.len().saturating_sub(remaining);
-        chosen.extend(completed_groups.iter().copied().skip(completed_skip));
-    }
+    let active_keep = active.len().min(max_lines);
+    let active_skip = active.len() - active_keep;
+    let remaining = max_lines - active_keep;
+    let completed_keep = completed.len().min(remaining);
+    let completed_skip = completed.len() - completed_keep;
+    let dropped = (active.len() - active_keep) + (completed.len() - completed_keep);
 
-    let dropped = groups.len().saturating_sub(chosen.len());
     if dropped > 0 {
+        // Overflow summary sits at the TOP so the rendered rows below it
+        // read as "newest activity, with K older items hidden above".
         rows.push(overflow_summary(
             dropped,
             "agent",
@@ -264,14 +310,13 @@ fn build_agent_rows(
         ));
     }
 
-    for group in chosen {
-        let cell = match group {
-            AgentGroup::Single(a) => build_agent_single_cell(a, config, p),
-            AgentGroup::Homogeneous(g) => build_agent_homogeneous_cell(g, config, p),
-            AgentGroup::Heterogeneous(g) => build_agent_heterogeneous_cell(g, config, p),
-        };
+    let chosen = active
+        .iter()
+        .skip(active_skip)
+        .chain(completed.iter().skip(completed_skip));
+    for cell in chosen {
         let row = pack_with_separator(
-            &[cell],
+            std::slice::from_ref(cell),
             available,
             sep,
             ROW_SEPARATOR_W,

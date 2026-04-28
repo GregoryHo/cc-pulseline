@@ -705,3 +705,78 @@ fn icon_mode_still_uses_block_chars_in_instrument_clusters() {
          above is meaningless"
     );
 }
+
+#[test]
+fn console_with_many_agents_no_overflow_and_descriptions_visible() {
+    // Regression test for the cluster-agent multi-line bug. Pre-fix, the
+    // cluster `agent_todo_row` rolled its own `<icon><type>[model]` strings
+    // and joined them with two spaces — no width budget, no parallel
+    // grouping, no descriptions. Long descriptions would push the row past
+    // the framed pane and CC's statusline parser wrapped it into multiple
+    // visual rows. Post-fix the cluster path delegates to
+    // `build_agent_cells` + `pack_with_separator`, so:
+    //   1. Every emitted line is <= terminal_width (no wrap)
+    //   2. Agents from the same `message_id` group as one parallel cell
+    //   3. The first line of each agent's description is rendered
+    use cc_pulseline::render::color::visible_width;
+    let mut f = frame_with_agent_and_quota();
+    // Replace the single seed agent with a parallel pair (same message_id)
+    // plus one solo running agent — three distinct group cells.
+    f.agents.clear();
+    f.agents.push(AgentSummary {
+        id: "p1".to_string(),
+        description: "Inspect transcript parser for memory leaks".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: Some(0),
+        model: Some("haiku".to_string()),
+        completed_at: None,
+        message_id: Some("m1".to_string()),
+    });
+    f.agents.push(AgentSummary {
+        id: "p2".to_string(),
+        description: "Audit cluster layout width handling".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: Some(0),
+        model: Some("haiku".to_string()),
+        completed_at: None,
+        message_id: Some("m1".to_string()),
+    });
+    f.agents.push(AgentSummary {
+        id: "s1".to_string(),
+        description: "Implement cell-based cluster agents".to_string(),
+        agent_type: Some("implementer".to_string()),
+        started_at: Some(0),
+        model: None,
+        completed_at: None,
+        message_id: Some("m2".to_string()),
+    });
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.max_agent_lines = 3;
+    let lines = render_frame(&f, &cfg);
+    let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
+    for line in &lines {
+        let w = visible_width(line);
+        assert!(
+            w <= term_w,
+            "console agent line wider than terminal_width={term_w}: w={w}, line={line:?}"
+        );
+    }
+    let blob = lines.join("\n");
+    // Parallel pair (same message_id) collapses into one cell; the
+    // homogeneous-group cell builder emits `Explore ×2` so both get
+    // surfaced without taking two row-cells.
+    assert!(
+        blob.contains("Explore"),
+        "Explore agent type missing from cluster agent row: {blob}"
+    );
+    assert!(
+        blob.contains("\u{00D7}2") || blob.contains("Explore ×2"),
+        "parallel pair should render as a `×2` group cell: {blob}"
+    );
+    // Description body must be visible (the pre-fix cluster path showed
+    // only the agent_type with no description).
+    assert!(
+        blob.contains("transcript parser") || blob.contains("cluster layout"),
+        "expected a description fragment from the parallel pair: {blob}"
+    );
+}

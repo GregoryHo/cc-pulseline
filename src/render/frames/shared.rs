@@ -11,21 +11,17 @@
 //! enables it) so layouts compose them with their own separators / framing.
 
 use std::ops::Range;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::activity::budget::pack_with_separator;
 use crate::render::color::{colorize, visible_width, ThemePalette};
-use crate::render::fmt::{
-    format_agent_elapsed, format_number, format_reset_duration, format_speed,
-};
-use crate::render::icons::{glyph, ICON_AGENT, ICON_EFFORT, ICON_THINKING};
+use crate::render::fmt::{format_number, format_reset_duration, format_speed};
+use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING};
 use crate::render::layout;
 use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
 use crate::types::{
-    AgentSummary, CompletedToolCount, Line1Metrics, Line3Metrics, RenderFrame, TodoSummary,
-    ToolSummary,
+    CompletedToolCount, Line1Metrics, Line3Metrics, RenderFrame, TodoSummary, ToolSummary,
 };
 
 // ============================================================================
@@ -683,9 +679,17 @@ pub fn activity_ticker(
         }
     }
 
-    if config.show_agents {
-        for agent in frame.agents.iter().take(config.max_agent_lines) {
-            parts.push(format_agent_chip(agent, config, p, color));
+    if config.show_agents && !frame.agents.is_empty() {
+        // Reuse the flat-row builder so cluster agents inherit parallel
+        // grouping (`message_id` buckets), description bodies, and the
+        // budgeter's width-aware truncation.
+        let cells = crate::render::activity::builder::build_agent_cells(&frame.agents, config, p);
+        if !cells.is_empty() {
+            let sep = colorize(" | ", &p.separator, color);
+            let row = pack_with_separator(&cells, width, &sep, 3, color);
+            if !row.is_empty() {
+                parts.push(row);
+            }
         }
     }
 
@@ -707,57 +711,6 @@ fn format_completed_summary(
     let check = colorize("\u{2713}", &p.completed_check, color);
     let count_str = colorize(&format!(" ×{total}"), &p.secondary, color);
     format!("{check}{count_str}")
-}
-
-/// `glyph(ICON_AGENT) | "A:"` colored with `agent_purple` — shared between
-/// cockpit (`format_agent_chip`) and console (`agent_todo_row`) so the
-/// glyph-vs-ascii decision lives in one place and `display.icons = false`
-/// degrades both layouts identically.
-pub fn agent_prefix(config: &RenderConfig, p: &ThemePalette) -> String {
-    colorize(
-        &glyph(config.glyph_mode, ICON_AGENT, "A:"),
-        p.agent_purple(),
-        config.color_enabled,
-    )
-}
-
-fn format_agent_chip(
-    agent: &AgentSummary,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    color: bool,
-) -> String {
-    let prefix = agent_prefix(config, p);
-    let name = match &agent.agent_type {
-        Some(t) => t.clone(),
-        None => agent
-            .description
-            .lines()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .take(20)
-            .collect::<String>(),
-    };
-    let name_str = colorize(&name, p.agent_purple(), color);
-    let model_part = agent
-        .model
-        .as_ref()
-        .map(|m| colorize(&format!(" [{m}]"), &p.structural, color))
-        .unwrap_or_default();
-    let elapsed = agent.started_at.map(|start| {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let secs = now.saturating_sub(start) / 1000;
-        format!(" {}", format_agent_elapsed(secs))
-    });
-    let elapsed_str = elapsed
-        .as_deref()
-        .map(|e| colorize(e, &p.structural, color))
-        .unwrap_or_default();
-    format!("{prefix}{name_str}{model_part}{elapsed_str}")
 }
 
 fn format_todo_chip(todo: &TodoSummary, p: &ThemePalette, color: bool) -> String {
