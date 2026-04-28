@@ -129,7 +129,7 @@ fn console_includes_quota_when_enabled() {
     let lines = runner.run_from_str(&payload, cfg_q).expect("render");
 
     assert!(
-        lines.iter().any(|l| l.contains("Q5h")),
-        "console quota row missing Q5h, got {lines:?}"
+        lines.iter().any(|l| l.contains("5h ")),
+        "console quota row missing 5h label, got {lines:?}"
     );
 }

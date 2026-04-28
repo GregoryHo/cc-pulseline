@@ -1,40 +1,58 @@
-//! Block-bar gauge with 1/8 sub-cell precision (Icon mode) or `#`/`-` cells
-//! (Ascii mode).
+//! Bracket-framed gauge — `[████▎      ]` style, like a car/electronic
+//! device battery indicator.
 //!
-//! Icon mode renders a `width`-cell gauge filled to `pct` (0..=100), using
-//! the Unicode eighth-blocks (U+2588..=U+258F) for fractional cells. Below
-//! the fill, the gauge uses U+2591 (light shade) for visible empty cells.
+//! Icon mode uses `█` (U+2588) for filled cells, `▏▎▍▌▋▊▉` for the partial
+//! cell at the fill boundary, and a literal space (U+0020) for empty cells.
+//! The whole inside is wrapped in `[` `]` brackets in `palette.structural`
+//! tone so the eye reads "the area inside the brackets is the gauge; the
+//! coloured portion shows usage; the rest is unused capacity".
 //!
-//! Ascii mode uses `'#'` for filled cells and `'-'` for empty — coarser than
-//! the eighth-block precision (full cells only, no fractional) but unambiguous
-//! in plain-text terminals where Nerd Font block glyphs aren't available.
+//! Ascii mode uses `'#'` for filled and `'-'` for empty (more visible than
+//! a bare space on monochrome terminals where the brackets alone may not
+//! pop), still wrapped in `[ ]`.
+//!
+//! Why literal whitespace for empty (Icon mode):
+//! - Truly composable across themes — empty visually disappears regardless
+//!   of which fill color is active, instead of competing with it.
+//! - Brackets carry the "this is a gauge bounding box" semantics so the
+//!   empty portion doesn't get confused with row whitespace.
+//! - Mirrors a physical battery indicator: filled segments + visually
+//!   absent empty segments inside a frame.
 //!
 //! Color is threshold-based:
 //!   - pct < 55           → `aurora_mid` (calm, default)
 //!   - 55 <= pct < 70     → `active_amber` (warning)
 //!   - pct >= 70          → `alert_red`   (critical)
-//!
-//! Empty cells are dimmed via `structural`. The whole bar is colored with one
-//! foreground call so the gradient stays clean — no per-cell color flips.
 
 use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
 
-/// Eighths blocks from 1/8 (▏) to 8/8 (█). Indexed 1..=8.
+/// Eighths blocks from 1/8 (▏) to 8/8 (█). Indexed 1..=8. Index 0 is space
+/// (used implicitly when no partial cell is rendered).
 const EIGHTHS: [char; 9] = [
     ' ', '\u{258F}', '\u{258E}', '\u{258D}', '\u{258C}', '\u{258B}', '\u{258A}', '\u{2589}',
     '\u{2588}',
 ];
-const EMPTY_CELL_ICON: char = '\u{2591}';
+/// Empty cell glyph in Icon mode — literal space. Inside the `[ ]` frame
+/// this reads as "unused capacity"; the bracket bounds the gauge so the
+/// space doesn't visually merge with surrounding row whitespace.
+const EMPTY_CELL_ICON: char = ' ';
 const FILLED_CELL_ASCII: char = '#';
 const EMPTY_CELL_ASCII: char = '-';
+/// Frame characters that bracket the gauge interior. Identical in both
+/// glyph modes — square brackets render cleanly in any terminal font.
+const FRAME_LEFT: &str = "[";
+const FRAME_RIGHT: &str = "]";
 
-/// Render a gauge of `width` cells at `pct` (0..=100). Returns ANSI-wrapped
-/// string when `color_enabled`. Width 0 returns an empty string.
+/// Render a gauge of `width` interior cells at `pct` (0..=100). The visible
+/// width is `width + 2` (the bracket frame adds one cell on each side).
+/// Width 0 returns an empty string (no brackets either).
 ///
 /// Glyph set:
-/// - `GlyphMode::Icon`  → 1/8 sub-cell block precision (`█`, `▏`..`▉`, `░`)
-/// - `GlyphMode::Ascii` → full-cell only (`#` filled, `-` empty)
+/// - `GlyphMode::Icon`  → `[████▎      ]` — 1/8 sub-cell block precision
+///   for filled, literal space for empty, brackets around the interior.
+/// - `GlyphMode::Ascii` → `[####------]` — `#` filled, `-` empty, same
+///   brackets.
 pub fn render(
     pct: u64,
     width: usize,
@@ -46,15 +64,37 @@ pub fn render(
         return String::new();
     }
     let raw = render_glyphs(pct, width, mode);
-    let fill_color = color_for_pct(pct, palette);
-    if color_enabled {
-        // Empty cells are visually dim already (light shade in Icon mode,
-        // dashes in Ascii); we color the whole bar with the fill tone so the
-        // eye reads it as one instrument.
-        colorize(&raw, fill_color, true)
-    } else {
-        raw
+    if !color_enabled {
+        return format!("{FRAME_LEFT}{raw}{FRAME_RIGHT}");
     }
+    // Split the interior into filled (full + optional partial) and empty
+    // halves so each gets its own colour. Only the filled half carries the
+    // `color_for_pct` tone; the empty half is literal whitespace (Icon) or
+    // dashes (Ascii) and does not need re-colouring.
+    let pct_clamped = pct.min(100);
+    let total_eighths = (width as u64 * 8 * pct_clamped) / 100;
+    let full_cells = (total_eighths / 8) as usize;
+    let has_partial = (total_eighths % 8) > 0;
+    let filled_count = (full_cells + if has_partial { 1 } else { 0 }).min(width);
+
+    let filled: String = raw.chars().take(filled_count).collect();
+    let empty: String = raw.chars().skip(filled_count).collect();
+    let fill_color = color_for_pct(pct_clamped, palette);
+    let frame_color = &palette.structural;
+
+    let mut out = String::with_capacity(filled.len() + empty.len() + 32);
+    out.push_str(&colorize(FRAME_LEFT, frame_color, true));
+    if !filled.is_empty() {
+        out.push_str(&colorize(&filled, fill_color, true));
+    }
+    if !empty.is_empty() {
+        // Empty interior is whitespace / dashes — colourise with the frame
+        // tone so any rendered character (Ascii `-`) reads as "frame
+        // continuation" rather than competing with the fill.
+        out.push_str(&colorize(&empty, frame_color, true));
+    }
+    out.push_str(&colorize(FRAME_RIGHT, frame_color, true));
+    out
 }
 
 /// Plain glyph rendering — used by tests, by the `Console` quota gauge that
@@ -122,10 +162,13 @@ mod tests {
     use crate::render::widgets::test_support::aurora_marker_palette;
 
     #[test]
-    fn zero_pct_renders_all_empty_cells() {
+    fn zero_pct_renders_all_spaces_inside() {
+        // Interior at 0% is literally whitespace — the bracket frame on
+        // either side is what makes the gauge visually exist.
         let s = render_glyphs(0, 8, GlyphMode::Icon);
         assert_eq!(s.chars().count(), 8);
         assert!(s.chars().all(|c| c == EMPTY_CELL_ICON));
+        assert_eq!(EMPTY_CELL_ICON, ' ');
     }
 
     #[test]
@@ -140,7 +183,7 @@ mod tests {
         let s = render_glyphs(50, 8, GlyphMode::Icon);
         let chars: Vec<char> = s.chars().collect();
         assert_eq!(chars.len(), 8);
-        // 50% of 8 cells = 4 full cells, no partial, 4 empty
+        // 50% of 8 cells = 4 full cells, no partial, 4 empty (= space).
         assert_eq!(chars[..4], ['\u{2588}'; 4]);
         for c in &chars[4..] {
             assert_eq!(*c, EMPTY_CELL_ICON);
@@ -153,8 +196,9 @@ mod tests {
         let s = render_glyphs(7, 2, GlyphMode::Icon);
         let chars: Vec<char> = s.chars().collect();
         assert_eq!(chars.len(), 2);
-        // 7% of 16 eighths = 1.12 → floor 1 → ▏
+        // 7% of 16 eighths = 1.12 → floor 1 → ▏ (partial sliver in fill)
         assert_eq!(chars[0], '\u{258F}');
+        // chars[1] is the empty interior cell — a literal space.
         assert_eq!(chars[1], EMPTY_CELL_ICON);
     }
 
@@ -167,6 +211,7 @@ mod tests {
 
     #[test]
     fn width_zero_renders_empty_string() {
+        // No interior → no brackets either.
         assert_eq!(render_glyphs(50, 0, GlyphMode::Icon), "");
         assert_eq!(
             render(50, 0, GlyphMode::Icon, &aurora_marker_palette(), true),
@@ -184,6 +229,16 @@ mod tests {
         assert!(render(40, 4, GlyphMode::Icon, &pal, true).contains("MID"));
         assert!(render(60, 4, GlyphMode::Icon, &pal, true).contains("AMBER"));
         assert!(render(80, 4, GlyphMode::Icon, &pal, true).contains("RED"));
+    }
+
+    #[test]
+    fn render_wraps_interior_in_brackets() {
+        let p = aurora_marker_palette();
+        let s = render(50, 4, GlyphMode::Icon, &p, false);
+        assert!(s.starts_with('['), "missing opening bracket: {s:?}");
+        assert!(s.ends_with(']'), "missing closing bracket: {s:?}");
+        // 4 interior cells + 2 brackets = 6 visible chars.
+        assert_eq!(s.chars().count(), 6);
     }
 
     #[test]
@@ -215,15 +270,37 @@ mod tests {
     }
 
     #[test]
+    fn fill_uses_pct_color_empty_uses_no_fill_color() {
+        // The empty interior is literal whitespace and gets the structural
+        // tone (same as the brackets), so colour markers from the threshold
+        // table never appear when there's no filled portion.
+        let mut p = aurora_marker_palette();
+        p.aurora_mid = "MID".to_string();
+        p.active_amber = "AMBER".to_string();
+        p.alert_red = "RED".to_string();
+
+        assert!(render(40, 8, GlyphMode::Icon, &p, true).contains("MID"));
+        assert!(render(60, 8, GlyphMode::Icon, &p, true).contains("AMBER"));
+        assert!(render(80, 8, GlyphMode::Icon, &p, true).contains("RED"));
+
+        // 0% — no filled portion → no fill-tone marker present.
+        let zero = render(0, 8, GlyphMode::Icon, &p, true);
+        assert!(!zero.contains("MID"));
+        assert!(!zero.contains("AMBER"));
+        assert!(!zero.contains("RED"));
+    }
+
+    #[test]
     fn ascii_mode_emits_no_unicode_block_chars() {
         // Catch the original Phase 2 bug: gauge emitted U+2588 etc. even in
         // ascii mode. Now the contract: zero block chars under Ascii.
+        // Brackets `[` `]` are ASCII (U+005B/005D) so they don't trigger.
         const BLOCKS: &[char] = &[
             '\u{2588}', '\u{2589}', '\u{258A}', '\u{258B}', '\u{258C}', '\u{258D}', '\u{258E}',
             '\u{258F}', '\u{2591}',
         ];
         for pct in [0, 25, 50, 75, 100] {
-            let s = render_glyphs(pct, 10, GlyphMode::Ascii);
+            let s = render(pct, 10, GlyphMode::Ascii, &aurora_marker_palette(), false);
             assert!(
                 !s.chars().any(|c| BLOCKS.contains(&c)),
                 "pct={pct} produced a block char: {s:?}"

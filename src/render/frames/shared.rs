@@ -23,8 +23,8 @@ use crate::render::layout;
 use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
 use crate::types::{
-    AgentSummary, CompletedToolCount, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame,
-    TodoSummary, ToolSummary,
+    AgentSummary, CompletedToolCount, Line1Metrics, Line3Metrics, RenderFrame, TodoSummary,
+    ToolSummary,
 };
 
 // ============================================================================
@@ -570,13 +570,23 @@ pub const QUOTA_BAR_WIDTH: usize = 12;
 
 /// Compose a quota cell from a visual spec.
 ///
-/// Recognized widget names: `text`, `bar`. `text` gives the existing
-/// `Q5h 75% 02h 0m` form; `bar` gives `Q5h ████░░░░ 75% 02h 0m` (gauge +
-/// pct + reset). Unknown names drop silently. When `pct` is `None` the cell
-/// is empty regardless of spec.
+/// Recognized widget names: `text`, `bar`.
+/// - `text` (or empty spec): `5h 75% (2h 0m)` — label + pct + reset.
+/// - `bar`: `5h ████████░░░░ 75% (2h 0m)` — adds a gauge before the pct.
+/// - `text+bar` / `bar+text`: same as `bar`.
 ///
-/// `label` is the leading text (`"Q5h "` or `"Q7d "`), so this hub serves
-/// both windows from one entry point.
+/// **pct text and reset annotation are unconditional** when their data is
+/// available — they're the irreducible "how full / how long until reset"
+/// information. The `bar` widget is purely additional visualization on top.
+/// This avoids the trap where opting into `bar` would drop the precise pct
+/// number, leaving the user squinting at the gauge to estimate fullness.
+///
+/// `label` is the leading text (`"5h "` or `"7d "`); the cluster row's cell
+/// position provides quota context, so the `Q` prefix is dropped (the v1
+/// flat layout uses a single `Q:` group prefix instead of repeating it per
+/// window).
+///
+/// Returns empty string when `pct` is `None` (no data — entire cell drops).
 pub fn render_quota_visual(
     spec: &str,
     label: &str,
@@ -590,90 +600,29 @@ pub fn render_quota_visual(
         Some(v) => v,
         None => return String::new(),
     };
-    let widgets: Vec<&str> = spec
-        .split('+')
-        .map(|w| w.trim())
-        .filter(|w| !w.is_empty())
-        .collect();
-    let want_bar = widgets.contains(&"bar");
-    let want_text = widgets.contains(&"text") || !want_bar;
+    let want_bar = spec.split('+').map(|w| w.trim()).any(|w| w == "bar");
 
-    let lbl = colorize(label, &p.structural, color_enabled);
-    let mut body = lbl;
+    let mut body = colorize(label, &p.structural, color_enabled);
     if want_bar {
         let bar = widgets::gauge::render(pct as u64, QUOTA_BAR_WIDTH, mode, p, color_enabled);
         body.push_str(&bar);
+        body.push_str(&colorize("  ", &p.structural, color_enabled));
     }
-    if want_text {
-        let pct_str = colorize(
-            &format!("{}{pct:.0}%", if want_bar { "  " } else { "" }),
-            p.color_for_quota_pct(pct),
-            color_enabled,
-        );
-        body.push_str(&pct_str);
-        if let Some(m) = reset_min {
-            let reset = colorize(
-                &format!(" {}", format_reset_duration(m)),
-                &p.structural,
-                color_enabled,
-            );
-            body.push_str(&reset);
-        }
-    }
-    body
-}
-
-/// Quota text cell — `Q5h 75% 02h 0m`. Returns empty if no five-hour data.
-pub fn quota_text_cell(quota: &QuotaMetrics, p: &ThemePalette, color_enabled: bool) -> String {
-    quota_text_cell_for(
-        "Q5h ",
-        quota.five_hour_pct,
-        quota.five_hour_reset_minutes,
-        p,
-        color_enabled,
-    )
-}
-
-/// Q7d sibling — same shape as `quota_text_cell` but driven by the seven-day
-/// window. Returns empty when CC didn't supply Q7d data (API users) or the
-/// user has `show_quota_seven_day = false`.
-pub fn quota_seven_day_cell(quota: &QuotaMetrics, p: &ThemePalette, color_enabled: bool) -> String {
-    quota_text_cell_for(
-        "Q7d ",
-        quota.seven_day_pct,
-        quota.seven_day_reset_minutes,
-        p,
-        color_enabled,
-    )
-}
-
-fn quota_text_cell_for(
-    label_text: &str,
-    pct: Option<f64>,
-    reset_min: Option<u64>,
-    p: &ThemePalette,
-    color_enabled: bool,
-) -> String {
-    let pct = match pct {
-        Some(v) => v,
-        None => return String::new(),
-    };
-    let label = colorize(label_text, &p.structural, color_enabled);
     let pct_str = colorize(
         &format!("{pct:.0}%"),
         p.color_for_quota_pct(pct),
         color_enabled,
     );
-    let reset_part = reset_min
-        .map(|m| {
-            colorize(
-                &format!(" {}", format_reset_duration(m)),
-                &p.structural,
-                color_enabled,
-            )
-        })
-        .unwrap_or_default();
-    format!("{label}{pct_str}{reset_part}")
+    body.push_str(&pct_str);
+    if let Some(m) = reset_min {
+        let reset = colorize(
+            &format!(" (resets {})", format_reset_duration(m)),
+            &p.structural,
+            color_enabled,
+        );
+        body.push_str(&reset);
+    }
+    body
 }
 
 /// Activity ticker: tools tape + completed counts + agents + todo summary —

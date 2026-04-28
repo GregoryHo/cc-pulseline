@@ -5,3 +5,6 @@ npm-publish/
 .npmrc
 *.tgz
 .claude/pulseline.toml
+
+# stray .claude/logs in arbitrary subdirs from interactive sessions
+**/.claude/logs/

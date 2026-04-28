@@ -223,7 +223,7 @@ fn v1_layouts_render_sparkline_when_context_visual_includes_it() {
 // ── Q7d renders in cockpit cluster + console quota row when toggle on ──
 
 #[test]
-fn cockpit_renders_q7d_alongside_q5h() {
+fn cockpit_renders_seven_day_alongside_five_hour() {
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::Cockpit, true, 140);
     cfg.show_quota = true;
@@ -232,14 +232,16 @@ fn cockpit_renders_q7d_alongside_q5h() {
     let lines = render_frame(&f, &cfg);
     let cluster = lines
         .iter()
-        .find(|l| l.contains("Q5h"))
+        .find(|l| l.contains("5h "))
         .expect("cluster with quota");
-    assert!(cluster.contains("Q5h"), "Q5h missing: {cluster:?}");
-    assert!(cluster.contains("Q7d"), "Q7d missing: {cluster:?}");
+    // Bare `5h ` / `7d ` labels (no `Q` prefix — the cluster-row position
+    // and reset annotation provide enough context).
+    assert!(cluster.contains("5h "), "5h missing: {cluster:?}");
+    assert!(cluster.contains("7d "), "7d missing: {cluster:?}");
 }
 
 #[test]
-fn console_renders_q7d_alongside_q5h() {
+fn console_renders_seven_day_alongside_five_hour() {
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
     cfg.show_quota = true;
@@ -247,8 +249,8 @@ fn console_renders_q7d_alongside_q5h() {
     cfg.show_quota_seven_day = true;
     let lines = render_frame(&f, &cfg);
     let blob = lines.join("\n");
-    assert!(blob.contains("Q5h"), "Q5h missing in console: {blob}");
-    assert!(blob.contains("Q7d"), "Q7d missing in console: {blob}");
+    assert!(blob.contains("5h "), "5h missing in console: {blob}");
+    assert!(blob.contains("7d "), "7d missing in console: {blob}");
 }
 
 // ── TOML rename: `[layout]` parses, `[pane]` no longer recognized ──
@@ -475,7 +477,7 @@ fn cockpit_with_quota_visual_bar_emits_gauge_chars() {
     cfg.show_quota_five_hour = true;
     cfg.quota_visual = "bar".to_string();
     let lines = render_frame(&f, &cfg);
-    let q5h = lines.iter().find(|l| l.contains("Q5h")).expect("Q5h cell");
+    let q5h = lines.iter().find(|l| l.contains("5h ")).expect("5h cell");
     assert!(
         q5h.contains('\u{2588}') || q5h.contains('\u{258F}'),
         "quota_visual = \"bar\" should emit gauge block chars: {q5h:?}"
@@ -485,17 +487,21 @@ fn cockpit_with_quota_visual_bar_emits_gauge_chars() {
 #[test]
 fn console_with_quota_visual_text_drops_gauge() {
     // Console's default quota_visual is "bar"; opting down to "text" should
-    // drop the gauge.
+    // drop the gauge. With battery-style gauges, the empty-cell glyph is
+    // also `█` — so we detect the gauge by *the structural-color empty
+    // cells* being present, not by any specific glyph. Easier proxy: the
+    // bar version contains a long run of block chars right after the label,
+    // the text version doesn't.
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
     cfg.show_quota = true;
     cfg.show_quota_five_hour = true;
     cfg.quota_visual = "text".to_string();
     let lines = render_frame(&f, &cfg);
-    let q5h = lines.iter().find(|l| l.contains("Q5h")).expect("Q5h cell");
-    let block_chars = ['\u{2588}', '\u{2589}', '\u{258F}', '\u{2591}'];
+    let q5h = lines.iter().find(|l| l.contains("5h ")).expect("5h cell");
+    // No `█` block chars at all under text-only spec.
     assert!(
-        !q5h.chars().any(|c| block_chars.contains(&c)),
+        !q5h.contains('\u{2588}'),
         "quota_visual = \"text\" should drop gauge: {q5h:?}"
     );
     assert!(q5h.contains("75%"), "should still show pct: {q5h:?}");

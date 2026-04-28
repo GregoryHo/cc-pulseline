@@ -99,7 +99,15 @@ fn strip_l2(
     }
 
     if width >= 110 && config.show_quota && config.show_quota_five_hour {
-        let q = shared::quota_text_cell(&frame.quota, p, color);
+        let q = shared::render_quota_visual(
+            config.effective_quota_visual(),
+            "5h ",
+            frame.quota.five_hour_pct,
+            frame.quota.five_hour_reset_minutes,
+            config.glyph_mode,
+            p,
+            color,
+        );
         if !q.is_empty() {
             parts.push(q);
         }

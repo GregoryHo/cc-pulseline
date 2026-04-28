@@ -150,7 +150,7 @@ fn cluster_row(
         if config.show_quota_five_hour {
             let q = shared::render_quota_visual(
                 quota_spec,
-                "Q5h ",
+                "5h ",
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
                 config.glyph_mode,
@@ -164,7 +164,7 @@ fn cluster_row(
         if config.show_quota_seven_day {
             let q = shared::render_quota_visual(
                 quota_spec,
-                "Q7d ",
+                "7d ",
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
                 config.glyph_mode,
@@ -286,7 +286,7 @@ mod tests {
         let lines = render(&f, &c, &c.palette.clone());
         let cluster = &lines[1]; // L1 identity, L2 cluster (no config row)
         assert!(
-            !cluster.contains("Q5h"),
+            !cluster.contains("5h "),
             "quota should be dropped at 110 cols: {cluster:?}"
         );
     }
@@ -306,7 +306,7 @@ mod tests {
         let lines = render(&f, &c, &c.palette.clone());
         let cluster = &lines[1];
         assert!(
-            cluster.contains("Q5h"),
+            cluster.contains("5h "),
             "quota should appear at >=120 cols: {cluster:?}"
         );
     }

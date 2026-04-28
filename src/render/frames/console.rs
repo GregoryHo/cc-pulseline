@@ -207,7 +207,7 @@ fn tok_cost_quota_row(
         if config.show_quota_five_hour {
             let q = shared::render_quota_visual(
                 quota_spec,
-                "Q5h  ",
+                "5h  ",
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
                 config.glyph_mode,
@@ -221,7 +221,7 @@ fn tok_cost_quota_row(
         if config.show_quota_seven_day {
             let q = shared::render_quota_visual(
                 quota_spec,
-                "Q7d  ",
+                "7d  ",
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
                 config.glyph_mode,
