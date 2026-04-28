@@ -15,14 +15,8 @@
 //!   `Required` priority. Consumed by both the activity row builder and
 //!   the tape widget; both then hand the cell to
 //!   `pack_with_separator(cells, available_width, sep, sep_w, color)`.
-//! - `format_recent_tool_inline(tool, mode, palette, color)` —
-//!   transitional convenience that emits a finished string without going
-//!   through the budgeter. Used by tape's detail mode pending Step 2 of
-//!   the cluster-layout cell migration; kept here so the brief-mode tape
-//!   and any other inline consumer can share one formatter without
-//!   pulling in cell machinery.
 //!
-//! Icon and colour conventions are identical across all three:
+//! Icon and colour conventions:
 //! - `glyph(ICON_TOOL, "T:")` — Nerd Font in Icon mode, literal `T:` in Ascii
 //! - `tool_blue` for prefix + name
 //! - `secondary` for target text
@@ -30,7 +24,7 @@
 
 use crate::config::GlyphMode;
 use crate::render::activity::cell::{Cell, CellBody, CellPriority};
-use crate::render::activity::truncate::{self, TruncationStrategy};
+use crate::render::activity::truncate::TruncationStrategy;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::sanitize_single_line;
 use crate::render::icons::{glyph, ICON_TOOL};
@@ -105,36 +99,6 @@ pub fn build_recent_tool_cell(
     }
 }
 
-/// Render one running-tool cell as a complete inline string (already
-/// colourised, target already truncated to its strategy's `ideal` width).
-///
-/// **Transitional**: this bypasses the row-width budgeter, so callers
-/// must guarantee the assembled row fits their pane (cluster layouts
-/// currently violate this on long Bash commands — see Step 2 of the
-/// cell migration). Brief-mode tape uses this safely because the cells
-/// are tiny; detail-mode tape exposes the bug. New callers should prefer
-/// `build_recent_tool_cell` + `pack_with_separator`.
-pub fn format_recent_tool_inline(
-    tool: &ToolSummary,
-    mode: GlyphMode,
-    palette: &ThemePalette,
-    color_enabled: bool,
-) -> String {
-    let prefix_glyph = glyph(mode, ICON_TOOL, "T:");
-    let prefix = colorize(&prefix_glyph, palette.tool_blue(), color_enabled);
-    let name = colorize(&tool.name, palette.tool_blue(), color_enabled);
-    match &tool.target {
-        Some(raw) => {
-            let safe = sanitize_single_line(raw);
-            let (strategy, ideal) = target_strategy_for(&tool.name);
-            let truncated = truncate::apply(strategy, &safe, ideal);
-            let target = colorize(&truncated, &palette.secondary, color_enabled);
-            format!("{prefix}{name}: {target}")
-        }
-        None => format!("{prefix}{name}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,47 +162,5 @@ mod tests {
         );
         assert!(!body.raw.contains('\r'));
         assert!(!body.raw.contains('\t'));
-    }
-
-    #[test]
-    fn inline_with_target_uses_colon_separator() {
-        let p = aurora_marker_palette();
-        let s =
-            format_recent_tool_inline(&t("Read", Some("src/main.rs")), GlyphMode::Ascii, &p, false);
-        assert!(s.contains("T:"), "ascii prefix expected: {s:?}");
-        assert!(
-            s.contains("Read: src/main.rs"),
-            "name + sep + target: {s:?}"
-        );
-    }
-
-    #[test]
-    fn inline_no_target_drops_separator_and_target() {
-        let p = aurora_marker_palette();
-        let s = format_recent_tool_inline(&t("EnterPlanMode", None), GlyphMode::Ascii, &p, false);
-        assert!(
-            s.ends_with("EnterPlanMode"),
-            "no trailing colon/target: {s:?}"
-        );
-        assert!(!s.contains(": "));
-    }
-
-    #[test]
-    fn inline_long_bash_target_uses_keep_head_truncation() {
-        let p = aurora_marker_palette();
-        let cmd = "cargo test --release --no-default-features --features experimental_quota";
-        let s = format_recent_tool_inline(&t("Bash", Some(cmd)), GlyphMode::Ascii, &p, false);
-        assert!(s.contains("Bash: cargo test"), "verb survived: {s:?}");
-        assert!(s.contains('…'), "long tail truncated: {s:?}");
-    }
-
-    #[test]
-    fn inline_multi_line_target_collapsed_to_single_line() {
-        let p = aurora_marker_palette();
-        let multi = "rg --multiline\\\n  --type rust\\\n  'pattern' src/";
-        let s = format_recent_tool_inline(&t("Bash", Some(multi)), GlyphMode::Ascii, &p, false);
-        assert!(!s.contains('\n'), "leak newline: {s:?}");
-        assert!(!s.contains('\r'), "leak CR: {s:?}");
-        assert!(!s.contains('\t'), "leak tab: {s:?}");
     }
 }

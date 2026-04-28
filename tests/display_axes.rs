@@ -535,8 +535,9 @@ fn cockpit_with_tools_visual_tape_brief_omits_target() {
 #[test]
 fn cockpit_with_tools_visual_tape_detail_shows_target() {
     // `tape+detail` spec — opt-in detailed format. Per-tool layout
-    // matches the flat-row `list` widget exactly (shared formatter via
-    // `widgets::recent_tool::format_recent_tool_inline`).
+    // matches the flat-row `list` widget exactly (shared cell builder
+    // `widgets::recent_tool::build_recent_tool_cell`, packed by the
+    // dispatch hub against the cluster pane width).
     use cc_pulseline::types::ToolSummary;
     let mut f = frame_with_agent_and_quota();
     f.tools = vec![ToolSummary {
@@ -552,6 +553,63 @@ fn cockpit_with_tools_visual_tape_detail_shows_target() {
     assert!(
         blob.contains("Read: src/main.rs"),
         "tape+detail should show name + ': ' + target: {blob}"
+    );
+}
+
+#[test]
+fn console_with_tape_detail_no_row_overflows_pane_width() {
+    // Regression test for the multi-line-row bug in the cluster layouts.
+    //
+    // Pre-fix: `tape::render` produced a finished string with each cell
+    // truncated to a fixed `ideal=40` regardless of pane width. Two long
+    // Bash cells could easily exceed Console's `inner` budget. Console's
+    // `framed()` only pads (saturating to 0) — it does NOT truncate — so
+    // the right `│` border ended up past the user's pane width and CC's
+    // statusline parser wrapped the row into multiple visual lines,
+    // shifting everything below off-screen.
+    //
+    // Post-fix: tape returns `Vec<Cell>`, the dispatch hub passes
+    // `inner.saturating_sub(2)` to `pack_with_separator`, and detail
+    // cells (Required, min_width=8) compress their target to fit. Every
+    // returned line must be visually <= the configured terminal width.
+    use cc_pulseline::render::color::visible_width;
+    use cc_pulseline::types::ToolSummary;
+    let mut f = frame_with_agent_and_quota();
+    f.tools = vec![
+        ToolSummary {
+            id: "1".to_string(),
+            name: "Bash".to_string(),
+            target: Some(
+                "cargo test --release --no-default-features --features experimental_quota"
+                    .to_string(),
+            ),
+        },
+        ToolSummary {
+            id: "2".to_string(),
+            name: "Bash".to_string(),
+            target: Some(
+                "sed -i '' 's/^name = \".*\"$/name = \"cards\"/' .claude/pulseline.toml"
+                    .to_string(),
+            ),
+        },
+    ];
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.tools_visual = "tape+detail".to_string();
+    let lines = render_frame(&f, &cfg);
+    let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
+    for line in &lines {
+        let w = visible_width(line);
+        assert!(
+            w <= term_w,
+            "console line wider than terminal_width={term_w}: w={w}, line={line:?}"
+        );
+    }
+    // Sanity: at least one line still mentions the verb so we know the
+    // tape rendered (didn't get dropped wholesale by the budgeter).
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("Bash"),
+        "tape detail row should survive width pressure: {blob}"
     );
 }
 
