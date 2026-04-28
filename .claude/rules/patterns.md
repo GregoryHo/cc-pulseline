@@ -47,6 +47,45 @@ Touch these places in order:
 
 All 7 places are in `config.rs` + `main.rs`. Miss one and the field silently falls back to default.
 
+## Visual Dispatch Hub Pattern
+
+Widget-bearing segments (context, cost, quota, tools) compose via a `+`-joined visual spec parsed by a per-segment dispatch hub. Layouts call the hub with their preferred sizing; the hub picks which widgets to render and joins their outputs.
+
+```
+RenderConfig.context_visual ("gauge+sparkline")
+  → frames::shared::render_context_visual(spec, …)
+    → for each "+" component:
+        match name {
+          "gauge" => widgets::gauge::render(...)
+          "sparkline" => widgets::sparkline::render(...)
+          "text" => ctx_text_cell(...)
+          _ => "" // unknown → silently drop, forward-compat
+        }
+    → join non-empty cells with " "
+```
+
+### Why dispatch via spec strings (not function pointers / trait objects)
+
+- Config carries strings end-to-end — TOML, runtime, tests all speak the same vocabulary.
+- Unknown widget names drop silently → an older binary parsing a newer config doesn't crash.
+- Dispatch is one match arm per widget; the widget code stays free of trait machinery.
+
+### Iron rules
+
+- **Layouts never call `widgets::*::render` directly** — always go through the hub. Direct calls bypass user override capability for that segment.
+- **Layout-specific decoration** (e.g. console's `/ <total>` after CTX) is composed *around* the hub output, not inside any widget.
+- **Width budgeting** stays in the layout. The layout passes its preferred sizing (e.g. `FULL_GAUGE_WIDTH`) into the hub; the hub passes it through to widgets unchanged.
+- **Layout-internal width gates** (e.g. cockpit drops sparkline below 100 cols) act on the spec *before* dispatch, not by branching on widget output.
+
+### Adding a hub for a new segment
+
+1. Add `*_visual: String` field via Config Layer Pattern (7 places).
+2. Add `default_visuals_for` entry per layout in `frames/mod.rs`.
+3. Add `effective_*_visual()` helper on `RenderConfig`.
+4. Implement `render_<segment>_visual` in `frames/shared.rs`.
+5. Refactor every existing call site to dispatch through the hub.
+6. Add a composability test: pick one layout, override visual, assert output reflects the override. Add an Ascii catch-net assertion if the segment has icon-only widgets.
+
 ## Session State Pattern
 
 - `PulseLineRunner` holds `HashMap<String, SessionState>` keyed by `session_id|transcript_path|project_path`

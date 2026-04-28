@@ -110,10 +110,11 @@ Persists `SessionState` across process invocations:
 
 - Glyph mode (Nerd Font icons vs ASCII)
 - Color enable/disable
-- Line caps (`max_tool_lines`, `max_agent_lines`, `tools_per_line`)
+- Line caps (`max_tool_lines`, `max_agent_lines`, `max_completed_lines`)
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
+- Per-segment visual specs (`context_visual`, `cost_visual`, `quota_visual`, `tools_visual`) — see `docs/layouts.md`
 
 Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pulseline.toml` (project override).
 
@@ -129,10 +130,22 @@ Formats the `RenderFrame` into output lines:
 - **L4b**: Running/recent tools with targets (volatile)
 - **L5+**: Activity (agents, todos -- only when active)
 
+Dispatches to instrument-cluster layouts (`Cockpit` / `Console` / `Flightstrip` / `Auto`) which own their full pipeline; flat layouts fall through to v1-style line assembly.
+
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
 1. Drop activity lines
 2. Compress L2 separators
 3. Truncate core lines
+
+### `render/pane.rs` + `render/frames/` -- Layouts
+
+`pane.rs::LayoutStyle` enumerates the 9 layouts. `apply_pane()` decorates flat-layout output with frame chrome (zones rule, grid divider, cards/sections borders). `frames/` holds one file per layout (`cockpit.rs`, `console.rs`, `flightstrip.rs`, `auto.rs`, `cards.rs`, `sections.rs`, `grid.rs`, `zones.rs`) plus `shared.rs` which carries widget call helpers, the per-layout default visuals table (`default_visuals_for`), and the four dispatch hubs (`render_context_visual`, `render_cost_visual`, `render_quota_visual`, `render_tools_visual_inline`) that map `*_visual` config strings onto widget compositions.
+
+### `render/widgets/` -- Atomic Widgets
+
+`gauge` (block / `#`-`-`), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width.
+
+See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
 ## Transcript Three-Path Dispatcher
 
@@ -195,7 +208,7 @@ Backward compatibility with older transcript formats and test fixtures:
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:30.0k/40.0k | $3.50 ($3.50/h)`
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)`
-- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, wraps at `tools_per_line`)
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, capped by `max_completed_lines` rows)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`
 

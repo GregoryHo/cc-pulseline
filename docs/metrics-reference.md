@@ -251,7 +251,7 @@ Capped by `max_completed_tools` config value.
 
 **Hybrid scoring**: Tools ranked by `score = count + recency_bonus` where `recency_bonus = 3.0 × max(0, 1 − age_ms / 120,000)`. Recently used tools (within 2 minutes) get up to 3 bonus points, floating up even with low counts. After decay, pure count dominates. Ties broken alphabetically.
 
-**Multi-line wrapping**: Completed tools wrap at `tools_per_line` (default: 6) using chunked rendering.
+**Multi-line wrapping**: Completed tools span up to `max_completed_lines` rows (default: 2). Overflow surfaces as `… + N more tools` at the end of the last row.
 
 ### Running/Recent Tools (L4b)
 

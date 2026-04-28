@@ -107,7 +107,7 @@ Provides unique icon colors for each L2 metric, enabling fast visual scanning. C
 ### Strata Tier -- Two-Tier Chrome Split (state vs activity)
 
 The strata tier tints the `|` separator on a per-row basis when
-`pane.tonal_strata = true` (default). Two values per theme variant:
+`layout.tonal_strata = true` (default). Two values per theme variant:
 
 | Field | Tokyo Night Dark | Tokyo Night Light | Use |
 |-------|------------------|-------------------|-----|

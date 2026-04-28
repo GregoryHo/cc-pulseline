@@ -135,7 +135,8 @@ show_cost = true
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
-tools_per_line = 6      # completed tools per line before wrapping
+max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
+# visual = "tape"       # optional: "list" (per-row) or "tape" (▶ Read · ▶ Bash). See docs/layouts.md.
 
 [segments.agents]
 enabled = true
@@ -145,6 +146,36 @@ max_lines = 2
 enabled = true
 max_lines = 2
 ```
+
+### Layouts & Visual Composition
+
+`[layout].name` picks how rows are arranged and decorated. Nine layouts ship: `none` (flat default), `zones`, `grid`, `cards`, `sections` (chrome decorators on flat rows), and `cockpit`, `console`, `flightstrip`, `auto` (instrument-cluster layouts that pack widget cells like gauges and sparklines).
+
+Each layout asserts a tasteful default for the four widget-bearing segments. The user can override per segment via `*_visual` strings — same widget, any layout:
+
+```toml
+# Cockpit, but I prefer plain text — keeps the 3-row structure and
+# activity ticker, drops gauge/sparkline/arc.
+[layout]
+name = "cockpit"
+[segments.budget]
+context_visual = "text"
+cost_visual = "text"
+
+# Cards frame, but with a gauge inside the Budget card.
+[layout]
+name = "cards"
+[segments.budget]
+context_visual = "gauge"
+
+# Console without quota gauge — text quota only.
+[layout]
+name = "console"
+[segments.quota]
+visual = "text"
+```
+
+Recognized widgets: `gauge`, `sparkline`, `text` for context; `text`, `arc` for cost; `text`, `bar` for quota; `tape`, `list` for tools. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
 
 ## CLI Usage
 
