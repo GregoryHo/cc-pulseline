@@ -8,10 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::format_agent_elapsed;
-use crate::render::icons::{
-    glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO, ICON_TOOL,
-};
-use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary, ToolSummary};
+use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO};
+#[cfg(test)]
+use crate::types::ToolSummary;
+use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
 use super::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
 use super::budget::pack_with_separator;
@@ -88,25 +88,11 @@ pub fn build_activity_rows(
     rows
 }
 
-/// Per-tool truncation strategy + ideal target width. Single source of
-/// truth that replaced the per-tool `truncate_str(_, N)` constants
-/// scattered across `providers/transcript.rs::extract_target`.
-pub fn target_strategy_for(tool_name: &str) -> (TruncationStrategy, usize) {
-    use TruncationStrategy::*;
-    match tool_name {
-        "Read" | "Write" | "Edit" | "NotebookEdit" => (KeepTail, 40),
-        // KeepHead so the verb (`grep`, `cargo`, `sed`, …) is always at the
-        // start of the rendered cell. The previous CommandSmart prioritised
-        // regex payloads over the verb, producing rows that were impossible
-        // to match to a command at a glance.
-        "Bash" | "PowerShell" => (KeepHead, 40),
-        "Glob" | "Grep" => (KeepHead, 30),
-        "WebFetch" => (KeepMiddle, 40),
-        "WebSearch" | "Skill" | "Advisor" | "MCPSearch" | "AskUserQuestion" => (Sentence, 50),
-        "SendMessage" | "LSP" | "Monitor" | "PushNotification" => (KeepHead, 30),
-        _ => (KeepHead, 30),
-    }
-}
+// `target_strategy_for` and `build_recent_tool_cell` moved to
+// `crate::render::widgets::recent_tool` so cluster-layout consumers
+// (tape widget) can share the same per-tool builder. Re-exported here
+// to keep existing import paths working during the migration.
+pub use crate::render::widgets::recent_tool::{build_recent_tool_cell, target_strategy_for};
 
 // ── Shared row helpers ────────────────────────────────────────────────
 
@@ -242,36 +228,6 @@ fn build_completed_tool_cell(c: &CompletedToolCount, p: &ThemePalette, color: bo
     // Visible width: ✓ + space + name + " ×" + digits
     let head_w = 1 + 1 + c.name.chars().count() + 2 + count_digits(c.count as u64);
     Cell::label(head, head_w, CellPriority::Optional)
-}
-
-fn build_recent_tool_cell(t: &ToolSummary, mode: GlyphMode, p: &ThemePalette, color: bool) -> Cell {
-    let prefix_glyph = glyph(mode, ICON_TOOL, "T:");
-    let prefix = colorize(&prefix_glyph, p.tool_blue(), color);
-    let name = colorize(&t.name, p.tool_blue(), color);
-    let head = match &t.target {
-        Some(_) => format!("{prefix}{name}: "),
-        None => format!("{prefix}{name}"),
-    };
-    let head_w = visible_width(&prefix_glyph)
-        + t.name.chars().count()
-        + if t.target.is_some() { 2 } else { 0 };
-    let body = t.target.as_ref().map(|raw| {
-        let (truncator, ideal) = target_strategy_for(&t.name);
-        CellBody {
-            raw: raw.clone(),
-            truncator,
-            min_width: 8,
-            ideal_width: ideal,
-            color: p.secondary.clone(),
-        }
-    });
-    Cell {
-        head,
-        head_w,
-        body,
-        tail: vec![],
-        priority: CellPriority::Required,
-    }
 }
 
 fn build_agent_rows(
