@@ -17,8 +17,10 @@ use super::budget::pack_with_separator;
 use super::cell::{Cell, CellBody, CellPriority, TailFragment};
 use super::truncate::TruncationStrategy;
 
-const ROW_SEPARATOR: &str = " | ";
-const ROW_SEPARATOR_W: usize = 3;
+/// Visible separator between cells in an activity row. Cluster layouts
+/// reuse this so flat-row and cluster paths render identical separators.
+pub const ROW_SEPARATOR: &str = " | ";
+pub const ROW_SEPARATOR_W: usize = 3;
 /// Sub-item separator inside a heterogeneous parallel group cell. Space-padded
 /// `+` reads as "and"; visually distinct from the row-level ` | ` (point/cross
 /// vs vertical bar) and in-text `+` (e.g. `C++`) almost never carries spaces.

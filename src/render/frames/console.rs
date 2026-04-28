@@ -292,24 +292,14 @@ fn agent_todo_row(
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_agents && !frame.agents.is_empty() {
-        // Reuse the flat-row builder so cluster agents inherit parallel
-        // grouping (`message_id` buckets), description bodies, and the
-        // budgeter's width-aware truncation. Without this the cluster
-        // path used to overflow the framed pane on long descriptions
-        // and showed only `agent_type` (no description, no parallel).
-        let cells = crate::render::activity::builder::build_agent_cells(&frame.agents, config, p);
-        if !cells.is_empty() {
-            let sep = colorize(" | ", &p.separator, color);
-            let row = crate::render::activity::budget::pack_with_separator(
-                &cells,
-                inner.saturating_sub(FRAMED_CONTENT_INSET),
-                &sep,
-                3,
-                color,
-            );
-            if !row.is_empty() {
-                parts.push(row);
-            }
+        let row = shared::pack_agent_cells(
+            &frame.agents,
+            config,
+            p,
+            inner.saturating_sub(FRAMED_CONTENT_INSET),
+        );
+        if !row.is_empty() {
+            parts.push(row);
         }
     }
 

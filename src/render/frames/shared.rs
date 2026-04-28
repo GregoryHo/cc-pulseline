@@ -14,6 +14,7 @@ use std::ops::Range;
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::activity::budget::pack_with_separator;
+use crate::render::activity::builder::{build_agent_cells, ROW_SEPARATOR, ROW_SEPARATOR_W};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration, format_speed};
 use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING};
@@ -680,16 +681,9 @@ pub fn activity_ticker(
     }
 
     if config.show_agents && !frame.agents.is_empty() {
-        // Reuse the flat-row builder so cluster agents inherit parallel
-        // grouping (`message_id` buckets), description bodies, and the
-        // budgeter's width-aware truncation.
-        let cells = crate::render::activity::builder::build_agent_cells(&frame.agents, config, p);
-        if !cells.is_empty() {
-            let sep = colorize(" | ", &p.separator, color);
-            let row = pack_with_separator(&cells, width, &sep, 3, color);
-            if !row.is_empty() {
-                parts.push(row);
-            }
+        let row = pack_agent_cells(&frame.agents, config, p, width);
+        if !row.is_empty() {
+            parts.push(row);
         }
     }
 
@@ -700,6 +694,27 @@ pub fn activity_ticker(
     }
 
     parts.join("   ")
+}
+
+/// Build the cluster agent row from `agents`, packed against `width`.
+///
+/// Shared between Cockpit/Flightstrip's `activity_ticker` and Console's
+/// `agent_todo_row`. Pulls cells from the flat-row builder so cluster
+/// agents inherit parallel grouping (`message_id` buckets), description
+/// bodies, and the budgeter's width-aware truncation. Returns an empty
+/// string when no cells survive — caller skips the segment.
+pub fn pack_agent_cells(
+    agents: &[crate::types::AgentSummary],
+    config: &RenderConfig,
+    p: &ThemePalette,
+    width: usize,
+) -> String {
+    let cells = build_agent_cells(agents, config, p);
+    if cells.is_empty() {
+        return String::new();
+    }
+    let sep = colorize(ROW_SEPARATOR, &p.separator, config.color_enabled);
+    pack_with_separator(&cells, width, &sep, ROW_SEPARATOR_W, config.color_enabled)
 }
 
 fn format_completed_summary(
