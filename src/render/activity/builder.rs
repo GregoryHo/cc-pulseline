@@ -237,6 +237,32 @@ fn build_completed_tool_cell(c: &CompletedToolCount, p: &ThemePalette, color: bo
 /// budgeter: active groups → `Required`, completed → `Optional` so a
 /// still-running task is never dropped to surface a finished one.
 ///
+/// Parsed `agents_visual` spec — selects which optional pieces appear in
+/// the cell. The agent name (type or first description line) is always
+/// rendered; this struct only gates the opt-in pieces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentVisualSpec {
+    pub show_description: bool,
+    pub show_model: bool,
+}
+
+impl AgentVisualSpec {
+    /// Parse a `+`-joined spec like `"name+description+model"`. Unknown
+    /// atoms are ignored (forward-compat). `name` is treated as a no-op
+    /// because the name is always rendered.
+    pub fn parse(spec: &str) -> Self {
+        let mut s = Self::default();
+        for atom in spec.split('+').map(str::trim).filter(|a| !a.is_empty()) {
+            match atom {
+                "description" => s.show_description = true,
+                "model" => s.show_model = true,
+                _ => {}
+            }
+        }
+        s
+    }
+}
+
 /// Caller decides packing: flat-row puts each cell on its own row;
 /// cluster layouts pack them into one row via `pack_with_separator`.
 pub fn build_agent_cells(
@@ -245,14 +271,15 @@ pub fn build_agent_cells(
     p: &ThemePalette,
 ) -> Vec<Cell> {
     let groups = classify(agents);
+    let spec = AgentVisualSpec::parse(config.effective_agents_visual());
     let mut active: Vec<Cell> = Vec::new();
     let mut completed: Vec<Cell> = Vec::new();
     for group in &groups {
         let is_active = group_has_active(group);
         let mut cell = match group {
-            AgentGroup::Single(a) => build_agent_single_cell(a, config, p),
-            AgentGroup::Homogeneous(g) => build_agent_homogeneous_cell(g, config, p),
-            AgentGroup::Heterogeneous(g) => build_agent_heterogeneous_cell(g, config, p),
+            AgentGroup::Single(a) => build_agent_single_cell(a, config, p, spec),
+            AgentGroup::Homogeneous(g) => build_agent_homogeneous_cell(g, config, p, spec),
+            AgentGroup::Heterogeneous(g) => build_agent_heterogeneous_cell(g, config, p, spec),
         };
         cell.priority = if is_active {
             CellPriority::Required
@@ -340,7 +367,12 @@ fn group_has_active(g: &AgentGroup<'_>) -> bool {
     }
 }
 
-fn build_agent_single_cell(a: &AgentSummary, config: &RenderConfig, p: &ThemePalette) -> Cell {
+fn build_agent_single_cell(
+    a: &AgentSummary,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    spec: AgentVisualSpec,
+) -> Cell {
     let color = config.color_enabled;
     let mode = config.glyph_mode;
     let completed = a.is_completed();
@@ -360,41 +392,64 @@ fn build_agent_single_cell(a: &AgentSummary, config: &RenderConfig, p: &ThemePal
     };
     let prefix = colorize(&prefix_glyph, accent, color);
 
-    let head = match &a.agent_type {
-        Some(t) => {
-            let type_str = colorize(t, accent, color);
+    let raw_desc = first_desc_line(a).to_string();
+    // When the user hides description AND the agent has no `agent_type`,
+    // the description becomes the name (otherwise the cell would show
+    // just an icon). Pre-promote it into the head as the display name.
+    let name_in_head: Option<String> = match (&a.agent_type, spec.show_description) {
+        (Some(_), _) | (None, true) => None,
+        (None, false) if !raw_desc.is_empty() => Some(raw_desc.clone()),
+        (None, false) => None,
+    };
+
+    let (head, head_w) = if let Some(t) = &a.agent_type {
+        let trailing_colon = spec.show_description && !raw_desc.is_empty();
+        let type_str = colorize(t, accent, color);
+        let head = if trailing_colon {
             let colon = colorize(": ", accent, color);
             format!("{prefix}{type_str}{colon}")
-        }
-        None => prefix.clone(),
-    };
-    let type_w = a
-        .agent_type
-        .as_ref()
-        .map(|t| t.chars().count() + 2)
-        .unwrap_or(0);
-    let head_w = visible_width(&prefix_glyph) + type_w;
-
-    let raw_desc = first_desc_line(a).to_string();
-    let body = if raw_desc.is_empty() {
-        None
-    } else {
-        let body_color = if a.agent_type.is_some() {
-            p.secondary.clone()
         } else {
-            accent.to_string()
+            format!("{prefix}{type_str}")
         };
+        let head_w =
+            visible_width(&prefix_glyph) + t.chars().count() + if trailing_colon { 2 } else { 0 };
+        (head, head_w)
+    } else if let Some(name) = name_in_head.as_ref() {
+        let name_str = colorize(name, accent, color);
+        (
+            format!("{prefix}{name_str}"),
+            visible_width(&prefix_glyph) + name.chars().count(),
+        )
+    } else {
+        (prefix.clone(), visible_width(&prefix_glyph))
+    };
+
+    let body = if spec.show_description && a.agent_type.is_some() && !raw_desc.is_empty() {
         Some(CellBody {
             raw: raw_desc,
             truncator: TruncationStrategy::Sentence,
             min_width: 12,
             ideal_width: 80,
-            color: body_color,
+            color: p.secondary.clone(),
         })
+    } else if spec.show_description && a.agent_type.is_none() && !raw_desc.is_empty() {
+        // No type → description is BOTH the name and the body. Keep the
+        // accent colour so it reads as the name not a body annotation.
+        Some(CellBody {
+            raw: raw_desc,
+            truncator: TruncationStrategy::Sentence,
+            min_width: 12,
+            ideal_width: 80,
+            color: accent.to_string(),
+        })
+    } else {
+        None
     };
 
     let mut tail: Vec<TailFragment> = Vec::new();
-    tail.extend(model_slack_tail(&a.model, p, color));
+    if spec.show_model {
+        tail.extend(model_slack_tail(&a.model, p, color));
+    }
     if completed && mode == GlyphMode::Ascii {
         tail.push(TailFragment::Slack {
             text: colorize(" [done]", &p.structural, color),
@@ -419,28 +474,20 @@ fn build_agent_homogeneous_cell(
     group: &[&AgentSummary],
     config: &RenderConfig,
     p: &ThemePalette,
+    spec: AgentVisualSpec,
 ) -> Cell {
     let color = config.color_enabled;
     let mode = config.glyph_mode;
     let n = group.len();
     let agent_type = group[0].agent_type.as_deref().unwrap_or("agent");
-    // Mirror the Single-agent contract: when every member of the batch
-    // has a `completed_at`, switch to the done glyph + completed_check
-    // accent. A partially-finished batch stays in the running aesthetic
-    // because there's still work in flight.
     let all_completed = group.iter().all(|a| a.is_completed());
 
-    // Layout: `🤖 type ×N [<descriptions joined by ` + `>] (avg <t>)`
-    // The bracket pair marks the type-bucket — same visual idiom the
-    // heterogeneous cell uses for inner buckets, applied here at the cell
-    // level since the entire body shares one type. The closing `]` lives
-    // in `tail` as a Pinned fragment so it survives body truncation.
     let descriptions: Vec<String> = group
         .iter()
         .map(|a| first_desc_line(a).to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    let has_body = !descriptions.is_empty();
+    let has_body = spec.show_description && !descriptions.is_empty();
 
     let prefix_glyph = if all_completed {
         match mode {
@@ -463,8 +510,9 @@ fn build_agent_homogeneous_cell(
     let head = format!("{prefix}{type_str}{count_str}{bracket_open}");
     let head_w = visible_width(&prefix_glyph)
         + agent_type.chars().count()
-        + 2 + count_digits(n as u64)             // " ×N"
-        + bracket_open_raw.chars().count(); // " [" or empty
+        + 2
+        + count_digits(n as u64)
+        + bracket_open_raw.chars().count();
 
     let body = if has_body {
         Some(CellBody {
@@ -485,7 +533,9 @@ fn build_agent_homogeneous_cell(
             width: 1,
         });
     }
-    tail.extend(model_slack_tail(&group[0].model, p, color));
+    if spec.show_model {
+        tail.extend(model_slack_tail(&group[0].model, p, color));
+    }
     if let Some(avg_ms) = avg_elapsed_ms(group) {
         let avg = format_agent_elapsed(avg_ms / 1000);
         tail.push(parens_pinned_tail(&format!("avg {avg}"), p, color));
@@ -504,6 +554,7 @@ fn build_agent_heterogeneous_cell(
     group: &[&AgentSummary],
     config: &RenderConfig,
     p: &ThemePalette,
+    spec: AgentVisualSpec,
 ) -> Cell {
     let color = config.color_enabled;
     let mode = config.glyph_mode;
@@ -544,16 +595,16 @@ fn build_agent_heterogeneous_cell(
         + avg_part.chars().count()
         + 2; // ": "
 
-    // Body: bucket by `agent_type` so type-runs collapse to `Type ×N [a + b]`
-    // instead of repeating the type prefix on every member. When every type
-    // is unique the bucket size is 1 and the format degrades cleanly to
-    // `Type: desc`. The single sub-item separator (` + `) is reused at both
-    // levels — brackets disambiguate.
+    // Body: bucket by `agent_type`. With description shown, type-runs
+    // collapse to `Type ×N [a + b]`; without, they collapse to `Type ×N`
+    // so the user still sees which types are running in parallel.
     let sub_items: Vec<String> = bucket_by_type(group)
         .into_iter()
-        .map(|(t, descs)| match descs.len() {
-            1 => format!("{t}: {}", descs[0]),
-            n => format!("{t} \u{00D7}{n} [{}]", descs.join(GROUP_SUBITEM_SEPARATOR)),
+        .map(|(t, descs)| match (spec.show_description, descs.len()) {
+            (true, 1) => format!("{t}: {}", descs[0]),
+            (true, n) => format!("{t} \u{00D7}{n} [{}]", descs.join(GROUP_SUBITEM_SEPARATOR)),
+            (false, 1) => t.to_string(),
+            (false, n) => format!("{t} \u{00D7}{n}"),
         })
         .collect();
     let body_raw = sub_items.join(GROUP_SUBITEM_SEPARATOR);

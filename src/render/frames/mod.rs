@@ -33,6 +33,10 @@ pub struct SegmentVisualDefaults {
     pub cost_visual: &'static str,
     pub quota_visual: &'static str,
     pub tools_visual: &'static str,
+    /// Agent visual spec — `+`-joined atoms `description`, `model`. The
+    /// agent name is always rendered; `description` adds the body line
+    /// and `model` adds a `[haiku]`-style slack tail.
+    pub agents_visual: &'static str,
 }
 
 /// Per-layout default visual specs.
@@ -50,6 +54,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             cost_visual: "text+arc",
             quota_visual: "text",
             tools_visual: "tape",
+            agents_visual: "name+description+model",
         },
         LayoutStyle::Console => SegmentVisualDefaults {
             context_visual: "gauge+sparkline",
@@ -63,12 +68,14 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             //     [segments.tools]
             //     visual = "tape+detail"
             tools_visual: "tape",
+            agents_visual: "name+description+model",
         },
         LayoutStyle::Flightstrip => SegmentVisualDefaults {
             context_visual: "gauge",
             cost_visual: "text",
             quota_visual: "text",
             tools_visual: "tape",
+            agents_visual: "name+description",
         },
         // `auto` resolves to one of the three above per width; pick the
         // mid-width (cockpit) defaults so config preview matches what the
@@ -78,6 +85,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             cost_visual: "text+arc",
             quota_visual: "text",
             tools_visual: "tape",
+            agents_visual: "name+description+model",
         },
         // Flat layouts: text / list. The widget call sites still hardcode
         // these forms — the visual fields are forward-compat for when those
@@ -91,6 +99,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             cost_visual: "text",
             quota_visual: "text",
             tools_visual: "list",
+            agents_visual: "name+description+model",
         },
     }
 }

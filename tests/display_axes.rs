@@ -905,3 +905,58 @@ fn console_agents_wrap_to_multiple_rows_when_overflowing_one() {
         agent_rows.len()
     );
 }
+
+#[test]
+fn console_agents_visual_name_only_drops_description_and_model() {
+    // `agents_visual = "name"` → only the agent type renders. No
+    // description body, no `[model]` slack tail.
+    let mut f = frame_with_agent_and_quota();
+    f.agents.clear();
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "Investigate transcript leaks".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: Some(0),
+        model: Some("haiku".to_string()),
+        completed_at: None,
+        message_id: None,
+    });
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.agents_visual = "name".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    assert!(blob.contains("Explore"), "name still rendered: {blob}");
+    assert!(
+        !blob.contains("Investigate transcript leaks"),
+        "description must be hidden: {blob}"
+    );
+    assert!(
+        !blob.contains("[haiku]"),
+        "model tag must be hidden: {blob}"
+    );
+}
+
+#[test]
+fn console_agents_visual_name_and_model_shows_model_tag_no_description() {
+    let mut f = frame_with_agent_and_quota();
+    f.agents.clear();
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "Investigate transcript leaks".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: Some(0),
+        model: Some("haiku".to_string()),
+        completed_at: None,
+        message_id: None,
+    });
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
+    cfg.agents_visual = "name+model".to_string();
+    let lines = render_frame(&f, &cfg);
+    let blob = lines.join("\n");
+    assert!(blob.contains("Explore"));
+    assert!(blob.contains("[haiku]"), "model tag should show: {blob}");
+    assert!(
+        !blob.contains("Investigate transcript leaks"),
+        "description must be hidden when only `name+model`: {blob}"
+    );
+}

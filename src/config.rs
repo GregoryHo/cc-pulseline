@@ -199,7 +199,7 @@ pub struct SegmentsConfig {
     #[serde(default)]
     pub tools: ToolSegmentConfig,
     #[serde(default)]
-    pub agents: SegmentToggle,
+    pub agents: AgentSegmentConfig,
     #[serde(default)]
     pub todo: SegmentToggle,
 }
@@ -370,6 +370,30 @@ impl Default for ToolSegmentConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct AgentSegmentConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_max_lines")]
+    pub max_lines: usize,
+    /// Agent visual spec. Recognized atoms (`+`-joined): `description`,
+    /// `model`. The agent's name (type or first description line) is
+    /// always rendered. Defers to the layout default when empty (see
+    /// `frames::default_visuals_for`).
+    #[serde(default)]
+    pub visual: String,
+}
+
+impl Default for AgentSegmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_lines: 2,
+            visual: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SegmentToggle {
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -483,6 +507,13 @@ visual = ""
 [segments.agents]
 enabled = true
 max_lines = 2
+# visual: `+`-joined atoms — `description`, `model`. The agent name
+# (type or first-line description) is always rendered.
+#   visual = "name"               # name + ×N (parallel grouping kept)
+#   visual = "name+description"   # name + body description
+#   visual = "name+model"         # name + [haiku] tag
+#   visual = "name+description+model"  # everything
+visual = ""
 
 [segments.todo]
 enabled = true
@@ -556,7 +587,7 @@ pub struct ProjectSegmentsOverride {
     pub budget: Option<ProjectBudgetOverride>,
     pub quota: Option<ProjectQuotaOverride>,
     pub tools: Option<ProjectToolOverride>,
-    pub agents: Option<ProjectSegmentToggleOverride>,
+    pub agents: Option<ProjectAgentOverride>,
     pub todo: Option<ProjectSegmentToggleOverride>,
 }
 
@@ -614,6 +645,14 @@ pub struct ProjectToolOverride {
     pub max_completed: Option<usize>,
     pub max_completed_lines: Option<usize>,
     /// Tools visual spec — see `ToolSegmentConfig::visual`.
+    pub visual: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectAgentOverride {
+    pub enabled: Option<bool>,
+    pub max_lines: Option<usize>,
+    /// Agent visual spec — see `AgentSegmentConfig::visual`.
     pub visual: Option<String>,
 }
 
@@ -823,6 +862,9 @@ pub fn merge_configs(
             if let Some(v) = agents.max_lines {
                 user.segments.agents.max_lines = v;
             }
+            if let Some(v) = &agents.visual {
+                user.segments.agents.visual = v.clone();
+            }
         }
         if let Some(todo) = &segments.todo {
             if let Some(v) = todo.enabled {
@@ -999,6 +1041,7 @@ pub fn default_project_config_toml() -> &'static str {
 # [segments.agents]
 # enabled = true
 # max_lines = 2
+# visual = ""               # "name" | "name+description" | "name+model" | "name+description+model"
 
 # [segments.todo]
 # enabled = true
@@ -1089,6 +1132,8 @@ pub struct RenderConfig {
     pub quota_visual: String,
     /// Effective tools visual spec.
     pub tools_visual: String,
+    /// Effective agents visual spec — atoms `description`, `model`.
+    pub agents_visual: String,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
@@ -1152,6 +1197,15 @@ impl RenderConfig {
             &self.tools_visual
         }
     }
+
+    /// See `effective_context_visual` — same fallback rule for agents.
+    pub fn effective_agents_visual(&self) -> &str {
+        if self.agents_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).agents_visual
+        } else {
+            &self.agents_visual
+        }
+    }
 }
 
 impl Default for RenderConfig {
@@ -1189,6 +1243,7 @@ impl Default for RenderConfig {
             show_quota_seven_day: false,
             quota_visual: String::new(),
             tools_visual: String::new(),
+            agents_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
             max_completed_lines: 2,
@@ -1379,6 +1434,10 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         tools_visual: resolve_visual_field(
             &pulseline.segments.tools.visual,
             layout_visual_defaults.tools_visual,
+        ),
+        agents_visual: resolve_visual_field(
+            &pulseline.segments.agents.visual,
+            layout_visual_defaults.agents_visual,
         ),
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
