@@ -31,8 +31,15 @@ pub fn render(
     config: &RenderConfig,
     p: &ThemePalette,
 ) -> Vec<String> {
-    // Unknown width → assume 140 (console's intended bracket).
-    let width = config.terminal_width.unwrap_or(140);
+    // Unknown width → assume 140 (console's intended bracket). Clamp to
+    // `pane_max_width` (default 140, configurable via `[layout].max_width`)
+    // so the framed dashboard never grows past the user's chosen ceiling
+    // even when the terminal is much wider — matches `apply_pane`'s
+    // behaviour for flat-row layouts.
+    let width = config
+        .terminal_width
+        .unwrap_or(140)
+        .min(config.pane_max_width);
 
     // Below 110 cols the framed dashboard becomes claustrophobic; defer to
     // smaller siblings rather than mangle our own borders.

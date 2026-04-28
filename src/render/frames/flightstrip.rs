@@ -24,7 +24,12 @@ pub fn render(
     p: &ThemePalette,
 ) -> Vec<String> {
     // Unknown width → assume 100 (flightstrip's intended bracket midpoint).
-    let width = config.terminal_width.unwrap_or(100);
+    // Clamp to `pane_max_width` for parity with cockpit/console — wide
+    // terminals shouldn't stretch the strip past the user's ceiling.
+    let width = config
+        .terminal_width
+        .unwrap_or(100)
+        .min(config.pane_max_width);
 
     if width < 70 {
         return vec![shared::degraded_single_row(frame, config, p)];

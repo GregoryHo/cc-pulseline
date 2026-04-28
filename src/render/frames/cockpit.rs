@@ -29,7 +29,12 @@ pub fn render(
 ) -> Vec<String> {
     // Unknown width → assume 120 (the cockpit's design midpoint). usize::MAX
     // here would blow up `" ".repeat(pad)` in headline_with_pill below.
-    let width = config.terminal_width.unwrap_or(120);
+    // Clamp to `pane_max_width` so the cluster row never grows past the
+    // user's chosen ceiling on wide terminals.
+    let width = config
+        .terminal_width
+        .unwrap_or(120)
+        .min(config.pane_max_width);
 
     if width < 80 {
         return vec![shared::degraded_single_row(frame, config, p)];
