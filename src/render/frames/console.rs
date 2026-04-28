@@ -77,7 +77,7 @@ pub fn render(
         lines.push(framed(&inner_rule(p, inner, color), p, inner, color));
     }
 
-    let tools_row = tools_row(frame, config, p);
+    let tools_row = tools_row(frame, config, p, inner);
     if !tools_row.is_empty() {
         lines.push(framed(&tools_row, p, inner, color));
     }
@@ -243,7 +243,12 @@ fn tok_cost_quota_row(
     parts.join("    ")
 }
 
-fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
+fn tools_row(
+    frame: &crate::types::RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    inner: usize,
+) -> String {
     let color = config.color_enabled;
     if !config.show_tools {
         return String::new();
@@ -254,6 +259,7 @@ fn tools_row(frame: &crate::types::RenderFrame, config: &RenderConfig, p: &Theme
             config.effective_tools_visual(),
             &frame.tools,
             config.max_tool_lines.max(2),
+            inner.saturating_sub(2),
             config.glyph_mode,
             p,
             color,

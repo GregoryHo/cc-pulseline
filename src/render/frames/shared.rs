@@ -648,8 +648,17 @@ pub fn render_quota_visual(
 }
 
 /// Activity ticker: tools tape + completed counts + agents + todo summary —
-/// joined by two spaces. Empty cells are skipped.
-pub fn activity_ticker(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
+/// joined by three spaces. Empty cells are skipped.
+///
+/// `width` is the row's pane budget (cockpit/flightstrip clamp this to
+/// `pane_max_width`); the tools tape uses it as its row budget so long
+/// targets compress instead of overflowing the pane.
+pub fn activity_ticker(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    width: usize,
+) -> String {
     let color = config.color_enabled;
     let mut parts: Vec<String> = Vec::new();
 
@@ -659,6 +668,7 @@ pub fn activity_ticker(frame: &RenderFrame, config: &RenderConfig, p: &ThemePale
                 config.effective_tools_visual(),
                 &frame.tools,
                 config.max_tool_lines.max(1),
+                width,
                 config.glyph_mode,
                 p,
                 color,
@@ -798,24 +808,31 @@ pub fn completed_tool_chips(
 /// - `tape` — required to render anything; without it the cell is empty.
 /// - `detail` — opt-in modifier on `tape`; flips per-tool format from
 ///   brief (`▶ Read · ▶ Bash`) to detailed
-///   (`<icon> Read: src/main.rs · <icon> Bash: cargo test`). Detailed
-///   format mirrors the flat-row `tools_visual = "list"` per-tool format
-///   (shared via `widgets::recent_tool::format_recent_tool_inline`).
+///   (`<icon> Read: src/main.rs · <icon> Bash: cargo test`).
 /// - `list` — silently dropped here. `list` is multi-row and rendered by
 ///   the activity row builder via `show_tools` in flat-row layouts; in
 ///   inline cluster contexts it has no sensible single-line shape.
 ///
-/// Unknown atoms drop silently. Empty `tools` produces an empty string
-/// regardless of spec.
+/// Unknown atoms drop silently. Empty `tools` or `max_width == 0`
+/// produces an empty string.
+///
+/// `max_width` is the row's width budget. The hub asks
+/// `widgets::tape::render` for cells, then feeds them through
+/// `pack_with_separator` so detail cells compress their target under
+/// width pressure (the budgeter respects each cell's `min_width = 8`)
+/// and brief cells drop rightmost (newest) under extreme pressure
+/// rather than overflowing the pane and forcing CC to wrap the
+/// statusline into multiple rows.
 pub fn render_tools_visual_inline(
     spec: &str,
     tools: &[ToolSummary],
     max_items: usize,
+    max_width: usize,
     mode: GlyphMode,
     p: &ThemePalette,
     color: bool,
 ) -> String {
-    if tools.is_empty() || max_items == 0 {
+    if tools.is_empty() || max_items == 0 || max_width == 0 {
         return String::new();
     }
     let atoms: Vec<&str> = spec
@@ -828,12 +845,18 @@ pub fn render_tools_visual_inline(
     if !want_tape {
         return String::new();
     }
-    let mut parts: Vec<String> = Vec::new();
-    let cell = widgets::tape::render(tools, max_items, mode, p, color, with_target);
-    if !cell.is_empty() {
-        parts.push(cell);
+    let cells = widgets::tape::render(tools, max_items, mode, p, color, with_target);
+    if cells.is_empty() {
+        return String::new();
     }
-    parts.join(" ")
+    let sep = colorize(widgets::tape::SEPARATOR, &p.separator, color);
+    crate::render::activity::budget::pack_with_separator(
+        &cells,
+        max_width,
+        &sep,
+        widgets::tape::SEPARATOR_W,
+        color,
+    )
 }
 
 /// Bare cost text — `$X.XX` colored with `cost_base`. Shared between Cockpit

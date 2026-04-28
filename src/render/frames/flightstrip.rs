@@ -98,7 +98,7 @@ fn strip_l2(
         parts.push(spark);
     }
 
-    let ticker = shared::activity_ticker(frame, config, p);
+    let ticker = shared::activity_ticker(frame, config, p, width);
     if !ticker.is_empty() {
         parts.push(ticker);
     }

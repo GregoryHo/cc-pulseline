@@ -52,7 +52,7 @@ pub fn render(
 
     lines.push(cluster_row(frame, config, p, width));
 
-    let ticker = shared::activity_ticker(frame, config, p);
+    let ticker = shared::activity_ticker(frame, config, p, width);
     if !ticker.is_empty() {
         lines.push(ticker);
     }
