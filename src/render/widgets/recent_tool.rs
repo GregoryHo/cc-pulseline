@@ -23,6 +23,7 @@ use crate::config::GlyphMode;
 use crate::render::activity::builder::target_strategy_for;
 use crate::render::activity::truncate;
 use crate::render::color::{colorize, ThemePalette};
+use crate::render::fmt::sanitize_single_line;
 use crate::render::icons::{glyph, ICON_TOOL};
 use crate::types::ToolSummary;
 
@@ -43,8 +44,18 @@ pub fn format_recent_tool_inline(
     let name = colorize(&tool.name, palette.tool_blue(), color_enabled);
     match &tool.target {
         Some(raw) => {
+            // Defensive `sanitize_single_line` — `extract_target` already
+            // sanitises new tool events from the transcript, but
+            // `SessionState::recent_tools` may persist on disk via the
+            // session cache, and caches written before the sanitiser
+            // landed can carry literal `\n` in their `target` strings.
+            // CC's statusline parser splits stdout by `\n` into separate
+            // rows; an unsanitised target from a stale cache leaks an
+            // extra row into our 6-line frame and pushes everything
+            // below the top border off CC's display window.
+            let safe = sanitize_single_line(raw);
             let (strategy, ideal) = target_strategy_for(&tool.name);
-            let truncated = truncate::apply(strategy, raw, ideal);
+            let truncated = truncate::apply(strategy, &safe, ideal);
             let target = colorize(&truncated, &palette.secondary, color_enabled);
             format!("{prefix}{name}: {target}")
         }
@@ -97,5 +108,32 @@ mod tests {
         let s = format_recent_tool_inline(&t("Bash", Some(cmd)), GlyphMode::Ascii, &p, false);
         assert!(s.contains("Bash: cargo test"), "verb survived: {s:?}");
         assert!(s.contains('…'), "long tail truncated: {s:?}");
+    }
+
+    #[test]
+    fn multi_line_target_collapsed_to_single_line() {
+        // CC's statusline parser splits stdout by `\n` into separate rows.
+        // If we render a tool whose `target` carries an embedded `\n` (rare
+        // but possible — e.g. an old session cache written before the
+        // transcript-side `sanitize_single_line` landed, or a pasted
+        // multi-line bash command), the leak would push our intended
+        // bottom rows off CC's display window. Defensive sanitiser inside
+        // `format_recent_tool_inline` collapses `\n` / `\r` / `\t` so the
+        // output is always a single statusline row.
+        let p = aurora_marker_palette();
+        let multi = "rg --multiline\\\n  --type rust\\\n  'pattern' src/";
+        let s = format_recent_tool_inline(&t("Bash", Some(multi)), GlyphMode::Ascii, &p, false);
+        assert!(
+            !s.contains('\n'),
+            "rendered cell must not leak newlines from target: {s:?}"
+        );
+        assert!(
+            !s.contains('\r'),
+            "rendered cell must not leak carriage returns from target: {s:?}"
+        );
+        assert!(
+            !s.contains('\t'),
+            "rendered cell must not leak tabs from target: {s:?}"
+        );
     }
 }
