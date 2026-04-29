@@ -5,11 +5,11 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::cells::recent_tool::build_recent_tool_cell;
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::format_agent_elapsed;
 use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO};
-use super::cells::recent_tool::build_recent_tool_cell;
 use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
 use super::agent_groups::{avg_elapsed_ms, classify, AgentGroup};

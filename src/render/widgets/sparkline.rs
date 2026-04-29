@@ -240,7 +240,10 @@ mod tests {
     }
 
     fn timed(pcts: &[u8]) -> Vec<(u8, u64)> {
-        pcts.iter().enumerate().map(|(i, p)| (*p, i as u64 * 1_000)).collect()
+        pcts.iter()
+            .enumerate()
+            .map(|(i, p)| (*p, i as u64 * 1_000))
+            .collect()
     }
 
     #[test]

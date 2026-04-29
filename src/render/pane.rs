@@ -92,10 +92,7 @@ pub fn apply_pane(
 ) -> Vec<String> {
     match cfg.style {
         LayoutStyle::None | LayoutStyle::Ledger => return lines,
-        LayoutStyle::Zones
-        | LayoutStyle::Grid
-        | LayoutStyle::Sections
-        | LayoutStyle::Console => {}
+        LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Sections | LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
         return lines;

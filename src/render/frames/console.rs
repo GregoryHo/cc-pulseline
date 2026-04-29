@@ -45,10 +45,7 @@ pub fn render(
 
 /// First raw line in the Identity group, or `None` if the layout-level
 /// pipeline didn't produce one (e.g. all `show_*` identity toggles off).
-fn first_identity_line(
-    lines: &[String],
-    groups: &[(LineKind, Range<usize>)],
-) -> Option<String> {
+fn first_identity_line(lines: &[String], groups: &[(LineKind, Range<usize>)]) -> Option<String> {
     groups
         .iter()
         .find(|(k, _)| *k == LineKind::Identity)

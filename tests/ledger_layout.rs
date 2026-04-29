@@ -58,7 +58,10 @@ fn ledger_renders_framed_at_140_cols() {
     let blob = lines.join("\n");
     // Identity baked into top title.
     assert!(blob.contains("Opus 4.6"), "identity in title: {blob}");
-    assert!(blob.contains("feature/status-pane"), "branch in title: {blob}");
+    assert!(
+        blob.contains("feature/status-pane"),
+        "branch in title: {blob}"
+    );
     // TAG column emits CTX / TOK / COST rows.
     assert!(blob.contains("CTX"), "CTX row: {blob}");
     assert!(blob.contains("TOK"), "TOK row: {blob}");
@@ -190,7 +193,9 @@ fn ledger_sparkline_omitted_in_ascii_mode() {
     // No braille glyphs anywhere.
     for line in &lines {
         assert!(
-            !line.chars().any(|ch| (0x2800..=0x28FF).contains(&(ch as u32))),
+            !line
+                .chars()
+                .any(|ch| (0x2800..=0x28FF).contains(&(ch as u32))),
             "ascii must hide braille: {line:?}"
         );
     }
@@ -211,13 +216,12 @@ fn ledger_sparkline_renders_when_history_populated() {
         (43, 65_000),
     ];
     let lines = render_frame(&f, &cfg(140));
-    let ctx_row = lines
-        .iter()
-        .find(|l| l.contains("CTX"))
-        .expect("CTX row");
+    let ctx_row = lines.iter().find(|l| l.contains("CTX")).expect("CTX row");
     // Braille present somewhere in the CTX row.
     assert!(
-        ctx_row.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
+        ctx_row
+            .chars()
+            .any(|c| (0x2800..=0x28FF).contains(&(c as u32))),
         "sparkline braille on CTX row: {ctx_row:?}"
     );
     // Delta-time label of the form `<first>→<last>% in <duration>`.
@@ -238,10 +242,7 @@ fn ledger_sparkline_window_respects_1min_floor() {
     }
     f.ctx_history = hist;
     let lines = render_frame(&f, &cfg(140));
-    let ctx_row = lines
-        .iter()
-        .find(|l| l.contains("CTX"))
-        .expect("CTX row");
+    let ctx_row = lines.iter().find(|l| l.contains("CTX")).expect("CTX row");
     // 14 samples × 2 s = 28 s total. The default visible window is 12
     // samples (24 s). Below the 1m floor → window expands. The text label
     // therefore reads ≥ 1m or ≥ 28s of elapsed window after expansion.

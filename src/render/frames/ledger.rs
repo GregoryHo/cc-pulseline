@@ -231,9 +231,17 @@ fn top_frame(line1: &Line1Metrics, config: &RenderConfig, ctx: &LedgerCtx) -> St
     let head = shared::identity_headline(line1, config, ctx.p, " · ");
     let head_w = visible_width(&head);
     let dashes_after = ctx.inner.saturating_sub(head_w + 4);
-    let lhs = colorize(&format!("{}{} ", ctx.g.tl, ctx.g.h), &ctx.p.separator, ctx.color);
+    let lhs = colorize(
+        &format!("{}{} ", ctx.g.tl, ctx.g.h),
+        &ctx.p.separator,
+        ctx.color,
+    );
     let rhs_dashes = colorize(&ctx.g.h.repeat(dashes_after), &ctx.p.separator, ctx.color);
-    let rhs = colorize(&format!("{}{}", ctx.g.h, ctx.g.tr), &ctx.p.separator, ctx.color);
+    let rhs = colorize(
+        &format!("{}{}", ctx.g.h, ctx.g.tr),
+        &ctx.p.separator,
+        ctx.color,
+    );
     format!("{lhs}{head} {rhs_dashes}{rhs}")
 }
 
@@ -264,7 +272,9 @@ fn framed_tag_row(tag: &str, body: &str, ctx: &LedgerCtx) -> String {
             " ".repeat(TAG_GAP)
         )
     };
-    let pad = ctx.inner.saturating_sub(TAG_COL_WIDTH + visible_width(body));
+    let pad = ctx
+        .inner
+        .saturating_sub(TAG_COL_WIDTH + visible_width(body));
     format!("{bar}{tag_cell}{body}{}{bar}", " ".repeat(pad))
 }
 
@@ -502,8 +512,7 @@ fn build_tool_rows(
     if !config.show_tools {
         return Vec::new();
     }
-    let mut rows: Vec<String> =
-        Vec::with_capacity(1 + config.max_tool_lines.max(1));
+    let mut rows: Vec<String> = Vec::with_capacity(1 + config.max_tool_lines.max(1));
 
     let counts = &frame.completed_tools;
     if !counts.is_empty() {
@@ -513,11 +522,7 @@ fn build_tool_rows(
             .map(|c| {
                 let check = colorize("\u{2713}", &p.completed_check, color);
                 let name = colorize(&c.name, &p.completed_check, color);
-                let count = colorize(
-                    &format!("\u{00D7}{}", c.count),
-                    &p.completed_check,
-                    color,
-                );
+                let count = colorize(&format!("\u{00D7}{}", c.count), &p.completed_check, color);
                 format!("{check} {name} {count}")
             })
             .collect();
@@ -543,8 +548,7 @@ fn build_tool_rows(
                 // can blow a 100+ cell line into 800+ cells, overflow
                 // the terminal, and trigger CC's wrap-collapse to one
                 // visible row.
-                let budget = max_width
-                    .saturating_sub(arrow_w + name_w + ITEM_GAP_W + RIGHT_MARGIN);
+                let budget = max_width.saturating_sub(arrow_w + name_w + ITEM_GAP_W + RIGHT_MARGIN);
                 let (strategy, _ideal) = target_strategy_for(&t.name);
                 let truncated = truncate::apply(strategy, &safe, budget);
                 format!("{ITEM_GAP}{}", colorize(&truncated, &p.secondary, color))
@@ -655,9 +659,9 @@ fn render_single_agent(a: &AgentSummary, ctx: &AgentCtx) -> String {
         ITEM_GAP_W + model_str.chars().count()
     };
     let elapsed_tail_w = elapsed_tail_str.chars().count();
-    let budget = ctx.max_width.saturating_sub(
-        head_w + ITEM_GAP_W + model_tail_w + elapsed_tail_w + RIGHT_MARGIN,
-    );
+    let budget = ctx
+        .max_width
+        .saturating_sub(head_w + ITEM_GAP_W + model_tail_w + elapsed_tail_w + RIGHT_MARGIN);
 
     let desc = colorize(
         &truncate::keep_head(&a.description, budget),
@@ -740,10 +744,7 @@ fn render_heterogeneous_agents(group: &[&AgentSummary], ctx: &AgentCtx) -> Strin
     for (t, descs) in typed {
         buckets.push(match descs.len() {
             1 => format!("{t}: {}", descs[0]),
-            n => format!(
-                "{t} \u{00D7}{n} [{}]",
-                descs.join(GROUP_SUBITEM_SEPARATOR)
-            ),
+            n => format!("{t} \u{00D7}{n} [{}]", descs.join(GROUP_SUBITEM_SEPARATOR)),
         });
     }
     let body_raw = buckets.join(GROUP_SUBITEM_SEPARATOR);
@@ -767,4 +768,3 @@ fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<S
     let body = format!("{}/{} done · {} pending", done, todo.total, todo.pending);
     Some(colorize(&body, p.todo_teal(), color))
 }
-

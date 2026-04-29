@@ -99,4 +99,3 @@ fn identity_top_border(
         tr = g.tr,
     )
 }
-
