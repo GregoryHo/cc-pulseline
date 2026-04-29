@@ -23,7 +23,7 @@ pub const ROW_SEPARATOR_W: usize = 3;
 /// Sub-item separator inside a heterogeneous parallel group cell. Space-padded
 /// `+` reads as "and"; visually distinct from the row-level ` | ` (point/cross
 /// vs vertical bar) and in-text `+` (e.g. `C++`) almost never carries spaces.
-const GROUP_SUBITEM_SEPARATOR: &str = " + ";
+pub(crate) const GROUP_SUBITEM_SEPARATOR: &str = " + ";
 
 /// Render the L4+ activity rows for the given frame, ordered as: completed
 /// tool counts, recent/running tools, agent groups, todo. Each row is
