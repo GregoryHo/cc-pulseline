@@ -34,7 +34,7 @@
 //! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
-use crate::render::color::{colorize, visible_width, ThemePalette};
+use crate::render::color::{colorize, take_visible_chars, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration};
 use crate::render::icons::{glyph, ICON_AGENT};
 use crate::render::layout;
@@ -176,7 +176,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         lines.push(blank_row(&ctx));
     }
 
-    let tool_rows = build_tool_rows(frame, config, p, ctx.color);
+    let tool_rows = build_tool_rows(frame, config, p, content_width, ctx.color);
     if !tool_rows.is_empty() {
         for (i, body) in tool_rows.iter().enumerate() {
             let tag = if i == 0 { "TOOL" } else { "" };
@@ -487,6 +487,7 @@ fn build_tool_rows(
     frame: &RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
+    max_width: usize,
     color: bool,
 ) -> Vec<String> {
     if !config.show_tools {
@@ -520,17 +521,29 @@ fn build_tool_rows(
         GlyphMode::Icon => ICON_RUNNING.0,
         GlyphMode::Ascii => ICON_RUNNING.1,
     };
+    let arrow_w = visible_width(arrow_glyph) + 1; // arrow + trailing space
     for t in frame.tools.iter().take(config.max_tool_lines.max(1)) {
+        let name_w = t.name.chars().count();
         let arrow = colorize(arrow_glyph, p.tool_blue(), color);
         let name = colorize(&t.name, p.tool_blue(), color);
-        // `sanitize_single_line` defends against newlines / tabs leaking
-        // out of stale session caches written before the activity-row
-        // builder started sanitising. CC's statusline parser splits on
-        // `\n` — an unsanitised target shatters the frame.
         let target = match &t.target {
             Some(tgt) => {
                 let safe = crate::render::fmt::sanitize_single_line(tgt);
-                format!("{ITEM_GAP}{}", colorize(&safe, &p.secondary, color))
+                // Truncate to fit `max_width`. Without this, a long Bash
+                // target (e.g. a heredoc-bearing `git commit` command)
+                // can blow a 100+ cell line into 800+ cells, overflow
+                // the terminal, and trigger CC's wrap-collapse to one
+                // visible row.
+                let gap_w = ITEM_GAP.chars().count();
+                let budget = max_width.saturating_sub(arrow_w + name_w + gap_w);
+                let truncated = if visible_width(&safe) > budget {
+                    let mut s = take_visible_chars(&safe, budget.saturating_sub(1));
+                    s.push('…');
+                    s
+                } else {
+                    safe.into_owned()
+                };
+                format!("{ITEM_GAP}{}", colorize(&truncated, &p.secondary, color))
             }
             None => String::new(),
         };
