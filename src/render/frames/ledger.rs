@@ -162,6 +162,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
             if let Some(body) = quota_row_body(
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
+                config,
                 p,
                 ctx.color,
             ) {
@@ -173,6 +174,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
             if let Some(body) = quota_row_body(
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
+                config,
                 p,
                 ctx.color,
             ) {
@@ -476,6 +478,7 @@ fn cost_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String 
 fn quota_row_body(
     pct: Option<f64>,
     reset_minutes: Option<u64>,
+    config: &RenderConfig,
     p: &ThemePalette,
     color: bool,
 ) -> Option<String> {
@@ -486,17 +489,32 @@ fn quota_row_body(
     } else {
         colorize(&format!("{pct_val:.0}%"), pct_color, color)
     };
+    // Bar precedes the percentage (D2). Empty string when
+    // `quota_visual` doesn't include `gauge` — caller falls through
+    // to text-only rendering.
+    let bar = shared::render_quota_visual(
+        config.effective_quota_visual(),
+        pct_val,
+        p,
+        config.glyph_mode,
+        color,
+    );
     let resets_str = reset_minutes
         .map(|m| {
             let dur = format_reset_duration(m);
             colorize(&format!("resets {dur}"), &p.structural, color)
         })
         .unwrap_or_default();
-    if resets_str.is_empty() {
-        Some(pct_str)
-    } else {
-        Some(format!("{pct_str}{ITEM_GAP}{resets_str}"))
+
+    let mut parts: Vec<&str> = Vec::with_capacity(3);
+    if !bar.is_empty() {
+        parts.push(&bar);
     }
+    parts.push(&pct_str);
+    if !resets_str.is_empty() {
+        parts.push(&resets_str);
+    }
+    Some(parts.join(ITEM_GAP))
 }
 
 /// Running-tool arrow. `▶` in icon mode, `>` in Ascii.

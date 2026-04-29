@@ -439,6 +439,56 @@ pub fn ctx_gauge_cell(
     }
 }
 
+// ============================================================================
+// Quota dispatch hub
+// ============================================================================
+
+/// Quota gauge bar width in cells. 14 cells gives clean threshold-mark
+/// math (50% lands at cell 7; 85% at cell 12 — both round-half-up
+/// from `(threshold * width / 100)`).
+pub const QUOTA_BAR_WIDTH: usize = 14;
+
+/// Quota threshold marks — fixed `[50, 85]` for the three-bucket
+/// good/warn/critical ladder applied by `color_for_quota_pct`.
+pub const QUOTA_MARKS: [u64; 2] = [50, 85];
+
+/// Compose a quota cell from a `+`-separated visual spec.
+///
+/// Recognized widget names: `gauge`, `text`. Unknown names are
+/// silently dropped. Currently only `gauge` produces visible output —
+/// the `text` widget is the caller's existing rendering path
+/// (`format_quota_period` / `quota_row_body`) and stays separate so
+/// quota's "5h: 62% (resets ...)" format-text isn't duplicated here.
+///
+/// Returns the bar string for the caller to insert before the
+/// percentage text. Empty string when spec doesn't include `gauge`
+/// (caller falls through to text-only).
+pub fn render_quota_visual(
+    spec: &str,
+    pct: f64,
+    p: &ThemePalette,
+    mode: GlyphMode,
+    color_enabled: bool,
+) -> String {
+    let wants_gauge = spec
+        .split('+')
+        .map(str::trim)
+        .any(|widget| widget == "gauge");
+    if !wants_gauge {
+        return String::new();
+    }
+    let fill = p.color_for_quota_pct(pct);
+    widgets::gauge::render(
+        pct as u64,
+        QUOTA_BAR_WIDTH,
+        &QUOTA_MARKS,
+        fill,
+        p,
+        mode,
+        color_enabled,
+    )
+}
+
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
 /// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
 ///

@@ -436,9 +436,9 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
 }
 
 /// Sizing hint for the gauge widget when a flat layout dispatches a CTX
-/// row through `render_context_visual`. The constant is interior cells —
-/// the visible width of the gauge bar is `FLAT_GAUGE_WIDTH + 2` (the
-/// `[ ]` brackets).
+/// row through `render_context_visual`. The new gauge widget is
+/// bracketless (replaces the old `[████▎      ]` form) so the visible
+/// width equals the constant itself — 18 cells of bar.
 const FLAT_GAUGE_WIDTH: usize = 18;
 
 fn format_context_segment(
@@ -617,11 +617,27 @@ fn format_quota_period(
                 })
                 .unwrap_or_default();
 
+            // Bar precedes the percentage when `quota_visual = "gauge"`
+            // (D2 from the F-revival plan). Empty string when the visual
+            // spec doesn't include `gauge` — caller renders text only.
+            let bar = crate::render::frames::shared::render_quota_visual(
+                config.effective_quota_visual(),
+                pct_val,
+                p,
+                config.glyph_mode,
+                color,
+            );
+            let bar_part = if bar.is_empty() {
+                String::new()
+            } else {
+                format!("{bar} ")
+            };
+
             if pct_val >= 100.0 {
                 let limit_text = colorize("Limit reached", p.ctx_critical(), color);
-                format!("{label_str} {limit_text}{reset_part}")
+                format!("{label_str} {bar_part}{limit_text}{reset_part}")
             } else {
-                format!("{label_str} {pct_str}{reset_part}")
+                format!("{label_str} {bar_part}{pct_str}{reset_part}")
             }
         }
         None => {

@@ -229,24 +229,42 @@ fn ascii_mode_emits_no_unicode_block_chars_across_every_layout() {
 
 #[test]
 fn console_with_quota_visual_text_drops_gauge() {
-    // Console's default quota_visual is "bar"; opting down to "text" should
-    // drop the gauge. With battery-style gauges, the empty-cell glyph is
-    // also `█` — so we detect the gauge by *the structural-color empty
-    // cells* being present, not by any specific glyph. Easier proxy: the
-    // bar version contains a long run of block chars right after the label,
-    // the text version doesn't.
+    // Console's default `quota_visual = "gauge"` renders the F-style bar
+    // (▰ for filled, ─ for empty, · for threshold marks). Opting down to
+    // `"text"` must drop all three of those glyphs and leave only the
+    // pct + reset text.
     let f = frame_with_agent_and_quota();
     let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
     cfg.show_quota = true;
     cfg.show_quota_five_hour = true;
     cfg.quota_visual = "text".to_string();
     let lines = render_frame(&f, &cfg);
-    // New flat-style format inside the Console Budget group: `5h: 75% (resets ...)`.
     let q5h = lines.iter().find(|l| l.contains("5h")).expect("5h cell");
-    // No `█` block chars at all under text-only spec.
     assert!(
-        !q5h.contains('\u{2588}'),
-        "quota_visual = \"text\" should drop gauge: {q5h:?}"
+        !q5h.contains('\u{25B0}'),
+        "quota_visual = \"text\" should drop ▰ filled cells: {q5h:?}"
+    );
+    assert!(
+        !q5h.contains('\u{2500}'),
+        "quota_visual = \"text\" should drop ─ empty cells: {q5h:?}"
+    );
+    assert!(q5h.contains("75%"), "should still show pct: {q5h:?}");
+}
+
+#[test]
+fn console_default_quota_visual_includes_gauge() {
+    // Sanity check the other side of the toggle: with the layout default
+    // (no override), Console renders the bar (▰ filled cells present).
+    let f = frame_with_agent_and_quota();
+    let mut cfg = cfg_for(LayoutStyle::Console, true, 160);
+    cfg.show_quota = true;
+    cfg.show_quota_five_hour = true;
+    // No explicit override — falls through to default_visuals_for(Console).
+    let lines = render_frame(&f, &cfg);
+    let q5h = lines.iter().find(|l| l.contains("5h")).expect("5h cell");
+    assert!(
+        q5h.contains('\u{25B0}'),
+        "default quota_visual should render ▰ filled cells: {q5h:?}"
     );
     assert!(q5h.contains("75%"), "should still show pct: {q5h:?}");
 }

@@ -41,32 +41,38 @@ pub struct SegmentVisualDefaults {
 
 /// Per-layout default visual specs.
 ///
-/// All layouts default to `text` / `list` for non-CTX segments; the
-/// widget composition is opt-in via the `*_visual` config fields. Ledger
-/// is the lone exception — it ships the sparkline on the CTX row by
-/// default since the typographic rhythm leaves natural room for it.
+/// CTX bar (`context_visual = "gauge"`) is opt-in across all layouts —
+/// the existing `text` / `text+sparkline` defaults stay. Quota bar
+/// (`quota_visual = "gauge"`) defaults ON in framed layouts (sections,
+/// console, ledger) where there is room for the bar; the flat layouts
+/// (none, zones, grid) keep `quota_visual = "text"` to preserve their
+/// minimalism. Users can override either field per-segment via TOML.
 pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
     match layout {
-        // Flat / decorated-flat layouts: plain text everywhere.
-        LayoutStyle::None
-        | LayoutStyle::Zones
-        | LayoutStyle::Grid
-        | LayoutStyle::Sections
-        | LayoutStyle::Console => SegmentVisualDefaults {
+        // Minimalist flat layouts — no bars by default.
+        LayoutStyle::None | LayoutStyle::Zones | LayoutStyle::Grid => SegmentVisualDefaults {
             context_visual: "text",
             cost_visual: "text",
             quota_visual: "text",
             tools_visual: "list",
             agents_visual: "name+description+model",
         },
-        // Ledger ships sparkline by default on the CTX row — `text+sparkline`
-        // renders the `43% 86.0k/200.0k` numbers and appends a braille
-        // sparkline + delta-time tail. Users can opt out with
-        // `context_visual = "text"`.
+        // Framed layouts — quota bar appears by default; CTX bar still
+        // opt-in (CTX has more competing data — adding the bar there
+        // by default would saturate the row).
+        LayoutStyle::Sections | LayoutStyle::Console => SegmentVisualDefaults {
+            context_visual: "text",
+            cost_visual: "text",
+            quota_visual: "gauge",
+            tools_visual: "list",
+            agents_visual: "name+description+model",
+        },
+        // Ledger ships sparkline on the CTX row + bar on the quota row.
+        // The TAG-column rhythm has natural space for both.
         LayoutStyle::Ledger => SegmentVisualDefaults {
             context_visual: "text+sparkline",
             cost_visual: "text",
-            quota_visual: "text",
+            quota_visual: "gauge",
             tools_visual: "list",
             agents_visual: "name+description+model",
         },
