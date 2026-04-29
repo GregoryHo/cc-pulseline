@@ -338,7 +338,7 @@ pub fn config_row(
 pub fn render_context_visual(
     spec: &str,
     line3: &Line3Metrics,
-    history: &[u8],
+    history: &[(u8, u64)],
     gauge_width: usize,
     mode: GlyphMode,
     p: &ThemePalette,
@@ -433,16 +433,17 @@ pub fn ctx_gauge_cell(
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
 /// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
 ///
-/// Picks the aurora fill color from the last sample for the `+sparkline`
-/// hub-dispatch path. New consumers (ledger) call
-/// `widgets::sparkline::render` directly with a velocity-derived color.
+/// Picks the aurora fill color from the last sample (the simpler rule for
+/// hub-dispatch callers — flat layouts that opt into `+sparkline`). The
+/// ledger layout uses `widgets::sparkline::aurora_for_velocity` instead,
+/// which carries the velocity signal independent of the absolute value.
 pub fn ctx_sparkline(
-    history: &[u8],
+    history: &[(u8, u64)],
     mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
-    let last = history.last().copied().unwrap_or(0);
+    let last = history.last().map(|(pct, _)| *pct).unwrap_or(0);
     let fill = if last >= 67 {
         &p.aurora_high
     } else if last >= 34 {

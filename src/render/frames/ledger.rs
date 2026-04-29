@@ -25,19 +25,23 @@
 //!   ╰───────────────────────────────────────────────────╯
 //! ```
 //!
-//! Sparkline on the CTX row is wired in a follow-up commit; this
-//! skeleton renders the typographic rhythm + TAG column + frame only.
-//! Below 90 cols it falls back to `sections`.
+//! The CTX row appends a 6-cell braille sparkline + delta-time tail
+//! (`30→43% in 5m`) when `context_visual` includes `sparkline` (the
+//! ledger default). Sparkline color tracks CTX consumption *velocity*
+//! via `widgets::sparkline::aurora_for_velocity`.
+//!
+//! Below 90 cols ledger falls back to `sections` so the user gets
+//! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration};
-use crate::render::icons::{FRAME_BL, FRAME_BR, FRAME_H, FRAME_TL, FRAME_TR, FRAME_V};
+use crate::render::icons::{glyph, ICON_AGENT};
 use crate::render::layout;
 use crate::render::widgets;
 use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
 
-use super::shared;
+use super::shared::{self, FrameGlyphs};
 
 /// Visual density: 6 braille cells × 2 samples per cell = 12 samples.
 const SPARK_TARGET_SAMPLES: usize = 12;
@@ -58,9 +62,18 @@ const TAG_GAP: usize = 3;
 /// rows (no TAG) reserve the same width with spaces so content lines
 /// up across rows.
 const TAG_COL_WIDTH: usize = TAG_INDENT + TAG_WIDTH + TAG_GAP;
-/// Spacing between data items inside a content cell. 3 spaces reads as
-/// ledger's "rhythm" — matches `ledger-v2.md` Round-1 decision.
+/// Spacing between data items inside a content cell.
 const ITEM_GAP: &str = "   ";
+
+/// Per-render context bundle, threaded through every row builder. Bundles
+/// the four values (palette, glyph table, interior cell count, color flag)
+/// that every helper needs.
+struct LedgerCtx<'a> {
+    p: &'a ThemePalette,
+    g: &'static FrameGlyphs,
+    inner: usize,
+    color: bool,
+}
 
 pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
     let width = config
@@ -68,32 +81,32 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         .unwrap_or(140)
         .min(config.pane_max_width);
 
-    // Below 90 cols ledger gets cramped — defer to sections.
     if width < 90 {
         return fallback_to_sections(frame, config);
     }
 
     let inner = width.saturating_sub(FRAME_INNER_PAD);
-    let content_width = inner.saturating_sub(2); // leading "  " indent inside frame
+    let content_width = inner.saturating_sub(2);
 
-    let color = config.color_enabled;
-    let mut lines: Vec<String> = Vec::with_capacity(20);
+    let ctx = LedgerCtx {
+        p,
+        g: shared::glyphs(config.glyph_mode),
+        inner,
+        color: config.color_enabled,
+    };
+    let mut lines: Vec<String> = Vec::with_capacity(16);
 
-    lines.push(top_frame(&frame.line1, config, p, inner));
-    lines.push(blank_row(p, inner, color));
+    lines.push(top_frame(&frame.line1, config, &ctx));
+    lines.push(blank_row(&ctx));
 
-    // ENV row — only when at least one config-segment toggle is on AND
-    // the assembled body is non-empty.
     if shared::config_row_enabled(config) {
         let body = env_row_body(frame, config, p, content_width);
         if !body.is_empty() {
-            lines.push(framed_tag_row("ENV", &body, p, inner, color));
-            lines.push(blank_row(p, inner, color));
+            lines.push(framed_tag_row("ENV", &body, &ctx));
+            lines.push(blank_row(&ctx));
         }
     }
 
-    // Budget group: CTX / TOK / COST. Each row only emits if its toggle
-    // and underlying data agree it has something to show.
     let mut budget_emitted = false;
     if config.show_context {
         let body = ctx_row_body(
@@ -102,32 +115,31 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
             config.effective_context_visual(),
             config.glyph_mode,
             p,
-            color,
+            ctx.color,
         );
         if !body.is_empty() {
-            lines.push(framed_tag_row("CTX", &body, p, inner, color));
+            lines.push(framed_tag_row("CTX", &body, &ctx));
             budget_emitted = true;
         }
     }
     if config.show_tokens {
-        let body = tok_row_body(&frame.line3, p, color);
+        let body = tok_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
-            lines.push(framed_tag_row("TOK", &body, p, inner, color));
+            lines.push(framed_tag_row("TOK", &body, &ctx));
             budget_emitted = true;
         }
     }
     if config.show_cost {
-        let body = cost_row_body(&frame.line3, p, color);
+        let body = cost_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
-            lines.push(framed_tag_row("COST", &body, p, inner, color));
+            lines.push(framed_tag_row("COST", &body, &ctx));
             budget_emitted = true;
         }
     }
     if budget_emitted {
-        lines.push(blank_row(p, inner, color));
+        lines.push(blank_row(&ctx));
     }
 
-    // Quota group: 5h / 7d.
     let mut quota_emitted = false;
     if config.show_quota && frame.quota.has_data() {
         if config.show_quota_five_hour {
@@ -135,9 +147,9 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
                 frame.quota.five_hour_pct,
                 frame.quota.five_hour_reset_minutes,
                 p,
-                color,
+                ctx.color,
             ) {
-                lines.push(framed_tag_row("5h", &body, p, inner, color));
+                lines.push(framed_tag_row("5h", &body, &ctx));
                 quota_emitted = true;
             }
         }
@@ -146,103 +158,93 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
                 frame.quota.seven_day_pct,
                 frame.quota.seven_day_reset_minutes,
                 p,
-                color,
+                ctx.color,
             ) {
-                lines.push(framed_tag_row("7d", &body, p, inner, color));
+                lines.push(framed_tag_row("7d", &body, &ctx));
                 quota_emitted = true;
             }
         }
     }
     if quota_emitted {
-        lines.push(blank_row(p, inner, color));
+        lines.push(blank_row(&ctx));
     }
 
-    // Tools — completed counts on the TOOL row, then one continuation
-    // row per running tool. Skipped entirely when no activity.
-    let tool_rows = build_tool_rows(frame, config, p, content_width, color);
+    let tool_rows = build_tool_rows(frame, config, p, ctx.color);
     if !tool_rows.is_empty() {
         for (i, body) in tool_rows.iter().enumerate() {
             let tag = if i == 0 { "TOOL" } else { "" };
-            lines.push(framed_tag_row(tag, body, p, inner, color));
+            lines.push(framed_tag_row(tag, body, &ctx));
         }
-        lines.push(blank_row(p, inner, color));
+        lines.push(blank_row(&ctx));
     }
 
-    // Agents + Todo — share the same blank-row gate. Both can be empty.
     let mut agent_todo_emitted = false;
     if config.show_agents {
-        let agent_rows = build_agent_rows(frame, config, p, content_width);
+        let agent_rows = build_agent_rows(frame, config, p);
         for (i, body) in agent_rows.iter().enumerate() {
             let tag = if i == 0 { "AGENT" } else { "" };
-            lines.push(framed_tag_row(tag, body, p, inner, color));
+            lines.push(framed_tag_row(tag, body, &ctx));
             agent_todo_emitted = true;
         }
     }
     if config.show_todo {
-        if let Some(body) = todo_row_body(frame, p, color) {
-            lines.push(framed_tag_row("TODO", &body, p, inner, color));
+        if let Some(body) = todo_row_body(frame, p, ctx.color) {
+            lines.push(framed_tag_row("TODO", &body, &ctx));
             agent_todo_emitted = true;
         }
     }
     if agent_todo_emitted {
-        lines.push(blank_row(p, inner, color));
+        lines.push(blank_row(&ctx));
     }
 
-    lines.push(bottom_frame(p, inner, color));
+    lines.push(bottom_frame(&ctx));
     lines
 }
 
-/// When ledger can't fit (`< 90` cols), fall back to `sections` so the
-/// user gets readable output rather than a mangled frame.
 fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut shrunk = config.clone();
     shrunk.pane_style = crate::render::pane::LayoutStyle::Sections;
     layout::render_frame(frame, &shrunk)
 }
 
-fn top_frame(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette, inner: usize) -> String {
-    let color = config.color_enabled;
-    let head = shared::identity_headline(line1, config, p, " · ");
+fn top_frame(line1: &Line1Metrics, config: &RenderConfig, ctx: &LedgerCtx) -> String {
+    let head = shared::identity_headline(line1, config, ctx.p, " · ");
     let head_w = visible_width(&head);
-    let dashes_after = inner.saturating_sub(head_w + 4);
-    let lhs = colorize(&format!("{FRAME_TL}{FRAME_H} "), &p.separator, color);
-    let rhs_dashes = colorize(
-        &FRAME_H.to_string().repeat(dashes_after),
-        &p.separator,
-        color,
-    );
-    let rhs = colorize(&format!("{FRAME_H}{FRAME_TR}"), &p.separator, color);
+    let dashes_after = ctx.inner.saturating_sub(head_w + 4);
+    let lhs = colorize(&format!("{}{} ", ctx.g.tl, ctx.g.h), &ctx.p.separator, ctx.color);
+    let rhs_dashes = colorize(&ctx.g.h.repeat(dashes_after), &ctx.p.separator, ctx.color);
+    let rhs = colorize(&format!("{}{}", ctx.g.h, ctx.g.tr), &ctx.p.separator, ctx.color);
     format!("{lhs}{head} {rhs_dashes}{rhs}")
 }
 
-fn bottom_frame(p: &ThemePalette, inner: usize, color: bool) -> String {
-    let dashes = colorize(&FRAME_H.to_string().repeat(inner), &p.separator, color);
-    let lhs = colorize(&FRAME_BL.to_string(), &p.separator, color);
-    let rhs = colorize(&FRAME_BR.to_string(), &p.separator, color);
+fn bottom_frame(ctx: &LedgerCtx) -> String {
+    let dashes = colorize(&ctx.g.h.repeat(ctx.inner), &ctx.p.separator, ctx.color);
+    let lhs = colorize(ctx.g.bl, &ctx.p.separator, ctx.color);
+    let rhs = colorize(ctx.g.br, &ctx.p.separator, ctx.color);
     format!("{lhs}{dashes}{rhs}")
 }
 
-fn blank_row(p: &ThemePalette, inner: usize, color: bool) -> String {
-    let bar = colorize(&FRAME_V.to_string(), &p.separator, color);
-    format!("{bar}{}{bar}", " ".repeat(inner))
+fn blank_row(ctx: &LedgerCtx) -> String {
+    let bar = colorize(ctx.g.v, &ctx.p.separator, ctx.color);
+    format!("{bar}{}{bar}", " ".repeat(ctx.inner))
 }
 
 /// `│  TAG     <body>          │` — TAG empty for continuation rows.
-fn framed_tag_row(tag: &str, body: &str, p: &ThemePalette, inner: usize, color: bool) -> String {
-    let bar = colorize(&FRAME_V.to_string(), &p.separator, color);
+fn framed_tag_row(tag: &str, body: &str, ctx: &LedgerCtx) -> String {
+    let bar = colorize(ctx.g.v, &ctx.p.separator, ctx.color);
     let tag_cell = if tag.is_empty() {
         " ".repeat(TAG_COL_WIDTH)
     } else {
         let padded = format!("{tag:<width$}", tag = tag, width = TAG_WIDTH);
-        let coloured = colorize(&padded, &p.secondary, color);
-        format!("{}{}{}", " ".repeat(TAG_INDENT), coloured, " ".repeat(TAG_GAP))
+        let coloured = colorize(&padded, &ctx.p.secondary, ctx.color);
+        format!(
+            "{}{}{}",
+            " ".repeat(TAG_INDENT),
+            coloured,
+            " ".repeat(TAG_GAP)
+        )
     };
-    let body_w = visible_width(body);
-    // Total cells: leading "  " indent (2) + body + right pad to `inner`
-    // (frame side bars consume their own cells). `inner` = width inside
-    // the bars; we already accounted for left "  " in TAG_INDENT.
-    let consumed = TAG_COL_WIDTH + body_w;
-    let pad = inner.saturating_sub(consumed);
+    let pad = ctx.inner.saturating_sub(TAG_COL_WIDTH + visible_width(body));
     format!("{bar}{tag_cell}{body}{}{bar}", " ".repeat(pad))
 }
 
@@ -284,9 +286,8 @@ fn ctx_row_body(
     p: &ThemePalette,
     color: bool,
 ) -> String {
-    let pct = match line3.context_used_percentage {
-        Some(pct) => pct,
-        None => return String::new(),
+    let Some(pct) = line3.context_used_percentage else {
+        return String::new();
     };
     let size = line3.context_window_size.unwrap_or(0);
     let pct_color = p.color_for_ctx_pct(pct, line3.context_window_size);
@@ -301,19 +302,14 @@ fn ctx_row_body(
     if wants_sparkline {
         let window = sparkline_window(history);
         if !window.is_empty() {
-            // Velocity-based aurora: shape carries direction (rise / fall /
-            // flat); color carries intensity (calm / active / hot). The two
-            // signals stay independent of the `pct` text on the same row.
-            let fill_color = aurora_for_velocity(window, p);
-            let pcts: Vec<u8> = window.iter().map(|(p, _)| *p).collect();
-            let glyph = widgets::sparkline::render(&pcts, fill_color, mode, color);
+            let fill = widgets::sparkline::aurora_for_velocity(window, p);
+            let glyph = widgets::sparkline::render(window, fill, mode, color);
             if !glyph.is_empty() {
                 out.push_str(ITEM_GAP);
                 out.push_str(&glyph);
             }
-            // Delta-time label: `30→43% in 5m` or `30→43% in 47s`. Always
-            // rendered (even under Ascii) — text carries the trend even
-            // when braille can't.
+            // Delta-time label always rendered — text carries the trend
+            // even under Ascii where the braille glyph drops out.
             if let Some(label) = sparkline_delta_label(window) {
                 let coloured = colorize(&label, &p.structural, color);
                 out.push_str(ITEM_GAP);
@@ -322,44 +318,6 @@ fn ctx_row_body(
         }
     }
     out
-}
-
-/// Pick the aurora color stop for the sparkline based on the *velocity*
-/// of CTX consumption across the visible window. The shape carries the
-/// trend direction; this color carries the intensity:
-///
-/// ```text
-/// velocity (% / minute)   → color
-/// < 1                     → aurora_low   (calm / idle)
-/// 1 .. 5                  → aurora_mid   (active)
-/// >= 5                    → aurora_high  (hot — burning context fast)
-/// ```
-///
-/// Thresholds verified against a 134-min real session (per
-/// `designs/console-redesign/palette-integration.md` § Aurora revisited).
-fn aurora_for_velocity<'p>(window: &[(u8, u64)], p: &'p ThemePalette) -> &'p str {
-    if window.len() < 2 {
-        return &p.aurora_low;
-    }
-    let first = window.first().map(|(p, _)| *p as f64).unwrap_or(0.0);
-    let last = window.last().map(|(p, _)| *p as f64).unwrap_or(0.0);
-    let span_ms = window
-        .last()
-        .map(|(_, t)| *t)
-        .unwrap_or(0)
-        .saturating_sub(window.first().map(|(_, t)| *t).unwrap_or(0));
-    if span_ms == 0 {
-        return &p.aurora_low;
-    }
-    let span_min = (span_ms as f64) / 60_000.0;
-    let velocity = (last - first).abs() / span_min;
-    if velocity >= 5.0 {
-        &p.aurora_high
-    } else if velocity >= 1.0 {
-        &p.aurora_mid
-    } else {
-        &p.aurora_low
-    }
 }
 
 /// Slice of `history` that the ledger sparkline draws — most-recent 12
@@ -384,20 +342,20 @@ fn sparkline_window(history: &[(u8, u64)]) -> &[(u8, u64)] {
 /// `30→43% in 5m`. Returns `None` for windows shorter than ~1 sample
 /// of meaningful elapsed time.
 fn sparkline_delta_label(window: &[(u8, u64)]) -> Option<String> {
+    let (Some(first), Some(last)) = (window.first(), window.last()) else {
+        return None;
+    };
     if window.len() < 2 {
         return None;
     }
-    let first = window.first()?.0;
-    let last = window.last()?.0;
-    let span_ms = window
-        .last()?
-        .1
-        .saturating_sub(window.first()?.1);
+    let span_ms = last.1.saturating_sub(first.1);
     if span_ms == 0 {
         return None;
     }
     Some(format!(
-        "{first}→{last}% in {}",
+        "{}→{}% in {}",
+        first.0,
+        last.0,
         format_window_duration(span_ms)
     ))
 }
@@ -511,19 +469,21 @@ fn quota_row_body(
     }
 }
 
+/// Running-tool arrow. `▶` in icon mode, `>` in Ascii.
+const ICON_RUNNING: (&str, &str) = ("\u{25B6}", ">");
+
 fn build_tool_rows(
     frame: &RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
-    _max_width: usize,
     color: bool,
 ) -> Vec<String> {
     if !config.show_tools {
         return Vec::new();
     }
-    let mut rows: Vec<String> = Vec::new();
+    let mut rows: Vec<String> =
+        Vec::with_capacity(1 + config.max_tool_lines.max(1));
 
-    // Completed counts on the head row.
     let counts = &frame.completed_tools;
     if !counts.is_empty() {
         let parts: Vec<String> = counts
@@ -545,18 +505,22 @@ fn build_tool_rows(
         }
     }
 
-    // Running / recent tools — one row per tool. The first row uses TOOL
-    // tag if no completed-counts row exists; otherwise continuation row.
     let arrow_glyph = match config.glyph_mode {
-        GlyphMode::Icon => "\u{25B6}",
-        GlyphMode::Ascii => ">",
+        GlyphMode::Icon => ICON_RUNNING.0,
+        GlyphMode::Ascii => ICON_RUNNING.1,
     };
-    let recent = &frame.tools;
-    for t in recent.iter().take(config.max_tool_lines.max(1)) {
+    for t in frame.tools.iter().take(config.max_tool_lines.max(1)) {
         let arrow = colorize(arrow_glyph, p.tool_blue(), color);
         let name = colorize(&t.name, p.tool_blue(), color);
+        // `sanitize_single_line` defends against newlines / tabs leaking
+        // out of stale session caches written before the activity-row
+        // builder started sanitising. CC's statusline parser splits on
+        // `\n` — an unsanitised target shatters the frame.
         let target = match &t.target {
-            Some(tgt) => format!("{ITEM_GAP}{}", colorize(tgt, &p.secondary, color)),
+            Some(tgt) => {
+                let safe = crate::render::fmt::sanitize_single_line(tgt);
+                format!("{ITEM_GAP}{}", colorize(&safe, &p.secondary, color))
+            }
             None => String::new(),
         };
         rows.push(format!("{arrow} {name}{target}"));
@@ -565,27 +529,19 @@ fn build_tool_rows(
     rows
 }
 
-fn build_agent_rows(
-    frame: &RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    _max_width: usize,
-) -> Vec<String> {
+fn build_agent_rows(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
     if frame.agents.is_empty() {
         return Vec::new();
     }
     let color = config.color_enabled;
     let max = config.max_agent_lines.max(1);
-    let agent_glyph = match config.glyph_mode {
-        GlyphMode::Icon => "\u{f19bb}",
-        GlyphMode::Ascii => "A:",
-    };
+    let icon_glyph = glyph(config.glyph_mode, ICON_AGENT, "A:");
     frame
         .agents
         .iter()
         .take(max)
         .map(|a| {
-            let icon = colorize(agent_glyph, &p.stable_blue, color);
+            let icon = colorize(&icon_glyph, &p.stable_blue, color);
             let name = colorize(
                 a.agent_type.as_deref().unwrap_or("agent"),
                 &p.stable_blue,

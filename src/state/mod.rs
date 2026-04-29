@@ -84,43 +84,6 @@ impl SessionState {
         self.ctx_history.push_back((pct.min(100), ts_ms));
     }
 
-    /// Most-recent samples covering at least `min_window_ms` of wall time
-    /// or `min_count` samples (whichever is larger). Drives the ledger
-    /// sparkline's adaptive window: 12 samples by default, expanding back
-    /// when bursts pack the recent slice into < 60s of elapsed time.
-    pub fn ctx_history_window(
-        &self,
-        min_count: usize,
-        min_window_ms: u64,
-    ) -> Vec<(u8, u64)> {
-        let n = self.ctx_history.len();
-        if n == 0 {
-            return Vec::new();
-        }
-        let now = self
-            .ctx_history
-            .back()
-            .map(|(_, t)| *t)
-            .unwrap_or(0);
-        let mut take = min_count.min(n);
-        if take == 0 {
-            take = 1;
-        }
-        // Expand the window backward until we cover min_window_ms or run out.
-        loop {
-            let oldest_ts = self
-                .ctx_history
-                .get(n - take)
-                .map(|(_, t)| *t)
-                .unwrap_or(0);
-            if now.saturating_sub(oldest_ts) >= min_window_ms || take >= n {
-                break;
-            }
-            take += 1;
-        }
-        self.ctx_history.iter().skip(n - take).copied().collect()
-    }
-
     /// Compute output token speed from successive payload snapshots.
     /// Returns the current speed estimate, or keeps the last known value if the
     /// delta window exceeds 2 seconds (likely idle/paused).

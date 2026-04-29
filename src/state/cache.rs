@@ -53,10 +53,7 @@ pub struct SessionCache {
     pub last_output_token_time_ms: Option<u64>,
     #[serde(default)]
     pub output_speed_toks_per_sec: Option<f64>,
-    // Sparkline source — last N `(pct, epoch_ms)` samples consumed by the
-    // ledger layout. Pre-timestamp caches contain `[u8]` and fail to
-    // deserialize as `[(u8, u64)]`; per the project's silent-failure cache
-    // policy the load returns `None` and the field rebuilds from scratch.
+    // Sparkline source — last N `(pct, epoch_ms)` samples.
     #[serde(default)]
     pub ctx_history: VecDeque<(u8, u64)>,
     // Env/Git with timestamps

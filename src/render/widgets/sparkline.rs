@@ -22,7 +22,7 @@
 //! reads naturally as "history is filling up."
 
 use crate::config::GlyphMode;
-use crate::render::color::colorize;
+use crate::render::color::{colorize, ThemePalette};
 
 const SPARK_CELLS: usize = 6;
 const SAMPLES_PER_CELL: usize = 2;
@@ -63,23 +63,21 @@ fn height_for(sample: u8) -> u8 {
     }
 }
 
-/// Render a 6-cell braille sparkline from up to 12 most-recent samples (0..=100).
+/// Render a 6-cell braille sparkline from up to 12 most-recent samples
+/// (each `(pct, epoch_ms)` — only `pct` drives the curve shape).
 ///
 /// Renders all-`⠀` (empty) when `samples` is empty so layouts can include the
 /// widget unconditionally without leaking width.
 ///
 /// **Icon-only widget.** Braille has no ASCII equivalent that conveys the same
 /// trend information at this density, so under `GlyphMode::Ascii` this fn
-/// returns an empty string — the widget itself is the gate point so callers
-/// don't need to pre-check `glyph_mode.is_icon()`.
+/// returns an empty string.
 ///
-/// Color: caller-supplied. The shape (braille curve) carries the trend
-/// direction; the color is reserved for an orthogonal signal — typically
-/// velocity-based aurora, picked by the layout per its own threshold rule.
-/// An empty `fill_color` (with `color_enabled = true`) renders raw glyphs
-/// without ANSI wrapping.
+/// Color: caller-supplied. The shape (braille curve) carries direction;
+/// color carries an orthogonal signal — typically velocity-based aurora
+/// from `aurora_for_velocity`. An empty `fill_color` skips ANSI wrapping.
 pub fn render(
-    samples: &[u8],
+    samples: &[(u8, u64)],
     fill_color: &str,
     mode: GlyphMode,
     color_enabled: bool,
@@ -87,11 +85,70 @@ pub fn render(
     if matches!(mode, GlyphMode::Ascii) {
         return String::new();
     }
-    let raw = render_glyphs(samples);
+    let raw = render_glyphs_timed(samples);
     if !color_enabled || fill_color.is_empty() {
         return raw;
     }
     colorize(&raw, fill_color, color_enabled)
+}
+
+/// Pick the aurora fill color for a sparkline based on the *velocity* of
+/// CTX consumption across `window`. Shape carries direction (rise/fall);
+/// this color carries intensity (calm / active / hot).
+///
+/// ```text
+/// velocity (% / minute)   → color
+/// < 1                     → aurora_low
+/// 1 .. 5                  → aurora_mid
+/// >= 5                    → aurora_high
+/// ```
+///
+/// Thresholds verified against a 134-min real session — see
+/// `designs/console-redesign/palette-integration.md` § Aurora revisited.
+pub fn aurora_for_velocity<'p>(window: &[(u8, u64)], p: &'p ThemePalette) -> &'p str {
+    let (Some(first), Some(last)) = (window.first(), window.last()) else {
+        return &p.aurora_low;
+    };
+    let span_ms = last.1.saturating_sub(first.1);
+    if span_ms == 0 {
+        return &p.aurora_low;
+    }
+    let span_min = (span_ms as f64) / 60_000.0;
+    let velocity = (last.0 as f64 - first.0 as f64).abs() / span_min;
+    if velocity >= 5.0 {
+        &p.aurora_high
+    } else if velocity >= 1.0 {
+        &p.aurora_mid
+    } else {
+        &p.aurora_low
+    }
+}
+
+fn render_glyphs_timed(samples: &[(u8, u64)]) -> String {
+    if samples.is_empty() {
+        return EMPTY_CELL.to_string().repeat(SPARK_CELLS);
+    }
+    let take_from = samples.len().saturating_sub(SPARK_SAMPLES);
+    let recent = &samples[take_from..];
+    let pad = SPARK_SAMPLES - recent.len();
+
+    let mut out = String::with_capacity(SPARK_CELLS * 3);
+    for cell_idx in 0..SPARK_CELLS {
+        let s0_pos = cell_idx * SAMPLES_PER_CELL;
+        let s1_pos = s0_pos + 1;
+        let l = if s0_pos < pad {
+            0
+        } else {
+            height_for(recent[s0_pos - pad].0)
+        };
+        let r = if s1_pos < pad {
+            0
+        } else {
+            height_for(recent[s1_pos - pad].0)
+        };
+        out.push(braille_cell(l, r));
+    }
+    out
 }
 
 /// Like `render` but returns plain glyphs (no ANSI). Used by tests and by
@@ -182,16 +239,21 @@ mod tests {
         assert_eq!(c as u32, 0x28FF);
     }
 
+    fn timed(pcts: &[u8]) -> Vec<(u8, u64)> {
+        pcts.iter().enumerate().map(|(i, p)| (*p, i as u64 * 1_000)).collect()
+    }
+
     #[test]
     fn render_uses_caller_supplied_color() {
-        // Caller picks the color; widget just wraps the raw glyphs in it.
-        let s = render(&[10, 20, 30], "BRAND", GlyphMode::Icon, true);
+        let samples = timed(&[10, 20, 30]);
+        let s = render(&samples, "BRAND", GlyphMode::Icon, true);
         assert!(s.contains("BRAND"), "expected caller color marker in {s:?}");
     }
 
     #[test]
     fn render_no_color_returns_raw_glyphs() {
-        let plain = render(&[10, 20, 30], "BRAND", GlyphMode::Icon, false);
+        let samples = timed(&[10, 20, 30]);
+        let plain = render(&samples, "BRAND", GlyphMode::Icon, false);
         assert_eq!(plain.chars().count(), 6);
         assert!(!plain.contains('\x1b'));
         assert!(!plain.contains("BRAND"));
@@ -199,24 +261,41 @@ mod tests {
 
     #[test]
     fn render_empty_fill_color_returns_raw_glyphs() {
-        // Empty fill_color → no ANSI wrap (caller wants raw braille).
-        let plain = render(&[10, 20, 30], "", GlyphMode::Icon, true);
+        let samples = timed(&[10, 20, 30]);
+        let plain = render(&samples, "", GlyphMode::Icon, true);
         assert_eq!(plain.chars().count(), 6);
         assert!(!plain.contains('\x1b'));
     }
 
     #[test]
     fn ascii_mode_returns_empty_string() {
+        let samples = timed(&[10, 20, 30, 40, 50, 60, 70, 80]);
         assert_eq!(render(&[], "", GlyphMode::Ascii, true), "");
-        assert_eq!(render(&[50], "BRAND", GlyphMode::Ascii, true), "");
-        assert_eq!(
-            render(
-                &[10, 20, 30, 40, 50, 60, 70, 80],
-                "BRAND",
-                GlyphMode::Ascii,
-                true
-            ),
-            ""
-        );
+        assert_eq!(render(&timed(&[50]), "BRAND", GlyphMode::Ascii, true), "");
+        assert_eq!(render(&samples, "BRAND", GlyphMode::Ascii, true), "");
+    }
+
+    #[test]
+    fn aurora_velocity_picks_low_under_one_per_minute() {
+        let p = super::super::test_support::aurora_marker_palette();
+        // 4% rise over 5 min → 0.8 %/min → low.
+        let window = vec![(40, 0), (44, 5 * 60_000)];
+        assert!(aurora_for_velocity(&window, &p).contains("LOW"));
+    }
+
+    #[test]
+    fn aurora_velocity_picks_mid_in_one_to_five_band() {
+        let p = super::super::test_support::aurora_marker_palette();
+        // 13% rise over 5 min → 2.6 %/min → mid.
+        let window = vec![(30, 0), (43, 5 * 60_000)];
+        assert!(aurora_for_velocity(&window, &p).contains("MID"));
+    }
+
+    #[test]
+    fn aurora_velocity_picks_high_above_five_per_minute() {
+        let p = super::super::test_support::aurora_marker_palette();
+        // 30% rise over 1 min → 30 %/min → high.
+        let window = vec![(10, 0), (40, 60_000)];
+        assert!(aurora_for_velocity(&window, &p).contains("HIGH"));
     }
 }

@@ -357,11 +357,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        // `format_context_segment` (and the dispatch hub it calls) takes a
-        // `&[u8]` of pcts only — the ledger sparkline reads timestamps
-        // directly from `frame.ctx_history`.
-        let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
-        parts.push(format_context_segment(&frame.line3, config, p, &pcts));
+        parts.push(format_context_segment(
+            &frame.line3,
+            config,
+            p,
+            &frame.ctx_history,
+        ));
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -444,7 +445,7 @@ fn format_context_segment(
     line3: &Line3Metrics,
     config: &RenderConfig,
     p: &ThemePalette,
-    history: &[u8],
+    history: &[(u8, u64)],
 ) -> String {
     // Dispatches through the visual hub so flat layouts inherit per-segment
     // composability from `context_visual`. Default for every flat layout is
