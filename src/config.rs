@@ -177,7 +177,7 @@ pub struct ColorsConfig {
     pub strata_state: Option<u8>,
     #[serde(default)]
     pub strata_activity: Option<u8>,
-    // Aurora pulse (3-stop gradient for v2 widgets)
+    // Aurora pulse (3-stop gradient — sparkline velocity color)
     #[serde(default)]
     pub aurora_low: Option<u8>,
     #[serde(default)]
@@ -480,13 +480,13 @@ show_tokens = true
 show_cost = true
 show_speed = false          # output tok/s rate
 # context_visual: per-segment widget composition. `+`-joined widget names.
-# Empty (the default) defers to the layout's choice — instrument-cluster
-# layouts use "gauge+sparkline", flat layouts use "text". Examples:
-#   context_visual = "gauge"            # text-free dashboard
-#   context_visual = "text"             # flat-style L3 inside cockpit
-#   context_visual = "gauge+sparkline"  # full instrument cluster
+# Empty (the default) defers to the layout's choice — most layouts use
+# "text", ledger uses "text+sparkline". Examples:
+#   context_visual = "gauge"            # gauge bar replaces percentage text
+#   context_visual = "text"             # plain percentage + token counts
+#   context_visual = "text+sparkline"   # numbers + braille trend
 context_visual = ""
-# cost_visual: same composition rule. Recognized: text, arc, text+arc.
+# cost_visual: same composition rule. Recognized: text.
 cost_visual = ""
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
@@ -522,19 +522,18 @@ max_lines = 2
 [layout]
 # Which renderer arranges the lines.
 #
-# Flat / framed (3 fixed rows: identity / config / budget):
+# Plain / decorated:
 #   "none"     — flat output, no grouping markers
 #   "zones"    — `─── activity ───` rule between state and activity (+1 row)
 #   "grid"     — fixed label column + │ + right-padded content (table layout)
-#   "cards"    — each group is its own ╭─┬─╮ card stacked vertically
 #   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between groups
+#   "console"  — sections, with the identity row hoisted into the top frame
+#                title (best ≥110 cols)
 #
-# Instrument-cluster (widget-based, density depends on terminal width):
-#   "cockpit"     — 3-row default (identity + cluster + activity ticker)
-#   "console"     — framed dashboard, ≥130 cols recommended
-#   "flightstrip" — 2-row dense strip, narrow IDE statuslines
-#   "auto"        — width-bracket resolver: ≥130 console, ≥110 cockpit,
-#                   ≥90 flightstrip, <90 degraded cockpit
+# Typographic-rhythm:
+#   "ledger"   — TAG-column rows with blank-row group separation. Tallest
+#                layout — favours rhythm over density. Ships sparkline +
+#                delta-time on the CTX row by default.
 name = "none"
 #
 # Width only applies to "zones" (which draws a horizontal rule).
@@ -1048,8 +1047,7 @@ pub fn default_project_config_toml() -> &'static str {
 # max_lines = 2
 
 # [layout]
-# # Flat / framed:        "none" | "zones" | "grid" | "cards" | "sections"
-# # Instrument-cluster:   "cockpit" | "console" | "flightstrip" | "auto"
+# # Surviving layouts: "none" | "zones" | "grid" | "sections" | "console" | "ledger"
 # name = "grid"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100

@@ -82,9 +82,9 @@ pub struct PaneConfig {
 
 /// Apply the configured pane style to `lines`.
 ///
-/// Returns `lines` unchanged when `cfg.style == LayoutStyle::None` or when
-/// the style is an instrument-cluster layout (which renders independently
-/// upstream of this function), or when the terminal can't fit `cfg.min_width`.
+/// Returns `lines` unchanged when `cfg.style == LayoutStyle::None` (no
+/// chrome to apply) or `Ledger` (renders independently upstream of this
+/// function), or when the terminal can't fit `cfg.min_width`.
 pub fn apply_pane(
     lines: Vec<String>,
     groups: &[(LineKind, Range<usize>)],

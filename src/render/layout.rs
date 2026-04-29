@@ -29,11 +29,11 @@ fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_
 }
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    // CC allocates the statusline a sub-region narrower than the raw terminal
-    // (see DEFAULT_PANE_CC_MARGIN). Both v1 and v2 paths must size against the
-    // sub-region, not the raw terminal — otherwise CC's overflow detection
-    // wraps the over-wide line and collapses the whole multi-line render to
-    // one visible line.
+    // CC allocates the statusline a sub-region narrower than the raw
+    // terminal (see DEFAULT_PANE_CC_MARGIN). The flat path and the ledger
+    // path must both size against the sub-region, not the raw terminal —
+    // otherwise CC's overflow detection wraps the over-wide line and
+    // collapses the whole multi-line render to one visible line.
     let adjusted = config.terminal_width.map(|w| {
         let mut c = config.clone();
         c.terminal_width = Some(w.saturating_sub(config.pane_cc_margin));
@@ -41,8 +41,8 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     });
     let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
 
-    // Instrument-cluster layouts own the full pipeline; flat-row layouts fall
-    // through to the v1-style assembly below.
+    // Ledger owns its full pipeline; every other layout flows through the
+    // flat-row assembly below and gets decorated by `apply_pane`.
     let palette = &config.palette;
     match config.pane_style {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
@@ -357,10 +357,9 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        // Cluster sparkline consumers still take `&[u8]`; ledger and the new
-        // sparkline widget will take the timestamped tuple slice directly
-        // after the upcoming sparkline-signature change. For now adapt at
-        // the call site — the cluster path dies in the next-but-one commit.
+        // `format_context_segment` (and the dispatch hub it calls) takes a
+        // `&[u8]` of pcts only — the ledger sparkline reads timestamps
+        // directly from `frame.ctx_history`.
         let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
         parts.push(format_context_segment(&frame.line3, config, p, &pcts));
     }
@@ -435,11 +434,11 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
     status
 }
 
-/// Sizing hint for the gauge widget when a flat layout dispatches a v1 L3
-/// row through `render_context_visual`. Roughly matches cockpit's
-/// `FULL_GAUGE_WIDTH` so `cards + context_visual = "gauge"` reads at the
-/// same density as `cockpit + gauge`.
-const V1_GAUGE_WIDTH: usize = 18;
+/// Sizing hint for the gauge widget when a flat layout dispatches a CTX
+/// row through `render_context_visual`. The constant is interior cells —
+/// the visible width of the gauge bar is `FLAT_GAUGE_WIDTH + 2` (the
+/// `[ ]` brackets).
+const FLAT_GAUGE_WIDTH: usize = 18;
 
 fn format_context_segment(
     line3: &Line3Metrics,
@@ -447,17 +446,16 @@ fn format_context_segment(
     p: &ThemePalette,
     history: &[u8],
 ) -> String {
-    // Dispatches through the visual hub so flat layouts inherit the same
-    // composability as instrument-cluster layouts. Default for flat layouts
-    // is `text` — produces the legacy `CTX:43% (86.0k/200.0k)` form
-    // unchanged. Users who set `context_visual = "gauge"` on a flat layout
-    // get a gauge inside e.g. a Cards frame ("cards + gauge", the headline
-    // composability proof).
+    // Dispatches through the visual hub so flat layouts inherit per-segment
+    // composability from `context_visual`. Default for every flat layout is
+    // `text` (legacy `CTX:43% (86.0k/200.0k)` form). Users who set
+    // `context_visual = "gauge"` get a gauge bar inside the same row;
+    // `"text+sparkline"` adds a braille trend after the numbers.
     frames::shared::render_context_visual(
         config.effective_context_visual(),
         line3,
         history,
-        V1_GAUGE_WIDTH,
+        FLAT_GAUGE_WIDTH,
         config.glyph_mode,
         p,
         config.color_enabled,

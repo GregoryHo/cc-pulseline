@@ -34,9 +34,9 @@ pub const ICON_THINKING: &str = "\u{f0335}"; // 󰌵 nf-md-lightbulb-on
 // Plugins (CC 2.0.12+)
 pub const ICON_PLUGIN: &str = "\u{f0431}"; // 󰐱 nf-md-puzzle
 
-// Box-drawing characters used by the v2 Console (and the v1 framed
-// styles' shared module). One source of truth so frame edges stay
-// consistent across layouts and tests can assert against the constants.
+// Box-drawing characters used by every framed layout (Sections, Console,
+// Ledger). One source of truth so frame edges stay consistent across
+// layouts and tests can assert against the constants.
 pub const FRAME_TL: char = '\u{256D}'; // ╭
 pub const FRAME_TR: char = '\u{256E}'; // ╮
 pub const FRAME_BL: char = '\u{2570}'; // ╰

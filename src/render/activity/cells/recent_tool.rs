@@ -1,20 +1,18 @@
-//! Per-tool cell construction shared between the flat-row activity
-//! builder and the cluster-layout tape widget.
+//! Per-tool cell construction for the activity row builder and the
+//! ledger TOOL row.
 //!
 //! Both render paths describe the same data — a `ToolSummary` for a
-//! currently-running or just-completed tool — so they should produce
-//! visually identical cells. Differences in *layout* (single-line packed
-//! tape vs multi-row Cell-budgeted list) live in the call sites; the
-//! per-tool building blocks live here.
+//! currently-running or just-completed tool — so they share this
+//! per-tool builder for identical cell content. Differences in *layout*
+//! (multi-row Cell-budgeted list vs ledger's TAG-aligned rows) live in
+//! the call sites.
 //!
 //! Public surface:
 //! - `target_strategy_for(name)` — single source of truth for the
 //!   per-tool truncation strategy + ideal target width
 //! - `build_recent_tool_cell(tool, mode, palette, color)` — produces a
 //!   `Cell` with `min_width = 8`, `ideal_width = strategy.ideal`, and
-//!   `Required` priority. Consumed by both the activity row builder and
-//!   the tape widget; both then hand the cell to
-//!   `pack_with_separator(cells, available_width, sep, sep_w, color)`.
+//!   `Required` priority.
 //!
 //! Icon and colour conventions:
 //! - `glyph(ICON_TOOL, "T:")` — Nerd Font in Icon mode, literal `T:` in Ascii

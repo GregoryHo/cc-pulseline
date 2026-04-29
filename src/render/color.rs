@@ -43,7 +43,8 @@ pub struct ThemePalette {
     // Tonal strata — chrome tier for the `|` separator (state vs activity rows).
     pub strata_state: String,
     pub strata_activity: String,
-    // Aurora pulse — 3-stop gradient for v2 widgets (sparklines, gauges, arcs).
+    // Aurora pulse — 3-stop gradient. Used by the sparkline widget; ledger
+    // picks a stop based on CTX consumption velocity (calm / active / hot).
     pub aurora_low: String,
     pub aurora_mid: String,
     pub aurora_high: String,
@@ -146,7 +147,7 @@ impl ThemePalette {
         &self.alert_red
     }
     /// Quota threshold ladder — `≥85% → critical`, `≥50% → warn`, else good.
-    /// Used by both v1 `format_quota_period` and v2 quota cells so the colors
+    /// Used by `format_quota_period` and the ledger quota row so the colors
     /// stay consistent across layouts.
     pub fn color_for_quota_pct(&self, pct: f64) -> &str {
         if pct >= 85.0 {
@@ -218,7 +219,7 @@ struct PresetColors {
     strata_state: Option<u8>,
     #[serde(default)]
     strata_activity: Option<u8>,
-    /// v2 aurora pulse — 3-stop gradient. Built-in themes set all three;
+    /// Aurora pulse — 3-stop gradient. Built-in themes set all three;
     /// custom themes may omit (fall back to `completed_check` / `active_cyan`
     /// / `active_coral` in `build_palette`).
     #[serde(default)]

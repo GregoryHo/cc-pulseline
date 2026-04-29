@@ -17,8 +17,7 @@ use super::budget::{pack_multi_row, pack_with_separator};
 use super::cell::{Cell, CellBody, CellPriority, TailFragment};
 use super::truncate::TruncationStrategy;
 
-/// Visible separator between cells in an activity row. Cluster layouts
-/// reuse this so flat-row and cluster paths render identical separators.
+/// Visible separator between cells in an activity row.
 pub const ROW_SEPARATOR: &str = " | ";
 pub const ROW_SEPARATOR_W: usize = 3;
 /// Sub-item separator inside a heterogeneous parallel group cell. Space-padded
@@ -242,8 +241,8 @@ impl AgentVisualSpec {
     }
 }
 
-/// Caller decides packing: flat-row puts each cell on its own row;
-/// cluster layouts pack them into one row via `pack_with_separator`.
+/// Caller decides packing: the activity row builder puts each cell on
+/// its own row. Returns cells in `[active.., completed..]` order.
 pub fn build_agent_cells(
     agents: &[AgentSummary],
     config: &RenderConfig,

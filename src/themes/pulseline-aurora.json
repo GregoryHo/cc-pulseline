@@ -1,8 +1,8 @@
 {
   "$schema": "../../docs/theme-schema.json",
   "theme": "pulseline-aurora",
-  "author": "cc-pulseline (v2 flagship)",
-  "description": "Bespoke v2 palette tuned for peripheral instrument-cluster reading. Three intent layers: substrate (chrome), datum (values), pulse (movement). Aurora gradient teal → coral.",
+  "author": "cc-pulseline",
+  "description": "Bespoke palette tuned for peripheral statusline reading. Three intent layers: substrate (chrome), datum (values), pulse (movement). Aurora gradient teal → coral.",
 
   "colors": {
     "intent_layers": {
@@ -67,7 +67,7 @@
   },
 
   "design_notes": {
-    "philosophy": "v2 flagship — peripheral instrument-cluster reading. Substrate disappears, datum jumps, pulse animates. Aurora gradient is the only place colour 'moves'.",
+    "philosophy": "Peripheral statusline reading. Substrate disappears, datum jumps, pulse animates. Aurora gradient is the only place colour 'moves'.",
     "active_collapsed": "active_cyan / active_purple / active_teal all collapsed to aurora_mid (80). Differentiation by icon shape, not hue. Reduces colour count from 5 active variants to 1.",
     "alert_calmed": "alert_orange uses 178 (vs tokyo-night's 214) — Aurora is calmer. alert_magenta is 217 rose, not the hard 201.",
     "aurora_gradient_invariant": "aurora_low/mid/high are theme-invariant (same dark + light codes). They are brand pigment, not mode-aware chrome. Confirmed legible on light backgrounds via 73/80/209 contrast check."

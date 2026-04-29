@@ -61,10 +61,10 @@ fn resolve_inner_width(grouped: &[(&str, Vec<&str>)], cfg: &PaneConfig) -> usize
         PaneWidth::Auto => content_max.max(label_max),
         PaneWidth::Fixed(w) => w.max(label_max),
         PaneWidth::Terminal => {
-            // Span the detected terminal width. The cc_margin deduction now
-            // happens once upstream in `render_frame()` for both v1 and v2,
-            // so `cfg.terminal_width` here is already the safe sub-region
-            // width — no further subtraction needed.
+            // Span the detected terminal width. The cc_margin deduction
+            // already happened upstream in `render_frame()`, so
+            // `cfg.terminal_width` here is the safe sub-region width — no
+            // further subtraction needed.
             //
             // When detection failed (`terminal_width = None`), fall back to
             // content-fit (Auto behavior) — NOT to max_width.
