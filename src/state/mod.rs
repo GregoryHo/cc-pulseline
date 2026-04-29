@@ -16,9 +16,9 @@ use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
 
 const MAX_RECENT_TOOLS_CAP: usize = 10;
 
-/// Maximum number of CTX% samples retained for the v2 sparkline. The widget
-/// draws the most-recent 12 (6 cells × 2 samples), but we keep a few extra so
-/// brief stale-cache windows don't blank the trail.
+/// Maximum number of CTX% samples retained for the ledger sparkline. The
+/// widget draws 12 (6 braille cells × 2 samples each); the surplus lets
+/// the adaptive 1-minute window expand when samples arrive in bursts.
 pub const MAX_CTX_HISTORY: usize = 30;
 
 #[derive(Debug, Clone, Default)]
@@ -45,8 +45,10 @@ pub struct SessionState {
     pub last_output_tokens: Option<u64>,
     pub last_output_token_time_ms: Option<u64>,
     pub output_speed_toks_per_sec: Option<f64>,
-    // v2 sparkline source: rolling window of CTX% samples.
-    pub ctx_history: VecDeque<u8>,
+    /// Sparkline source: rolling window of `(pct, epoch_ms)` samples.
+    /// Timestamps drive the ledger's adaptive 1-minute window + velocity-
+    /// based aurora coloring.
+    pub ctx_history: VecDeque<(u8, u64)>,
 }
 
 impl SessionState {
@@ -73,12 +75,51 @@ impl SessionState {
         }
     }
 
-    /// Push a fresh CTX% sample, discarding the oldest when at capacity.
-    pub fn push_ctx_sample(&mut self, pct: u8) {
+    /// Push a fresh CTX% sample stamped with `ts_ms`, discarding the oldest
+    /// when at capacity.
+    pub fn push_ctx_sample(&mut self, pct: u8, ts_ms: u64) {
         if self.ctx_history.len() == MAX_CTX_HISTORY {
             self.ctx_history.pop_front();
         }
-        self.ctx_history.push_back(pct.min(100));
+        self.ctx_history.push_back((pct.min(100), ts_ms));
+    }
+
+    /// Most-recent samples covering at least `min_window_ms` of wall time
+    /// or `min_count` samples (whichever is larger). Drives the ledger
+    /// sparkline's adaptive window: 12 samples by default, expanding back
+    /// when bursts pack the recent slice into < 60s of elapsed time.
+    pub fn ctx_history_window(
+        &self,
+        min_count: usize,
+        min_window_ms: u64,
+    ) -> Vec<(u8, u64)> {
+        let n = self.ctx_history.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let now = self
+            .ctx_history
+            .back()
+            .map(|(_, t)| *t)
+            .unwrap_or(0);
+        let mut take = min_count.min(n);
+        if take == 0 {
+            take = 1;
+        }
+        // Expand the window backward until we cover min_window_ms or run out.
+        loop {
+            let oldest_ts = self
+                .ctx_history
+                .iter()
+                .nth(n - take)
+                .map(|(_, t)| *t)
+                .unwrap_or(0);
+            if now.saturating_sub(oldest_ts) >= min_window_ms || take >= n {
+                break;
+            }
+            take += 1;
+        }
+        self.ctx_history.iter().skip(n - take).copied().collect()
     }
 
     /// Compute output token speed from successive payload snapshots.

@@ -97,7 +97,8 @@ fn strip_l2(
     let mut parts: Vec<String> = Vec::new();
 
     if width >= 90 && shared::sparkline_enabled(config) {
-        let spark = shared::ctx_sparkline(&frame.ctx_history, config.glyph_mode, p, color);
+        let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
+        let spark = shared::ctx_sparkline(&pcts, config.glyph_mode, p, color);
         parts.push(spark);
     }
 
@@ -141,7 +142,7 @@ mod tests {
         f.line3.context_window_size = Some(200_000);
         f.line3.context_used_percentage = Some(43);
         f.line3.total_cost_usd = Some(3.50);
-        f.ctx_history = vec![20, 30, 40, 43];
+        f.ctx_history = vec![(20, 1_000), (30, 2_000), (40, 3_000), (43, 4_000)];
         f
     }
 

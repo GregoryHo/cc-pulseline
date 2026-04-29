@@ -109,10 +109,11 @@ fn cluster_row(
             .collect::<Vec<_>>()
             .join("+");
     }
+    let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
     let ctx_cell = shared::render_context_visual(
         &ctx_spec,
         &frame.line3,
-        &frame.ctx_history,
+        &pcts,
         gauge_w,
         config.glyph_mode,
         p,
@@ -205,7 +206,14 @@ mod tests {
         f.line3.total_cost_usd = Some(3.50);
         f.line3.total_duration_ms = Some(60_000 * 30);
         f.line3.output_speed_toks_per_sec = Some(1200.0);
-        f.ctx_history = vec![10, 20, 30, 35, 40, 43];
+        f.ctx_history = vec![
+            (10, 1_000),
+            (20, 2_000),
+            (30, 3_000),
+            (35, 4_000),
+            (40, 5_000),
+            (43, 6_000),
+        ];
         f
     }
 

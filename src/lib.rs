@@ -90,8 +90,10 @@ impl PulseLineRunner {
         // statusline doesn't flatten the trail with one repeated value.
         if let Some(pct) = frame.line3.context_used_percentage {
             let sample = pct.min(100) as u8;
-            if state.ctx_history.back() != Some(&sample) {
-                state.push_ctx_sample(sample);
+            let last = state.ctx_history.back().map(|(p, _)| *p);
+            if last != Some(sample) {
+                let now_ms = crate::state::cache::now_epoch_ms();
+                state.push_ctx_sample(sample, now_ms);
             }
         }
         // Sparkline consumers: any layout whose effective `context_visual`

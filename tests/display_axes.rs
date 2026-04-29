@@ -24,7 +24,14 @@ fn frame_with_agent_and_quota() -> RenderFrame {
     f.line3.output_tokens = Some(20);
     f.line3.total_cost_usd = Some(3.50);
     f.line3.total_duration_ms = Some(60_000 * 30); // 30 min → $7/h
-    f.ctx_history = vec![10, 20, 30, 35, 40, 43];
+    f.ctx_history = vec![
+        (10, 1_000),
+        (20, 2_000),
+        (30, 3_000),
+        (35, 4_000),
+        (40, 5_000),
+        (43, 6_000),
+    ];
     f.agents.push(AgentSummary {
         id: "a1".to_string(),
         description: "Investigate logic".to_string(),

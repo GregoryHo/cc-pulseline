@@ -364,10 +364,11 @@ pub struct RenderFrame {
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
     pub quota: QuotaMetrics,
-    /// Rolling CTX% history (oldest → newest). v2 widgets read this for the
-    /// sparkline; v1 layouts ignore it. Populated by `PulseLineRunner` from
+    /// Rolling CTX% history (oldest → newest), each entry `(pct, epoch_ms)`.
+    /// Read by ledger's sparkline (and, transitionally, the cluster layouts
+    /// before deletion). Populated by `PulseLineRunner` from
     /// `SessionState.ctx_history`.
-    pub ctx_history: Vec<u8>,
+    pub ctx_history: Vec<(u8, u64)>,
 }
 
 impl RenderFrame {

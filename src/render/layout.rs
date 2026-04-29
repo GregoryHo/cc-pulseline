@@ -355,12 +355,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        parts.push(format_context_segment(
-            &frame.line3,
-            config,
-            p,
-            &frame.ctx_history,
-        ));
+        // Cluster sparkline consumers still take `&[u8]`; ledger and the new
+        // sparkline widget will take the timestamped tuple slice directly
+        // after the upcoming sparkline-signature change. For now adapt at
+        // the call site — the cluster path dies in the next-but-one commit.
+        let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
+        parts.push(format_context_segment(&frame.line3, config, p, &pcts));
     }
     if config.show_tokens {
         let speed = if config.show_speed {

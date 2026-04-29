@@ -151,10 +151,11 @@ fn ctx_row(
     // to the gauge widget so console keeps its hero-instrument width.
     // The gauge cell embeds `<used>/<total>` itself, so no further
     // annotation is needed here.
+    let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
     shared::render_context_visual(
         config.effective_context_visual(),
         &frame.line3,
-        &frame.ctx_history,
+        &pcts,
         gauge_w,
         config.glyph_mode,
         p,
@@ -356,7 +357,7 @@ mod tests {
         f.line3.context_used_percentage = Some(43);
         f.line3.total_cost_usd = Some(3.50);
         f.line3.total_duration_ms = Some(60_000 * 30);
-        f.ctx_history = vec![20, 30, 40, 43];
+        f.ctx_history = vec![(20, 1_000), (30, 2_000), (40, 3_000), (43, 4_000)];
         f
     }
 
