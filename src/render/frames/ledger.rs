@@ -34,12 +34,13 @@
 //! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
+use crate::render::activity::agent_groups::{classify, AgentGroup};
 use crate::render::color::{colorize, take_visible_chars, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration};
-use crate::render::icons::{glyph, ICON_AGENT};
+use crate::render::icons::{glyph, ICON_AGENT, ICON_GROUP_PARALLEL};
 use crate::render::layout;
 use crate::render::widgets;
-use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
+use crate::types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame};
 
 use super::shared::{self, FrameGlyphs};
 
@@ -64,6 +65,10 @@ const TAG_GAP: usize = 3;
 const TAG_COL_WIDTH: usize = TAG_INDENT + TAG_WIDTH + TAG_GAP;
 /// Spacing between data items inside a content cell.
 const ITEM_GAP: &str = "   ";
+/// Cells reserved on the right edge so truncated content doesn't kiss
+/// the frame border. Applied as a budget reduction in tool / agent
+/// rows (the rows that hand-truncate; CTX / TOK / COST never overflow).
+const RIGHT_MARGIN: usize = 3;
 
 /// Per-render context bundle, threaded through every row builder. Bundles
 /// the four values (palette, glyph table, interior cell count, color flag)
@@ -187,7 +192,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
 
     let mut agent_todo_emitted = false;
     if config.show_agents {
-        let agent_rows = build_agent_rows(frame, config, p);
+        let agent_rows = build_agent_rows(frame, config, p, content_width);
         for (i, body) in agent_rows.iter().enumerate() {
             let tag = if i == 0 { "AGENT" } else { "" };
             lines.push(framed_tag_row(tag, body, &ctx));
@@ -535,7 +540,8 @@ fn build_tool_rows(
                 // the terminal, and trigger CC's wrap-collapse to one
                 // visible row.
                 let gap_w = ITEM_GAP.chars().count();
-                let budget = max_width.saturating_sub(arrow_w + name_w + gap_w);
+                let budget = max_width
+                    .saturating_sub(arrow_w + name_w + gap_w + RIGHT_MARGIN);
                 let truncated = if visible_width(&safe) > budget {
                     let mut s = take_visible_chars(&safe, budget.saturating_sub(1));
                     s.push('…');
@@ -553,33 +559,129 @@ fn build_tool_rows(
     rows
 }
 
-fn build_agent_rows(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
+fn build_agent_rows(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    max_width: usize,
+) -> Vec<String> {
     if frame.agents.is_empty() {
         return Vec::new();
     }
     let color = config.color_enabled;
     let max = config.max_agent_lines.max(1);
-    let icon_glyph = glyph(config.glyph_mode, ICON_AGENT, "A:");
-    frame
-        .agents
-        .iter()
+    let groups = classify(&frame.agents);
+    groups
+        .into_iter()
         .take(max)
-        .map(|a| {
-            let icon = colorize(&icon_glyph, &p.stable_blue, color);
-            let name = colorize(
-                a.agent_type.as_deref().unwrap_or("agent"),
-                &p.stable_blue,
-                color,
-            );
-            let desc = colorize(&a.description, &p.secondary, color);
-            let model = a
-                .model
-                .as_ref()
-                .map(|m| format!("{ITEM_GAP}{}", colorize(&format!("[{m}]"), &p.secondary, color)))
-                .unwrap_or_default();
-            format!("{icon} {name}{ITEM_GAP}{desc}{model}")
+        .map(|g| match g {
+            AgentGroup::Single(a) => render_single_agent(a, config, p, color, max_width),
+            AgentGroup::Homogeneous(g) => render_parallel_agents(&g, config, p, color, max_width, false),
+            AgentGroup::Heterogeneous(g) => render_parallel_agents(&g, config, p, color, max_width, true),
         })
         .collect()
+}
+
+fn render_single_agent(
+    a: &AgentSummary,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    color: bool,
+    max_width: usize,
+) -> String {
+    let icon_glyph = glyph(config.glyph_mode, ICON_AGENT, "A:");
+    let name_str = a.agent_type.as_deref().unwrap_or("agent");
+    let icon = colorize(&icon_glyph, &p.stable_blue, color);
+    let name = colorize(name_str, &p.stable_blue, color);
+    let head_w = visible_width(&icon_glyph) + 1 + name_str.chars().count();
+    let model_str = a
+        .model
+        .as_ref()
+        .map(|m| format!("[{m}]"))
+        .unwrap_or_default();
+    let model_tail_w = if model_str.is_empty() {
+        0
+    } else {
+        ITEM_GAP.chars().count() + model_str.chars().count()
+    };
+    let gap_w = ITEM_GAP.chars().count();
+    let budget = max_width.saturating_sub(head_w + gap_w + model_tail_w + RIGHT_MARGIN);
+    let desc_str = truncate_to(&a.description, budget);
+    let desc = colorize(&desc_str, &p.secondary, color);
+    let model = if model_str.is_empty() {
+        String::new()
+    } else {
+        format!("{ITEM_GAP}{}", colorize(&model_str, &p.secondary, color))
+    };
+    format!("{icon} {name}{ITEM_GAP}{desc}{model}")
+}
+
+/// Parallel-group row: `‖ ×N parallel  type1: desc1 + type2: desc2 ...`
+/// (or `<icon> type ×N  desc1 + desc2 + ...` when all agents share the
+/// same `agent_type`).
+fn render_parallel_agents(
+    group: &[&AgentSummary],
+    config: &RenderConfig,
+    p: &ThemePalette,
+    color: bool,
+    max_width: usize,
+    heterogeneous: bool,
+) -> String {
+    let n = group.len();
+    let mode = config.glyph_mode;
+    let (head_glyph, head_w_glyph) = if heterogeneous {
+        let g = glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1);
+        let w = visible_width(&g);
+        (g, w)
+    } else {
+        let g = glyph(mode, ICON_AGENT, "A:");
+        let w = visible_width(&g);
+        (g, w)
+    };
+    let icon = colorize(&head_glyph, &p.stable_blue, color);
+
+    let head_text = if heterogeneous {
+        format!("\u{00D7}{n} parallel")
+    } else {
+        let t = group[0].agent_type.as_deref().unwrap_or("agent");
+        format!("{t} \u{00D7}{n}")
+    };
+    let head_label = colorize(&head_text, &p.stable_blue, color);
+    let head_w = head_w_glyph + 1 + head_text.chars().count();
+
+    let body_text: String = if heterogeneous {
+        group
+            .iter()
+            .map(|a| {
+                format!(
+                    "{}: {}",
+                    a.agent_type.as_deref().unwrap_or("agent"),
+                    a.description
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" + ")
+    } else {
+        group
+            .iter()
+            .map(|a| a.description.clone())
+            .collect::<Vec<_>>()
+            .join(" + ")
+    };
+    let gap_w = ITEM_GAP.chars().count();
+    let budget = max_width.saturating_sub(head_w + gap_w + RIGHT_MARGIN);
+    let body_truncated = truncate_to(&body_text, budget);
+    let body = colorize(&body_truncated, &p.secondary, color);
+    format!("{icon} {head_label}{ITEM_GAP}{body}")
+}
+
+fn truncate_to(s: &str, budget: usize) -> String {
+    if visible_width(s) <= budget {
+        return s.to_string();
+    }
+    let mut t = take_visible_chars(s, budget.saturating_sub(1));
+    t.push('…');
+    t
 }
 
 fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<String> {
