@@ -435,12 +435,6 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
     status
 }
 
-/// Sizing hint for the gauge widget when a flat layout dispatches a CTX
-/// row through `render_context_visual`. The new gauge widget is
-/// bracketless (replaces the old `[████▎      ]` form) so the visible
-/// width equals the constant itself — 18 cells of bar.
-const FLAT_GAUGE_WIDTH: usize = 18;
-
 fn format_context_segment(
     line3: &Line3Metrics,
     config: &RenderConfig,
@@ -456,7 +450,7 @@ fn format_context_segment(
         config.effective_context_visual(),
         line3,
         history,
-        FLAT_GAUGE_WIDTH,
+        frames::shared::CTX_BAR_WIDTH,
         config.glyph_mode,
         p,
         config.color_enabled,

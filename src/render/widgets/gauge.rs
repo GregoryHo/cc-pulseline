@@ -1,24 +1,11 @@
 //! Marks-on-track gauge — `▰▰▰▰▰▰···──·──` style. Bracketless.
+//! Filled = `▰`, empty = `─`, threshold marks = `·` (all on the empty
+//! portion only — a mark landing on a filled cell is hidden by fill).
+//! Ascii mode swaps to `=` / `-` / `:`. Caller owns thresholds:
+//! quota passes `[50, 85]`; CTX passes `ThemePalette::ctx_marks()`.
 //!
-//! Filled cells use `▰` (U+25B0) in the caller-supplied fill colour.
-//! Empty cells use `─` (U+2500) in `palette.structural`. Threshold
-//! marks fall on the empty portion as `·` (U+00B7) — also `structural`.
-//! Marks landing on a filled cell are intentionally hidden by fill: the
-//! bar reads "I've crossed this threshold" by the absence of the mark
-//! more than by colouring.
-//!
-//! Ascii mode swaps to plain punctuation: `=` filled / `-` empty /
-//! `:` mark.
-//!
-//! Caller owns thresholds — quota passes `&[50, 85]`, CTX passes the
-//! window-aware result of `palette.ctx_marks_for_window(...)`. Cost
-//! and other future segments can supply their own. The widget is
-//! purely a renderer.
-//!
-//! Why bracketless: `[` `]` ASCII brackets read as terminal-shell
-//! decoration; bracketless `▰─·` reads as one designed track. The
-//! frame chrome (`╭─╮│╰─╯`) and field separator `|` already provide
-//! enough containment in framed layouts.
+//! See `designs/quota-gauge-revival/draft-F.md` for the design
+//! rationale (why bracketless, why no rainbow zones).
 
 use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
@@ -31,18 +18,21 @@ const FILLED_ASCII: char = '=';
 const EMPTY_ASCII: char = '-';
 const MARK_ASCII: char = ':';
 
+/// Round-half-up cell index for a given percentage. `pct=50, width=14`
+/// → cell 7. `pct=57, width=14` → cell 8.
+fn cell_for_pct(width: usize, pct: u64) -> usize {
+    (((width as u64) * pct.min(100) + 50) / 100) as usize
+}
+
 /// Render a horizontal bar with optional threshold marks.
 ///
 /// `pct`: 0..=100 (clamped). Cells filled = round(pct/100 * width).
 /// `width`: cell count; visible width is `width` (no bracket).
-/// `marks`: threshold percentages (each clamped to 0..=100). A mark
-///          falling on a filled cell is hidden — fill takes precedence.
+/// `marks`: threshold percentages. A mark falling on a filled cell
+///          is hidden — fill takes precedence. Empty slice → plain
+///          bar with no marks.
 /// `fill_color`: caller picks via `color_for_ctx_pct` /
 ///               `color_for_quota_pct` / etc.
-///
-/// Width 0 returns an empty string. Empty `marks` slice produces a
-/// plain bar (no marks at all) — useful when the caller doesn't have
-/// thresholds to express.
 pub fn render(
     pct: u64,
     width: usize,
@@ -55,25 +45,16 @@ pub fn render(
     if width == 0 {
         return String::new();
     }
-    let pct_clamped = pct.min(100);
-    // Round-half-up: ((w * pct) + 50) / 100. At pct=50 width=14 this
-    // gives 7 (cells 0..6 filled); at pct=54 still 7; at pct=57 → 8.
-    let filled_count = (((width as u64) * pct_clamped + 50) / 100) as usize;
-    let filled_count = filled_count.min(width);
+    let filled_count = cell_for_pct(width, pct).min(width);
 
     let (filled_ch, empty_ch, mark_ch) = match mode {
         GlyphMode::Icon => (FILLED_ICON, EMPTY_ICON, MARK_ICON),
         GlyphMode::Ascii => (FILLED_ASCII, EMPTY_ASCII, MARK_ASCII),
     };
 
-    // Compute mark cell positions once. Same round-half-up rule so
-    // `marks=[50, 85]` and `width=14` lands on cells 7 and 12.
     let mark_cells: Vec<usize> = marks
         .iter()
-        .map(|m| {
-            let m_clamped = (*m).min(100);
-            (((width as u64) * m_clamped + 50) / 100) as usize
-        })
+        .map(|m| cell_for_pct(width, *m))
         .filter(|c| *c < width)
         .collect();
 

@@ -351,9 +351,9 @@ pub fn render_context_visual(
             continue;
         }
         let cell = match widget {
-            "gauge" => ctx_gauge_cell(line3, gauge_width, mode, p, color_enabled),
-            "sparkline" => ctx_sparkline(history, mode, p, color_enabled),
-            "text" => ctx_text_cell(line3, mode, p, color_enabled),
+            WIDGET_GAUGE => ctx_gauge_cell(line3, gauge_width, mode, p, color_enabled),
+            WIDGET_SPARKLINE => ctx_sparkline(history, mode, p, color_enabled),
+            WIDGET_TEXT => ctx_text_cell(line3, mode, p, color_enabled),
             _ => String::new(), // unknown widget — silently drop
         };
         if !cell.is_empty() {
@@ -376,7 +376,7 @@ pub fn ctx_text_cell(
     let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(pct), Some(size)) => {
-            let pct_color = p.color_for_ctx_pct(pct, Some(size));
+            let pct_color = p.color_for_ctx_pct(pct);
             let icon = colorize(&icon_glyph, pct_color, color_enabled);
             let pct_str = colorize(&format!(" {pct}%"), pct_color, color_enabled);
             let used = ((size as f64) * (pct as f64) / 100.0) as u64;
@@ -413,9 +413,9 @@ pub fn ctx_gauge_cell(
     match (line3.context_used_percentage, line3.context_window_size) {
         (Some(pct), Some(size)) => {
             let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
-            let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
+            let fill_color = p.color_for_ctx_pct(pct);
             let icon = colorize(&icon_glyph, fill_color, color_enabled);
-            let marks = ThemePalette::ctx_marks_for_window(line3.context_window_size);
+            let marks = ThemePalette::ctx_marks();
             let bar = widgets::gauge::render(
                 pct,
                 gauge_width,
@@ -448,21 +448,32 @@ pub fn ctx_gauge_cell(
 /// from `(threshold * width / 100)`).
 pub const QUOTA_BAR_WIDTH: usize = 14;
 
+/// CTX gauge bar width in cells. Shared across every layout that opts
+/// into `context_visual = "gauge"` so the bar looks the same regardless
+/// of layout chrome. Wider than quota's 14 — CTX has more numeric
+/// information competing for space, and the wider bar absorbs that
+/// without clipping.
+pub const CTX_BAR_WIDTH: usize = 18;
+
 /// Quota threshold marks — fixed `[50, 85]` for the three-bucket
 /// good/warn/critical ladder applied by `color_for_quota_pct`.
 pub const QUOTA_MARKS: [u64; 2] = [50, 85];
 
-/// Compose a quota cell from a `+`-separated visual spec.
-///
-/// Recognized widget names: `gauge`, `text`. Unknown names are
-/// silently dropped. Currently only `gauge` produces visible output —
-/// the `text` widget is the caller's existing rendering path
-/// (`format_quota_period` / `quota_row_body`) and stays separate so
-/// quota's "5h: 62% (resets ...)" format-text isn't duplicated here.
-///
-/// Returns the bar string for the caller to insert before the
-/// percentage text. Empty string when spec doesn't include `gauge`
-/// (caller falls through to text-only).
+// ── Visual spec keywords (string atoms in `*_visual` config) ──
+pub const WIDGET_GAUGE: &str = "gauge";
+pub const WIDGET_SPARKLINE: &str = "sparkline";
+pub const WIDGET_TEXT: &str = "text";
+
+/// Returns true if the `+`-joined visual spec contains `widget` as a
+/// trimmed atom. Centralizes the parse so a typo in one widget name
+/// doesn't silently drop the widget.
+pub fn spec_has(spec: &str, widget: &str) -> bool {
+    spec.split('+').any(|atom| atom.trim() == widget)
+}
+
+/// Render the quota gauge bar when `spec` contains `gauge`. Returns
+/// an empty string otherwise (caller's text path handles the
+/// `5h: 62% (resets ...)` rendering directly).
 pub fn render_quota_visual(
     spec: &str,
     pct: f64,
@@ -470,11 +481,7 @@ pub fn render_quota_visual(
     mode: GlyphMode,
     color_enabled: bool,
 ) -> String {
-    let wants_gauge = spec
-        .split('+')
-        .map(str::trim)
-        .any(|widget| widget == "gauge");
-    if !wants_gauge {
+    if !spec_has(spec, WIDGET_GAUGE) {
         return String::new();
     }
     let fill = p.color_for_quota_pct(pct);

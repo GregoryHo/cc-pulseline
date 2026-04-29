@@ -51,32 +51,18 @@ pub struct ThemePalette {
 }
 
 /// CTX threshold percentages — fired by `color_for_ctx_pct` and
-/// surfaced as bar marks by `ctx_marks_for_window`. Fixed regardless
-/// of context-window size so the bar reads as a visual progress
-/// indicator (cf. token-pressure alarm). 55%+ → warn, 70%+ → critical.
+/// surfaced as bar marks by `ctx_marks`. Fixed regardless of
+/// context-window size: 55%+ → warn, 70%+ → critical.
 pub const CTX_WARN_THRESHOLD: u64 = 55;
 pub const CTX_CRITICAL_THRESHOLD: u64 = 70;
 
 /// Semantic aliases and color-selection helpers.
 impl ThemePalette {
-    /// Pick the context color for a given usage percentage.
-    ///
-    /// Uses fixed percentage thresholds (`CTX_WARN_THRESHOLD` /
-    /// `CTX_CRITICAL_THRESHOLD`) regardless of window size. The bar
-    /// reads as a visual progress indicator, not a token-pressure
-    /// alarm — so 55% on a 1M window still fires `warn`, even though
-    /// 450k tokens remain.
-    ///
-    /// (Earlier versions used remaining-token thresholds for window-
-    /// aware accuracy. That was honest about token pressure but
-    /// produced visually inconsistent threshold-mark positions across
-    /// windows — 200k put marks at [55, 75], 1M crammed them to
-    /// [91, 95]. Switched to fixed percentages 2026-04-29 — see
-    /// `designs/quota-gauge-revival/` for the discussion.)
-    ///
-    /// `window_size` parameter retained for API compatibility but
-    /// currently unused in threshold logic.
-    pub fn color_for_ctx_pct(&self, pct: u64, _window_size: Option<u64>) -> &str {
+    /// Pick the context color for a given usage percentage. Visual
+    /// progress semantics, not token-pressure: 55% on a 1M window
+    /// still fires `warn`. See `designs/quota-gauge-revival/` for
+    /// the trade-off rationale.
+    pub fn color_for_ctx_pct(&self, pct: u64) -> &str {
         if pct >= CTX_CRITICAL_THRESHOLD {
             self.ctx_critical()
         } else if pct >= CTX_WARN_THRESHOLD {
@@ -151,15 +137,11 @@ impl ThemePalette {
         }
     }
 
-    /// CTX threshold marks (warn, critical) as percentages — `[55, 70]`
-    /// regardless of window size. Matches `color_for_ctx_pct`'s fixed-
-    /// percentage logic so the bar's mark positions exactly predict
-    /// where the fill colour transitions.
-    ///
-    /// `window_size` parameter retained for API compatibility but
-    /// currently ignored. See the note on `color_for_ctx_pct` for why
-    /// the window-aware logic was retired.
-    pub fn ctx_marks_for_window(_window_size: Option<u64>) -> [u64; 2] {
+    /// CTX threshold marks (warn, critical) as percentages, for the
+    /// gauge widget's `marks` parameter. Matches `color_for_ctx_pct`
+    /// so mark positions land at the same percentages as colour
+    /// transitions.
+    pub fn ctx_marks() -> [u64; 2] {
         [CTX_WARN_THRESHOLD, CTX_CRITICAL_THRESHOLD]
     }
     pub fn tool_blue(&self) -> &str {
@@ -940,60 +922,22 @@ mod tests {
         assert_eq!(p.todo_teal(), &p.active_teal);
     }
 
-    // ── Context threshold: fixed percentages (window_size ignored) ──
+    // ── Context threshold: fixed percentages, window-agnostic ──
 
     #[test]
-    fn ctx_uses_fixed_55_70_thresholds_regardless_of_window() {
-        // Window-aware logic was retired 2026-04-29 in favour of fixed
-        // visual-progress semantics. 55%+ → warn, 70%+ → critical, no
-        // matter what window size the caller passes.
+    fn ctx_threshold_ladder_55_70() {
         let p = ThemePalette::default();
-        for w in [
-            None,
-            Some(200_000u64),
-            Some(1_000_000u64),
-            Some(10_000_000u64),
-        ] {
-            assert_eq!(p.color_for_ctx_pct(40, w), p.ctx_good(), "40% w={w:?}");
-            assert_eq!(p.color_for_ctx_pct(54, w), p.ctx_good(), "54% w={w:?}");
-            assert_eq!(p.color_for_ctx_pct(55, w), p.ctx_warn(), "55% w={w:?}");
-            assert_eq!(p.color_for_ctx_pct(69, w), p.ctx_warn(), "69% w={w:?}");
-            assert_eq!(p.color_for_ctx_pct(70, w), p.ctx_critical(), "70% w={w:?}");
-            assert_eq!(p.color_for_ctx_pct(95, w), p.ctx_critical(), "95% w={w:?}");
-        }
+        assert_eq!(p.color_for_ctx_pct(40), p.ctx_good());
+        assert_eq!(p.color_for_ctx_pct(54), p.ctx_good());
+        assert_eq!(p.color_for_ctx_pct(55), p.ctx_warn());
+        assert_eq!(p.color_for_ctx_pct(69), p.ctx_warn());
+        assert_eq!(p.color_for_ctx_pct(70), p.ctx_critical());
+        assert_eq!(p.color_for_ctx_pct(95), p.ctx_critical());
+        assert_eq!(p.color_for_ctx_pct(255), p.ctx_critical());
     }
 
     #[test]
-    fn ctx_1m_55pct_now_fires_warn_visual_consistency_chosen_over_token_pressure() {
-        // Documents the trade-off: 1M @ 55% = 550k used, 450k remaining.
-        // By token-pressure semantics this should be `good`. We pick
-        // `warn` instead — see designs/quota-gauge-revival/ for why.
-        let p = ThemePalette::default();
-        assert_eq!(p.color_for_ctx_pct(55, Some(1_000_000)), p.ctx_warn());
-    }
-
-    #[test]
-    fn ctx_marks_for_window_always_returns_55_70() {
-        for w in [
-            None,
-            Some(200_000u64),
-            Some(1_000_000u64),
-            Some(10_000_000u64),
-        ] {
-            assert_eq!(
-                ThemePalette::ctx_marks_for_window(w),
-                [55, 70],
-                "marks should be fixed for w={w:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn ctx_over_100_pct_still_critical() {
-        // Nonsensical pct values should not panic — the comparison
-        // operators handle u64 overflow-free.
-        let p = ThemePalette::default();
-        assert_eq!(p.color_for_ctx_pct(150, Some(200_000)), p.ctx_critical());
-        assert_eq!(p.color_for_ctx_pct(255, None), p.ctx_critical());
+    fn ctx_marks_returns_55_70() {
+        assert_eq!(ThemePalette::ctx_marks(), [55, 70]);
     }
 }

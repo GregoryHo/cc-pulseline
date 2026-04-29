@@ -303,7 +303,7 @@ fn preview_themes(theme_args: &[&str]) {
 
         // L3: Context stages (uses same thresholds as layout.rs via palette helpers)
         for (pct, label, cost) in [(43u64, "good", 3.5), (60, "warn", 25.0), (82, "crit", 85.0)] {
-            let pct_color = p.color_for_ctx_pct(pct, None);
+            let pct_color = p.color_for_ctx_pct(pct);
             let rate_color = p.color_for_burn_rate(cost);
             let ctx = c(&format!("CTX:{pct}%"), pct_color);
             let tok_part = format!("{} {}", c("TOK I:", &p.structural), c("86.0k", &p.primary));
@@ -536,7 +536,7 @@ fn print_palette_map(theme_arg: Option<&str>) {
     // L3: Budget (3 stages)
     println!("  L3: Budget");
     for (pct, label, cost) in [(43u64, "good", 3.5), (60, "warn", 25.0), (82, "crit", 85.0)] {
-        let pct_color = p.color_for_ctx_pct(pct, None);
+        let pct_color = p.color_for_ctx_pct(pct);
         let rate_color = p.color_for_burn_rate(cost);
         let cost_s = format!("${cost:.2}");
         let rate_s = format!("${cost:.2}/h");
