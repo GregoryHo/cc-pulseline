@@ -255,12 +255,13 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracket-framed (`[████▎      ]` icon, `[####------]` ascii); empty cells are literal whitespace inside the frame so they read as "unused capacity" regardless of fill colour. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX uses window-aware marks (200k window → marks at 55% and 75%); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 
-> Earlier versions exposed widget composition for `cost_visual`,
-> `quota_visual`, and `tools_visual` — those segments now render in a
-> single canonical form (text for cost / quota; one-line list for tools).
-> The hub-dispatch infrastructure remains for future widget additions.
+> `cost_visual` and `tools_visual` exist as forward-compat config
+> fields but currently render no widgets — their dispatch hubs were
+> deleted in the cluster cleanup. See `designs/maintenance-debt.md`
+> Item 1 for the rationale and resolution paths.
 
 ### Per-layout defaults
 
@@ -271,46 +272,50 @@ paths (mostly tests) that construct `RenderConfig` directly.
 
 | Layout | `context_visual` | `cost_visual` | `quota_visual` | `tools_visual` |
 |--------|------------------|---------------|----------------|----------------|
-| `none`, `zones`, `grid`, `sections`, `console` | `text` | `text` | `text` | `list` |
-| `ledger` | `text+sparkline` | `text` | `text` | `list` |
+| `none`, `zones`, `grid` | `text` | `text` | `text` | `list` |
+| `sections`, `console` | `text` | `text` | `gauge` | `list` |
+| `ledger` | `text+sparkline` | `text` | `gauge` | `list` |
+
+CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
+the framed-layout defaults stay `text` for CTX and add `gauge` only
+to quota. The asymmetry is intentional: CTX has more competing data
+on its row (token counts, cache); quota has just `pct + reset` and
+benefits more from the bar's spatial signal.
 
 ### Composability examples
 
 ```toml
-# Cockpit, but I prefer plain text — keeps the 3-row structure and
-# activity ticker, drops gauge/sparkline/arc.
+# Sections layout, but with a CTX gauge added (default is text-only).
 [layout]
-name = "cockpit"
-[segments.budget]
-context_visual = "text"
-cost_visual = "text"
-
-# Cards frame, but with a gauge inside the Budget card. Was impossible
-# before Phase 3 (flat layouts hardcoded text rendering for L3).
-[layout]
-name = "cards"
+name = "sections"
 [segments.budget]
 context_visual = "gauge"
 
-# Console without quota gauge — text quota only.
+# Console without the quota gauge — text-only quota.
 [layout]
 name = "console"
 [segments.quota]
 visual = "text"
+
+# None layout (flat, minimalist) but with quota bar opt-in.
+[layout]
+name = "none"
+[segments.quota]
+visual = "gauge"
 ```
 
 ### Implementation pointers
 
 For contributors:
-- Dispatch hubs live in `frames/shared.rs`:
-  `render_context_visual`, `render_cost_visual`, `render_quota_visual`,
-  `render_tools_visual_inline`. Layouts call them; never call
-  `widgets::*::render` directly from a layout (or that segment loses
-  user composability).
-- Atomic widgets live in `widgets/`. Each takes
-  `(data, …, mode, palette, color)`. Ascii-incompatible widgets (sparkline,
-  arc) return `""` under `GlyphMode::Ascii` so dispatch hubs drop the
-  empty cell cleanly.
+- Live dispatch hubs in `frames/shared.rs`:
+  `render_context_visual`, `render_quota_visual`. Layouts call them;
+  never call `widgets::*::render` directly from a layout (or that
+  segment loses user composability).
+- Atomic widgets live in `widgets/`. The `gauge` widget takes
+  `(pct, width, marks, fill_color, palette, mode, color)` — caller
+  picks fill colour and threshold marks. Ascii-incompatible widgets
+  (sparkline) return `""` under `GlyphMode::Ascii` so dispatch hubs
+  drop the empty cell cleanly.
 - To add a new widget variant: add the renderer in `widgets/foo.rs`,
   match its name in the relevant dispatch hub, document it in this
   file's [Recognized widgets](#recognized-widgets-per-segment) table.

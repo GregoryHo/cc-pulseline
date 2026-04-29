@@ -493,7 +493,12 @@ cost_visual = ""
 enabled = false             # opt-in: requires OAuth credentials
 show_five_hour = true
 show_seven_day = false
-# visual: text (Q5h 75% 02h 0m) or bar (gauge with pct overlay).
+# visual: bar gauge or text. Empty (default) defers to the layout —
+# sections / console / ledger default to "gauge" (F-style bar with
+# threshold marks at 50% / 85% positions); flat layouts (none /
+# zones / grid) default to "text". Examples:
+#   visual = "gauge"            # ▰▰▰▰▰▰▰▰▰───·─ 62% (resets ...)
+#   visual = "text"             # 62% (resets ...) — no bar
 visual = ""
 
 [segments.tools]

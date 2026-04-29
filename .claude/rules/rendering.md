@@ -55,21 +55,23 @@ When `terminal_width` is set and content exceeds it:
 
 ## Adding a Widget Variant via Visual Spec
 
-When adding a new widget *variant* for the context segment, wire it through the dispatch hub — never call `widgets::*::render` directly from a layout, or that widget choice can't reach other layouts.
+When adding a new widget *variant* for the context or quota segment, wire it through the dispatch hub — never call `widgets::*::render` directly from a layout, or that widget choice can't reach other layouts.
 
 1. Add the renderer in `widgets/foo.rs` with the canonical signature `fn render(data, …, mode: GlyphMode, palette: &ThemePalette, color_enabled: bool) -> String`. Return `""` from incompatible modes (e.g. icon-only widget under `Ascii`) so the dispatch hub drops the cell cleanly.
 2. Match its name in the relevant dispatch hub in `render/frames/shared.rs`:
    - context: `render_context_visual` (`gauge`, `sparkline`, `text`, …)
+   - quota: `render_quota_visual` (`gauge`, `text`, …)
 3. Document the new widget name in `docs/layouts.md` "Recognized widgets per segment" table.
 4. Decide layout defaults: if a layout should ship the new widget out of the box, edit `frames::default_visuals_for(LayoutStyle)`.
 5. Test the new widget across every layout via `tests/display_axes.rs`. The `ascii_mode_emits_no_unicode_block_chars_across_every_layout` catch-net will fail if the new widget leaks Unicode block glyphs under Ascii.
 
-> **Cost / quota / tools visual hubs were deleted with the cluster
-> consolidation** — the `cost_visual` / `quota_visual` / `tools_visual`
-> config fields exist as forward-compat only and currently render no
-> widgets. Adding a variant for these segments first requires
-> resurrecting the dispatch hub. See `designs/maintenance-debt.md`
-> Item 1.
+> **Cost / tools visual hubs are still deleted from the cluster
+> consolidation** — the `cost_visual` / `tools_visual` config fields
+> exist as forward-compat only and currently render no widgets.
+> Adding a variant for these segments first requires resurrecting
+> their dispatch hub. See `designs/maintenance-debt.md` Item 1.
+> The `quota_visual` hub was restored when the F-style gauge bar
+> landed.
 
 ## Adding a New Widget-Bearing Segment
 
