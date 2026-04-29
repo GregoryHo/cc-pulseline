@@ -90,7 +90,10 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     }
 
     let inner = width.saturating_sub(FRAME_INNER_PAD);
-    let content_width = inner.saturating_sub(2);
+    // `content_width` is the body budget AFTER the TAG column (indent +
+    // 6-char tag + gap = 11 cells). Anything wider than this would push
+    // the row past the right frame edge.
+    let content_width = inner.saturating_sub(TAG_COL_WIDTH);
 
     let ctx = LedgerCtx {
         p,
