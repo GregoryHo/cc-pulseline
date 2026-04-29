@@ -7,6 +7,7 @@ use std::path::Path;
 
 use cc_pulseline::config::{GlyphMode, PulselineConfig, RenderConfig};
 use cc_pulseline::PulseLineRunner;
+use serde_json::json;
 use tempfile::TempDir;
 
 /// Append one JSONL line to the transcript.
@@ -21,11 +22,26 @@ fn append_line(path: &Path, line: &str) {
 }
 
 fn payload(workspace: &Path, transcript: &Path, session: &str) -> String {
-    format!(
-        r#"{{"session_id":"{session}","model":{{"id":"x","display_name":"Opus 4.7"}},"version":"2.1.119","cwd":"{cwd}","workspace":{{"current_dir":"{cwd}"}},"context_window":{{"context_window_size":200000,"used_percentage":34,"current_usage":{{"input_tokens":1,"output_tokens":13,"cache_creation_input_tokens":5700,"cache_read_input_tokens":114500}}}},"cost":{{"total_cost_usd":4.56,"total_duration_ms":3700000}},"transcript_path":"{tp}"}}"#,
-        cwd = workspace.display(),
-        tp = transcript.display(),
-    )
+    json!({
+        "session_id": session,
+        "model": {"id": "x", "display_name": "Opus 4.7"},
+        "version": "2.1.119",
+        "cwd": workspace,
+        "workspace": {"current_dir": workspace},
+        "context_window": {
+            "context_window_size": 200_000,
+            "used_percentage": 34,
+            "current_usage": {
+                "input_tokens": 1,
+                "output_tokens": 13,
+                "cache_creation_input_tokens": 5_700,
+                "cache_read_input_tokens": 114_500,
+            },
+        },
+        "cost": {"total_cost_usd": 4.56, "total_duration_ms": 3_700_000_u64},
+        "transcript_path": transcript,
+    })
+    .to_string()
 }
 
 fn cfg() -> RenderConfig {
