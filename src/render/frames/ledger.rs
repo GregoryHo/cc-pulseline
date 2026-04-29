@@ -29,14 +29,21 @@
 //! skeleton renders the typographic rhythm + TAG column + frame only.
 //! Below 90 cols it falls back to `sections`.
 
-use crate::config::RenderConfig;
+use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration};
 use crate::render::icons::{FRAME_BL, FRAME_BR, FRAME_H, FRAME_TL, FRAME_TR, FRAME_V};
 use crate::render::layout;
+use crate::render::widgets;
 use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
 
 use super::shared;
+
+/// Visual density: 6 braille cells × 2 samples per cell = 12 samples.
+const SPARK_TARGET_SAMPLES: usize = 12;
+/// Adaptive 1-minute floor: if 12 samples cover < 60 s of wall time,
+/// expand the window backward until ≥ 60 s or out of samples.
+const SPARK_MIN_WINDOW_MS: u64 = 60_000;
 
 /// Cells consumed by the surrounding frame: `│  ` (3) on the left and
 /// ` │` (2) on the right = 5. Subtract from terminal width to get the
@@ -89,7 +96,14 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     // and underlying data agree it has something to show.
     let mut budget_emitted = false;
     if config.show_context {
-        let body = ctx_row_body(&frame.line3, p, color);
+        let body = ctx_row_body(
+            &frame.line3,
+            &frame.ctx_history,
+            config.effective_context_visual(),
+            config.glyph_mode,
+            p,
+            color,
+        );
         if !body.is_empty() {
             lines.push(framed_tag_row("CTX", &body, p, inner, color));
             budget_emitted = true;
@@ -262,9 +276,16 @@ fn env_row_body(
     shared::config_row(frame, config, p, max_width)
 }
 
-fn ctx_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
+fn ctx_row_body(
+    line3: &Line3Metrics,
+    history: &[(u8, u64)],
+    visual: &str,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
     let pct = match line3.context_used_percentage {
-        Some(p) => p,
+        Some(pct) => pct,
         None => return String::new(),
     };
     let size = line3.context_window_size.unwrap_or(0);
@@ -274,7 +295,96 @@ fn ctx_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
     let used_str = colorize(&format_number(used), &p.primary, color);
     let slash = colorize("/", &p.separator, color);
     let total_str = colorize(&format_number(size), &p.primary, color);
-    format!("{pct_str}{ITEM_GAP}{used_str} {slash} {total_str}")
+    let mut out = format!("{pct_str}{ITEM_GAP}{used_str} {slash} {total_str}");
+
+    let wants_sparkline = visual.split('+').any(|w| w.trim() == "sparkline");
+    if wants_sparkline {
+        let window = sparkline_window(history);
+        if !window.is_empty() {
+            // Sparkline glyph (icon-only widget — empty under Ascii).
+            let pcts: Vec<u8> = window.iter().map(|(p, _)| *p).collect();
+            let glyph = widgets::sparkline::render(&pcts, mode, p, color);
+            if !glyph.is_empty() {
+                out.push_str(ITEM_GAP);
+                out.push_str(&glyph);
+            }
+            // Delta-time label: `30→43% in 5m` or `30→43% in 47s`. Always
+            // rendered (even under Ascii) — text carries the trend even
+            // when braille can't.
+            if let Some(label) = sparkline_delta_label(window) {
+                let coloured = colorize(&label, &p.structural, color);
+                out.push_str(ITEM_GAP);
+                out.push_str(&coloured);
+            }
+        }
+    }
+    out
+}
+
+/// Slice of `history` that the ledger sparkline draws — most-recent 12
+/// samples, expanded back if those 12 cover < 60 s of wall time.
+fn sparkline_window(history: &[(u8, u64)]) -> &[(u8, u64)] {
+    let n = history.len();
+    if n == 0 {
+        return history;
+    }
+    let now = history.last().map(|(_, t)| *t).unwrap_or(0);
+    let mut take = SPARK_TARGET_SAMPLES.min(n).max(1);
+    while take < n {
+        let oldest_ts = history[n - take].1;
+        if now.saturating_sub(oldest_ts) >= SPARK_MIN_WINDOW_MS {
+            break;
+        }
+        take += 1;
+    }
+    &history[n - take..]
+}
+
+/// `30→43% in 5m`. Returns `None` for windows shorter than ~1 sample
+/// of meaningful elapsed time.
+fn sparkline_delta_label(window: &[(u8, u64)]) -> Option<String> {
+    if window.len() < 2 {
+        return None;
+    }
+    let first = window.first()?.0;
+    let last = window.last()?.0;
+    let span_ms = window
+        .last()?
+        .1
+        .saturating_sub(window.first()?.1);
+    if span_ms == 0 {
+        return None;
+    }
+    Some(format!(
+        "{first}→{last}% in {}",
+        format_window_duration(span_ms)
+    ))
+}
+
+/// Granular elapsed-time format for ledger sparkline:
+/// - `< 60 s`     → `47s` (seconds — fmt::format_duration starts at 1m)
+/// - `< 60 min`   → `5m`
+/// - `< 24 h`     → `1h` or `1h 5m`
+/// - `≥ 24 h`     → `1d+`
+fn format_window_duration(ms: u64) -> String {
+    let secs = ms / 1000;
+    if secs < 60 {
+        return format!("{secs}s");
+    }
+    let mins = secs / 60;
+    let days = mins / 1440;
+    if days >= 1 {
+        return "1d+".to_string();
+    }
+    let hours = mins / 60;
+    let leftover = mins % 60;
+    if hours == 0 {
+        format!("{mins}m")
+    } else if leftover == 0 {
+        format!("{hours}h")
+    } else {
+        format!("{hours}h {leftover}m")
+    }
 }
 
 fn tok_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {

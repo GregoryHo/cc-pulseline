@@ -110,8 +110,7 @@ impl SessionState {
         loop {
             let oldest_ts = self
                 .ctx_history
-                .iter()
-                .nth(n - take)
+                .get(n - take)
                 .map(|(_, t)| *t)
                 .unwrap_or(0);
             if now.saturating_sub(oldest_ts) >= min_window_ms || take >= n {
