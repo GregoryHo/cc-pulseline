@@ -7,11 +7,10 @@ use super::frames;
 /// User-facing layout style. Each variant maps 1:1 to a `name = "..."` value
 /// in `[layout]` config and to a render fn in `super::frames`.
 ///
-/// Two flavours coexist:
-/// - **Flat-row layouts** (`None`, `Zones`, `Grid`, `Cards`, `Sections`) emit
-///   v1-style line output and may be wrapped by `apply_pane()` chrome.
-/// - **Instrument-cluster layouts** (`Cockpit`, `Console`, `Flightstrip`,
-///   `Auto`) own the full render pipeline and bypass `apply_pane()`.
+/// All layouts are flat-row at the data level: layout.rs assembles
+/// `(lines, groups)`, then `apply_pane()` decorates them with chrome. The
+/// only exception is `Ledger`, which owns its full pipeline because the
+/// TAG-column rhythm doesn't compose cleanly via `apply_pane`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutStyle {
     /// Flat output, no decoration. Default.
@@ -25,29 +24,14 @@ pub enum LayoutStyle {
     /// solves jagged right edges and makes group boundaries explicit without
     /// adding rows. Activity continuation rows span the label column.
     Grid,
-    /// One independent `╭─┬─╮ / ╰─┴─╯` frame per group, stacked vertically.
-    /// Each group (Identity / Config / Budget / Activity) becomes its own
-    /// self-contained card. All cards share a global `max_label_width` and
-    /// `max_content_width` so they line up when stacked. Adds 2 rows per
-    /// non-empty group (top + bottom of each card).
-    Cards,
     /// Single outer `╭─┬─╮ / ╰─┴─╯` wrapper with a `├─┼─┤` separator
     /// emitted between every pair of non-empty groups. Reads as one
-    /// container with explicit internal dividers — cheaper than Cards
-    /// (no double-border gaps).
+    /// container with explicit internal dividers.
     Sections,
-    /// 3-row instrument cluster (default after the v2 flip).
-    /// Identity headline + cluster (gauge, sparkline, rate, cost, quota)
-    /// + activity ticker.
-    Cockpit,
-    /// 4-5 row framed dashboard (highest "quality feel"). Best when
-    /// statusline is ≥130 cols. Wraps content in `╭─╮ │ ╰─╯`.
+    /// Sections with the Identity row hoisted into the top frame title:
+    /// `╭─ <model · path · branch> ───╮`. Best when statusline is
+    /// ≥110 cols.
     Console,
-    /// Dense 2-row strip for narrow IDE statuslines.
-    Flightstrip,
-    /// Width-bracket resolver — picks console/cockpit/flightstrip per
-    /// terminal width on every render tick.
-    Auto,
     /// Label-value pairs aligned in a fixed left column, like an
     /// accounting ledger. Owns its own pipeline (framed). One TAG per
     /// metric (ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO);
@@ -107,15 +91,9 @@ pub fn apply_pane(
     cfg: &PaneConfig,
 ) -> Vec<String> {
     match cfg.style {
-        LayoutStyle::None
-        | LayoutStyle::Cockpit
-        | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto
-        | LayoutStyle::Ledger => return lines,
-        // Console flows through here now (sections + identity-in-title).
+        LayoutStyle::None | LayoutStyle::Ledger => return lines,
         LayoutStyle::Zones
         | LayoutStyle::Grid
-        | LayoutStyle::Cards
         | LayoutStyle::Sections
         | LayoutStyle::Console => {}
     }
@@ -138,15 +116,10 @@ pub fn apply_pane(
     match cfg.style {
         LayoutStyle::Zones => frames::zones::render(&grouped, &lines, groups, cfg, g),
         LayoutStyle::Grid => frames::grid::render(&lines, groups, cfg, g),
-        LayoutStyle::Cards => frames::cards::render(&lines, groups, cfg, g),
         LayoutStyle::Sections => frames::sections::render(&lines, groups, cfg, g),
         LayoutStyle::Console => frames::console::render(&lines, groups, cfg, g),
         // Decoration-bypassing styles short-circuited at the top of this fn.
-        LayoutStyle::None
-        | LayoutStyle::Cockpit
-        | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto
-        | LayoutStyle::Ledger => lines,
+        LayoutStyle::None | LayoutStyle::Ledger => lines,
     }
 }
 

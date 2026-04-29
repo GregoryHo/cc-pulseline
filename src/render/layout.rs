@@ -45,18 +45,13 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     // through to the v1-style assembly below.
     let palette = &config.palette;
     match config.pane_style {
-        LayoutStyle::Cockpit => return frames::cockpit::render(frame, config, palette),
-        LayoutStyle::Flightstrip => return frames::flightstrip::render(frame, config, palette),
-        LayoutStyle::Auto => return frames::auto::render(frame, config, palette),
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
+        // Every other layout flows through the flat-line pipeline below
+        // and is decorated by `apply_pane`.
         LayoutStyle::None
         | LayoutStyle::Zones
         | LayoutStyle::Grid
-        | LayoutStyle::Cards
         | LayoutStyle::Sections
-        // Console flows through the flat path now; `apply_pane` routes
-        // it to `sections::render_with_options(_, _, _, _, Some(title))`
-        // which hoists Identity into the top frame border.
         | LayoutStyle::Console => {}
     }
 
@@ -119,16 +114,11 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
         LayoutStyle::Grid => 12,
-        // Cards / Sections / Console use a wall-on-both-sides layout
-        // (`│ ` left + internal ` │ ` divider + ` │` right) — ~4 more cols
-        // than Grid.
-        LayoutStyle::Cards | LayoutStyle::Sections | LayoutStyle::Console => 16,
-        // Instrument-cluster + ledger styles never reach this branch — they
-        // returned above.
-        LayoutStyle::Cockpit
-        | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto
-        | LayoutStyle::Ledger => 0,
+        // Sections / Console use a wall-on-both-sides layout (`│ ` left +
+        // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
+        LayoutStyle::Sections | LayoutStyle::Console => 16,
+        // Ledger owns its own pipeline and never reaches this branch.
+        LayoutStyle::Ledger => 0,
     };
     let effective_width = config
         .terminal_width

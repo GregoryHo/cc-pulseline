@@ -13,7 +13,7 @@
 use std::ops::Range;
 
 use crate::config::{GlyphMode, RenderConfig};
-use crate::render::activity::budget::{pack_multi_row, pack_with_separator};
+use crate::render::activity::budget::pack_multi_row;
 use crate::render::activity::builder::build_agent_cells;
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration, format_speed};
@@ -585,11 +585,12 @@ pub fn render_cost_visual(
     // When arc is requested but will silently return "" (Ascii mode), text
     // picks up the rate annotation as compensation. This preserves the
     // cockpit's "always shows burn rate, in icon or text form" promise.
-    let arc_cell = if want_arc {
-        widgets::arc::render(per_hour, mode, p, color_enabled)
-    } else {
-        String::new()
-    };
+    // The arc widget was cluster-only and is gone. `cost_visual = "arc"`
+    // silently degrades to text — `widgets.contains(&"arc")` accepted only
+    // so old configs don't trip the "unknown widget" path.
+    let _ = want_arc;
+    let _ = (mode, per_hour);
+    let arc_cell = String::new();
     let arc_will_render = !arc_cell.is_empty();
 
     let mut parts: Vec<String> = Vec::new();
@@ -646,30 +647,15 @@ pub const QUOTA_BAR_WIDTH: usize = 12;
 /// Layouts not in the cluster family (None / Zones / Grid / Cards /
 /// Sections) currently size their CTX gauge via `V1_GAUGE_WIDTH` in
 /// `render/layout.rs`; this helper does not yet cover them.
-pub fn gauge_widths_for(layout: LayoutStyle, width: usize) -> (usize, usize) {
+pub fn gauge_widths_for(layout: LayoutStyle, _width: usize) -> (usize, usize) {
+    // Helper is now vestigial — only Console/Sections paths remain and they
+    // size their gauge via the flat `FLAT_GAUGE_WIDTH` const. The next
+    // commit prunes this helper after confirming it has no live callers.
     match layout {
         LayoutStyle::Console => (18, 12),
-        LayoutStyle::Cockpit | LayoutStyle::Auto => {
-            if width >= 100 {
-                (16, 10)
-            } else {
-                (12, 8)
-            }
-        }
-        LayoutStyle::Flightstrip => {
-            if width >= 90 {
-                (10, 8)
-            } else {
-                (8, 6)
-            }
-        }
-        // Flat layouts: caller still uses `V1_GAUGE_WIDTH`. Mirror the v1
-        // constant (18) so any future caller picking up the helper inherits
-        // the same number until those layouts are migrated.
         LayoutStyle::None
         | LayoutStyle::Zones
         | LayoutStyle::Grid
-        | LayoutStyle::Cards
         | LayoutStyle::Sections
         | LayoutStyle::Ledger => (18, QUOTA_BAR_WIDTH),
     }
@@ -817,12 +803,12 @@ pub fn pack_agent_cells(
     if cells.is_empty() {
         return Vec::new();
     }
-    let sep = colorize(widgets::tape::SEPARATOR, &p.separator, config.color_enabled);
+    let sep = colorize(" \u{00B7} ", &p.separator, config.color_enabled);
     let (rows, _consumed) = pack_multi_row(
         &cells,
         width,
         &sep,
-        widgets::tape::SEPARATOR_W,
+        3,
         config.color_enabled,
         Some(config.max_agent_lines.max(1)),
     );
@@ -926,12 +912,13 @@ pub fn render_tools_visual_inline(
     if !want_tape {
         return String::new();
     }
-    let cells = widgets::tape::render(tools, max_items, mode, p, color, with_target);
-    if cells.is_empty() {
-        return String::new();
-    }
-    let sep = colorize(widgets::tape::SEPARATOR, &p.separator, color);
-    pack_with_separator(&cells, max_width, &sep, widgets::tape::SEPARATOR_W, color)
+    // The `tape` widget was cluster-only and is gone — the cluster code
+    // path was the only consumer of `render_tools_visual_inline`. The
+    // helper itself is removed in the next commit; keep it returning the
+    // empty string here so layouts that mistakenly call it continue to
+    // type-check.
+    let _ = (tools, max_items, mode, p, color, with_target, max_width);
+    String::new()
 }
 
 /// Bare cost text — `$X.XX` colored with `cost_base`. Shared between Cockpit

@@ -1,13 +1,11 @@
-//! Atomic widgets: hand-rolled instrument-cluster glyphs.
+//! Atomic widgets: hand-rolled glyph composers.
 //!
 //! Each widget renders to a small `String` (with optional ANSI) so layouts
 //! can compose them like any other segment. No new deps — just Unicode
 //! blocks and braille from the BMP.
 
-pub mod arc;
 pub mod gauge;
 pub mod sparkline;
-pub mod tape;
 
 #[cfg(test)]
 pub(super) mod test_support {

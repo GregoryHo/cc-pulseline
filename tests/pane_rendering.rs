@@ -125,71 +125,9 @@ fn sections_ascii_fallback_uses_plus_and_dash() {
     assert!(joined.contains('+') && joined.contains('-') && joined.contains('|'));
 }
 
-#[test]
-fn cards_emits_one_frame_per_group() {
-    let lines = vec![
-        "alpha".to_string(),
-        "longer beta".to_string(),
-        "gamma".to_string(),
-        "act-1".to_string(),
-        "act-2".to_string(),
-    ];
-    let groups = vec![
-        (LineKind::Identity, 0..1),
-        (LineKind::Config, 1..2),
-        (LineKind::Budget, 2..3),
-        (LineKind::Activity, 3..5),
-    ];
-    let cfg = base_config(LayoutStyle::Cards);
-    let out = apply_pane(lines, &groups, &cfg);
-
-    // 4 non-empty groups × (top + bottom) = 8 decoration rows + 5 content rows = 13.
-    assert_eq!(out.len(), 13, "cards count; got {:#?}", out);
-
-    // Every card opens with ╭ and closes with ╰ — never the frame's ├ middle.
-    let tops: Vec<_> = out.iter().filter(|l| l.starts_with('╭')).collect();
-    let bottoms: Vec<_> = out.iter().filter(|l| l.starts_with('╰')).collect();
-    let mids: Vec<_> = out.iter().filter(|l| l.starts_with('├')).collect();
-    assert_eq!(tops.len(), 4, "one ╭ top per group");
-    assert_eq!(bottoms.len(), 4, "one ╰ bottom per group");
-    assert!(mids.is_empty(), "cards must not emit ├─┼─┤ mid-separators");
-
-    // All tops are the same width — shared global label_width + content_width.
-    let top_widths: Vec<usize> = tops.iter().map(|s| visible_width(s)).collect();
-    assert!(
-        top_widths.iter().all(|&w| w == top_widths[0]),
-        "all card tops must share visible width (aligned columns); got {:?}",
-        top_widths
-    );
-
-    // The first card contains Identity with its content, flanked by ╭ / ╰.
-    assert!(out[0].starts_with('╭'), "first row = Identity top");
-    assert!(
-        out[1].starts_with("│ Identity"),
-        "Identity content row: {:?}",
-        out[1]
-    );
-    assert!(out[2].starts_with('╰'), "Identity bottom");
-    assert!(out[3].starts_with('╭'), "Config top immediately after");
-}
-
-#[test]
-fn cards_skips_empty_groups() {
-    let lines = vec!["alpha".to_string(), "beta".to_string()];
-    // Budget group range is empty (2..2); should NOT emit a card for it.
-    let groups = vec![
-        (LineKind::Identity, 0..1),
-        (LineKind::Config, 1..2),
-        (LineKind::Budget, 2..2),
-    ];
-    let cfg = base_config(LayoutStyle::Cards);
-    let out = apply_pane(lines, &groups, &cfg);
-
-    // 2 non-empty groups × 2 decoration + 2 content = 6 rows.
-    assert_eq!(out.len(), 6);
-    let tops = out.iter().filter(|l| l.starts_with('╭')).count();
-    assert_eq!(tops, 2, "empty group must not get its own card");
-}
+// Cards layout was removed in the layout consolidation; the
+// `cards_emits_one_frame_per_group` and `cards_skips_empty_groups`
+// tests were specific to that layout's per-group framing.
 
 #[test]
 fn sections_wraps_once_with_separator_between_every_group() {
@@ -280,7 +218,11 @@ name = "sections"
 }
 
 #[test]
-fn cards_parser_accepts_cards_keyword() {
+fn cards_keyword_falls_back_to_console_after_consolidation() {
+    // The `cards` layout was removed in the layout consolidation. The
+    // parser maps removed names → `console` (with a stderr warning) so
+    // existing user configs degrade gracefully rather than fall to plain
+    // `none`.
     let user = PulselineConfig::default();
     let project: ProjectOverrideConfig = toml::from_str(
         r#"[layout]
@@ -290,7 +232,7 @@ name = "cards"
     .expect("toml parse");
     let merged = merge_configs(user, &project);
     let render_cfg = build_render_config(&merged);
-    assert_eq!(render_cfg.pane_style, LayoutStyle::Cards);
+    assert_eq!(render_cfg.pane_style, LayoutStyle::Console);
 }
 
 #[test]

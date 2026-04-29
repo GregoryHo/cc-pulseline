@@ -547,9 +547,13 @@ fn build_tool_rows(
 
     // Running / recent tools — one row per tool. The first row uses TOOL
     // tag if no completed-counts row exists; otherwise continuation row.
+    let arrow_glyph = match config.glyph_mode {
+        GlyphMode::Icon => "\u{25B6}",
+        GlyphMode::Ascii => ">",
+    };
     let recent = &frame.tools;
     for t in recent.iter().take(config.max_tool_lines.max(1)) {
-        let arrow = colorize("\u{25B6}", p.tool_blue(), color);
+        let arrow = colorize(arrow_glyph, p.tool_blue(), color);
         let name = colorize(&t.name, p.tool_blue(), color);
         let target = match &t.target {
             Some(tgt) => format!("{ITEM_GAP}{}", colorize(tgt, &p.secondary, color)),
@@ -572,12 +576,16 @@ fn build_agent_rows(
     }
     let color = config.color_enabled;
     let max = config.max_agent_lines.max(1);
+    let agent_glyph = match config.glyph_mode {
+        GlyphMode::Icon => "\u{f19bb}",
+        GlyphMode::Ascii => "A:",
+    };
     frame
         .agents
         .iter()
         .take(max)
         .map(|a| {
-            let icon = colorize("\u{f19bb}", &p.stable_blue, color);
+            let icon = colorize(agent_glyph, &p.stable_blue, color);
             let name = colorize(
                 a.agent_type.as_deref().unwrap_or("agent"),
                 &p.stable_blue,

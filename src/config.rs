@@ -1277,23 +1277,26 @@ impl Default for RenderConfig {
 
 fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
-        // Flat / framed layouts
         "none" => LayoutStyle::None,
         "zones" => LayoutStyle::Zones,
         "grid" => LayoutStyle::Grid,
-        "cards" => LayoutStyle::Cards,
         "sections" => LayoutStyle::Sections,
-        "ledger" => LayoutStyle::Ledger,
-        // Instrument-cluster layouts
-        "cockpit" => LayoutStyle::Cockpit,
         "console" => LayoutStyle::Console,
-        "flightstrip" => LayoutStyle::Flightstrip,
-        "auto" => LayoutStyle::Auto,
+        "ledger" => LayoutStyle::Ledger,
+        // Removed in the layout consolidation: cards, cockpit, flightstrip,
+        // auto. Provide a hint toward the closest replacement.
+        "cards" | "cockpit" | "flightstrip" | "auto" => {
+            eprintln!(
+                "warning: layout.name {value:?} was removed; falling back to \
+                 \"console\" (valid: none | zones | grid | sections | console | \
+                 ledger)"
+            );
+            LayoutStyle::Console
+        }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | zones | grid | cards | sections | ledger | \
-                 cockpit | console | flightstrip | auto)"
+                 (valid: none | zones | grid | sections | console | ledger)"
             );
             LayoutStyle::None
         }

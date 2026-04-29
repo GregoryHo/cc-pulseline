@@ -1,21 +1,20 @@
-//! Layout frames — flat module list (no v1/v2 split).
+//! Layout frames.
 //!
-//! Two flavours of frame coexist here:
-//! - **Decorating frames** (`zones`, `grid`, `cards`, `sections`) take the
-//!   already-rendered v1 line output and wrap it in box-drawing chrome.
-//! - **Instrument-cluster layouts** (`cockpit`, `console`, `flightstrip`,
-//!   `auto`) own the entire rendering pipeline for their style: they consume
-//!   `RenderFrame` directly and emit `Vec<String>` ready for stdout. They
-//!   never go through `apply_pane` — they are the pane.
+//! All frames here decorate the flat-row pipeline assembled in
+//! `layout::render_frame`: `apply_pane` hands `(lines, groups)` to the
+//! frame's `render` fn, which wraps it in box-drawing chrome. Console
+//! is a thin variant of Sections (identity hoisted into the top frame
+//! title).
 //!
-//! Both flavours share `frames/shared.rs` for box-drawing glyphs, label
-//! padding, widget call helpers, and cluster row builders.
+//! `Ledger` is the lone exception — it owns its full pipeline because
+//! the TAG-column rhythm doesn't compose cleanly via `apply_pane`. See
+//! `frames/ledger.rs` for the dispatch from `render_frame`.
+//!
+//! `frames/shared.rs` holds the box-drawing glyphs, label padding, and
+//! widget dispatch hubs (`render_context_visual`, etc.) shared across
+//! frames.
 
-pub mod auto;
-pub mod cards;
-pub mod cockpit;
 pub mod console;
-pub mod flightstrip;
 pub mod grid;
 pub mod ledger;
 pub mod sections;
@@ -42,60 +41,18 @@ pub struct SegmentVisualDefaults {
 
 /// Per-layout default visual specs.
 ///
-/// Instrument-cluster layouts (cockpit / console / flightstrip / auto) ship
-/// the rich gauge / sparkline / arc / tape personality that defines them.
-/// Flat-row layouts (none / zones / grid / cards / sections) default to
-/// `text` / `list` because they currently render the budget and tools rows
-/// as plain text and lists; widget composition in those layouts is a
-/// follow-up (see `designs/composable-redesign.md` § "Phase 3 scope").
+/// All layouts default to `text` / `list` for non-CTX segments; the
+/// widget composition is opt-in via the `*_visual` config fields. Ledger
+/// is the lone exception — it ships the sparkline on the CTX row by
+/// default since the typographic rhythm leaves natural room for it.
 pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
     match layout {
-        LayoutStyle::Cockpit => SegmentVisualDefaults {
-            context_visual: "gauge+sparkline",
-            cost_visual: "text+arc",
-            quota_visual: "text",
-            tools_visual: "tape",
-            agents_visual: "name+description+model",
-        },
-        LayoutStyle::Console => SegmentVisualDefaults {
-            context_visual: "gauge+sparkline",
-            cost_visual: "text+arc",
-            quota_visual: "bar",
-            // Default to brief tape — bisect of an earlier "tape+detail"
-            // default showed it still broke multi-line output for at
-            // least one user even after the recent_tool sanitiser fix
-            // (root cause not yet identified). Users who want the
-            // detailed per-tool format can opt in explicitly:
-            //     [segments.tools]
-            //     visual = "tape+detail"
-            tools_visual: "tape",
-            agents_visual: "name+description+model",
-        },
-        LayoutStyle::Flightstrip => SegmentVisualDefaults {
-            context_visual: "gauge",
-            cost_visual: "text",
-            quota_visual: "text",
-            tools_visual: "tape",
-            agents_visual: "name+description",
-        },
-        // `auto` resolves to one of the three above per width; pick the
-        // mid-width (cockpit) defaults so config preview matches what the
-        // user is most likely to see.
-        LayoutStyle::Auto => SegmentVisualDefaults {
-            context_visual: "gauge+sparkline",
-            cost_visual: "text+arc",
-            quota_visual: "text",
-            tools_visual: "tape",
-            agents_visual: "name+description+model",
-        },
-        // Flat layouts: text / list. The widget call sites still hardcode
-        // these forms — the visual fields are forward-compat for when those
-        // sites get rewritten.
+        // Flat / decorated-flat layouts: plain text everywhere.
         LayoutStyle::None
         | LayoutStyle::Zones
         | LayoutStyle::Grid
-        | LayoutStyle::Cards
-        | LayoutStyle::Sections => SegmentVisualDefaults {
+        | LayoutStyle::Sections
+        | LayoutStyle::Console => SegmentVisualDefaults {
             context_visual: "text",
             cost_visual: "text",
             quota_visual: "text",
@@ -103,8 +60,8 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name+description+model",
         },
         // Ledger ships sparkline by default on the CTX row — `text+sparkline`
-        // means the existing `text` cell renders the `43% 86.0k/200.0k`
-        // numbers and the sparkline appends after. Users can opt out with
+        // renders the `43% 86.0k/200.0k` numbers and appends a braille
+        // sparkline + delta-time tail. Users can opt out with
         // `context_visual = "text"`.
         LayoutStyle::Ledger => SegmentVisualDefaults {
             context_visual: "text+sparkline",
