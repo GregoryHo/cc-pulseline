@@ -6,7 +6,6 @@
 
 pub mod arc;
 pub mod gauge;
-pub mod recent_tool;
 pub mod sparkline;
 pub mod tape;
 

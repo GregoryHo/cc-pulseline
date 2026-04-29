@@ -61,7 +61,12 @@ pub fn render(
         .iter()
         .map(|t| {
             if with_target {
-                super::recent_tool::build_recent_tool_cell(t, mode, palette, color_enabled)
+                crate::render::activity::cells::recent_tool::build_recent_tool_cell(
+                    t,
+                    mode,
+                    palette,
+                    color_enabled,
+                )
             } else {
                 build_brief_cell(t, mode, palette, color_enabled)
             }
