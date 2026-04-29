@@ -310,6 +310,13 @@ fn env_row_body(
     shared::config_row(frame, config, p, max_width)
 }
 
+/// Width of the CTX gauge bar when `context_visual` includes `gauge` —
+/// matches `FLAT_GAUGE_WIDTH` so the bar is the same size as in
+/// non-ledger framed layouts. (Ledger's quota bar is narrower at 14 cells
+/// because quota's `[50, 85]` mark math is cleaner there; CTX's marks
+/// are window-aware via `ThemePalette::ctx_marks_for_window`.)
+const LEDGER_CTX_BAR_WIDTH: usize = 18;
+
 fn ctx_row_body(
     line3: &Line3Metrics,
     history: &[(u8, u64)],
@@ -328,7 +335,24 @@ fn ctx_row_body(
     let used_str = colorize(&format_number(used), &p.primary, color);
     let slash = colorize("/", &p.separator, color);
     let total_str = colorize(&format_number(size), &p.primary, color);
-    let mut out = format!("{pct_str}{ITEM_GAP}{used_str} {slash} {total_str}");
+
+    // Bar precedes the percentage when `context_visual` includes `gauge`
+    // (matches the D2 convention used by quota's bar). Empty when the
+    // user hasn't opted in.
+    let wants_gauge = visual.split('+').any(|w| w.trim() == "gauge");
+    let bar_part = if wants_gauge {
+        let marks = ThemePalette::ctx_marks_for_window(line3.context_window_size);
+        let bar =
+            widgets::gauge::render(pct, LEDGER_CTX_BAR_WIDTH, &marks, pct_color, p, mode, color);
+        if bar.is_empty() {
+            String::new()
+        } else {
+            format!("{bar}{ITEM_GAP}")
+        }
+    } else {
+        String::new()
+    };
+    let mut out = format!("{bar_part}{pct_str}{ITEM_GAP}{used_str} {slash} {total_str}");
 
     let wants_sparkline = visual.split('+').any(|w| w.trim() == "sparkline");
     if wants_sparkline {
