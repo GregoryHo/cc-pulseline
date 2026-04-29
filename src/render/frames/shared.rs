@@ -415,7 +415,16 @@ pub fn ctx_gauge_cell(
             let icon_glyph = glyph(mode, ICON_CONTEXT, "CTX");
             let fill_color = p.color_for_ctx_pct(pct, line3.context_window_size);
             let icon = colorize(&icon_glyph, fill_color, color_enabled);
-            let bar = widgets::gauge::render(pct, gauge_width, mode, fill_color, p, color_enabled);
+            let marks = ThemePalette::ctx_marks_for_window(line3.context_window_size);
+            let bar = widgets::gauge::render(
+                pct,
+                gauge_width,
+                &marks,
+                fill_color,
+                p,
+                mode,
+                color_enabled,
+            );
             let used = ((size as f64) * (pct as f64) / 100.0) as u64;
             let used_str = colorize(
                 &format!(" {}", format_number(used)),

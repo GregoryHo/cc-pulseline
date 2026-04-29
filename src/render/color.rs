@@ -158,6 +158,33 @@ impl ThemePalette {
             self.ctx_good()
         }
     }
+
+    /// CTX threshold marks (warn, critical) as percentages, for the gauge
+    /// widget's `marks` parameter. Mirrors `color_for_ctx_pct`'s
+    /// window-aware logic so the bar's mark positions match the colour
+    /// transitions exactly:
+    ///
+    /// - With `Some(window_size)`: derive marks from the
+    ///   `CTX_WARN_REMAINING_TOKENS` / `CTX_CRITICAL_REMAINING_TOKENS`
+    ///   constants. A 200k window → `[55, 75]`; a 1M window → `[91, 95]`.
+    /// - With `None`: fall back to the legacy fixed `[55, 70]` thresholds
+    ///   so preview / demo paths still show consistent marks.
+    pub fn ctx_marks_for_window(window_size: Option<u64>) -> [u64; 2] {
+        // checked_div returns None when size is 0; both helpers fall back
+        // to the legacy fixed thresholds in that case.
+        if let Some(size) = window_size {
+            // CTX_*_REMAINING_TOKENS * 100 fits comfortably in u64 (max ~9M).
+            if let (Some(warn_used), Some(crit_used)) = (
+                (CTX_WARN_REMAINING_TOKENS * 100).checked_div(size),
+                (CTX_CRITICAL_REMAINING_TOKENS * 100).checked_div(size),
+            ) {
+                let warn = 100u64.saturating_sub(warn_used);
+                let crit = 100u64.saturating_sub(crit_used);
+                return [warn, crit];
+            }
+        }
+        [CTX_WARN_THRESHOLD, CTX_CRITICAL_THRESHOLD]
+    }
     pub fn tool_blue(&self) -> &str {
         &self.active_cyan
     }
