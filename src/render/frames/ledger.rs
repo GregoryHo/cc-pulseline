@@ -35,9 +35,10 @@
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::activity::agent_groups::{classify, AgentGroup};
+use crate::render::activity::builder::{bucket_by_type, first_desc_line};
 use crate::render::color::{colorize, take_visible_chars, visible_width, ThemePalette};
 use crate::render::fmt::{format_number, format_reset_duration};
-use crate::render::icons::{glyph, ICON_AGENT, ICON_GROUP_PARALLEL};
+use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL};
 use crate::render::layout;
 use crate::render::widgets;
 use crate::types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame};
@@ -576,8 +577,12 @@ fn build_agent_rows(
         .take(max)
         .map(|g| match g {
             AgentGroup::Single(a) => render_single_agent(a, config, p, color, max_width),
-            AgentGroup::Homogeneous(g) => render_parallel_agents(&g, config, p, color, max_width, false),
-            AgentGroup::Heterogeneous(g) => render_parallel_agents(&g, config, p, color, max_width, true),
+            AgentGroup::Homogeneous(g) => {
+                render_homogeneous_agents(&g, config, p, color, max_width)
+            }
+            AgentGroup::Heterogeneous(g) => {
+                render_heterogeneous_agents(&g, config, p, color, max_width)
+            }
         })
         .collect()
 }
@@ -616,63 +621,106 @@ fn render_single_agent(
     format!("{icon} {name}{ITEM_GAP}{desc}{model}")
 }
 
-/// Parallel-group row: `‖ ×N parallel  type1: desc1 + type2: desc2 ...`
-/// (or `<icon> type ×N  desc1 + desc2 + ...` when all agents share the
-/// same `agent_type`).
-fn render_parallel_agents(
+const SUBITEM_SEP: &str = " + ";
+
+/// Homogeneous group: `<icon> type ×N [desc1 + desc2]`. All-completed
+/// flips icon to ✓ and accent to `completed_check` to match activity
+/// builder visuals.
+fn render_homogeneous_agents(
     group: &[&AgentSummary],
     config: &RenderConfig,
     p: &ThemePalette,
     color: bool,
     max_width: usize,
-    heterogeneous: bool,
 ) -> String {
-    let n = group.len();
     let mode = config.glyph_mode;
-    let (head_glyph, head_w_glyph) = if heterogeneous {
-        let g = glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1);
-        let w = visible_width(&g);
-        (g, w)
-    } else {
-        let g = glyph(mode, ICON_AGENT, "A:");
-        let w = visible_width(&g);
-        (g, w)
-    };
-    let icon = colorize(&head_glyph, &p.stable_blue, color);
+    let n = group.len();
+    let agent_type = group[0].agent_type.as_deref().unwrap_or("agent");
+    let all_completed = group.iter().all(|a| a.is_completed());
 
-    let head_text = if heterogeneous {
-        format!("\u{00D7}{n} parallel")
+    let prefix_glyph = if all_completed {
+        match mode {
+            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
+            GlyphMode::Ascii => "A:".to_string(),
+        }
     } else {
-        let t = group[0].agent_type.as_deref().unwrap_or("agent");
-        format!("{t} \u{00D7}{n}")
+        glyph(mode, ICON_AGENT, "A:")
     };
-    let head_label = colorize(&head_text, &p.stable_blue, color);
-    let head_w = head_w_glyph + 1 + head_text.chars().count();
+    let accent: &str = if all_completed {
+        p.completed_check.as_str()
+    } else {
+        p.agent_purple()
+    };
+    let icon = colorize(&prefix_glyph, accent, color);
+    let head_str = format!("{agent_type} \u{00D7}{n}");
+    let head = colorize(&head_str, accent, color);
 
-    let body_text: String = if heterogeneous {
-        group
-            .iter()
-            .map(|a| {
-                format!(
-                    "{}: {}",
-                    a.agent_type.as_deref().unwrap_or("agent"),
-                    a.description
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" + ")
-    } else {
-        group
-            .iter()
-            .map(|a| a.description.clone())
-            .collect::<Vec<_>>()
-            .join(" + ")
-    };
-    let gap_w = ITEM_GAP.chars().count();
-    let budget = max_width.saturating_sub(head_w + gap_w + RIGHT_MARGIN);
-    let body_truncated = truncate_to(&body_text, budget);
+    let descs: Vec<String> = group
+        .iter()
+        .map(|a| first_desc_line(a).to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let head_w = visible_width(&prefix_glyph) + head_str.chars().count();
+    if descs.is_empty() {
+        return format!("{icon}{head}");
+    }
+    // Body shape: ` [d1 + d2 + d3]`
+    let body_raw = descs.join(SUBITEM_SEP);
+    let bracket_overhead = 3; // " [" + "]"
+    let budget = max_width.saturating_sub(head_w + bracket_overhead + RIGHT_MARGIN);
+    let body_truncated = truncate_to(&body_raw, budget);
+    let lb = colorize(" [", &p.structural, color);
     let body = colorize(&body_truncated, &p.secondary, color);
-    format!("{icon} {head_label}{ITEM_GAP}{body}")
+    let rb = colorize("]", &p.structural, color);
+    format!("{icon}{head}{lb}{body}{rb}")
+}
+
+/// Heterogeneous group: `‖ ×N parallel: type_a ×2 [d1 + d2] + type_b ×2 [d3 + d4]`.
+/// Same visuals as `activity::builder::build_agent_heterogeneous_cell` —
+/// type-runs bucketed via `bucket_by_type`.
+fn render_heterogeneous_agents(
+    group: &[&AgentSummary],
+    config: &RenderConfig,
+    p: &ThemePalette,
+    color: bool,
+    max_width: usize,
+) -> String {
+    let mode = config.glyph_mode;
+    let n = group.len();
+    let all_completed = group.iter().all(|a| a.is_completed());
+
+    let prefix_glyph = if all_completed {
+        match mode {
+            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
+            GlyphMode::Ascii => "||".to_string(),
+        }
+    } else {
+        glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1)
+    };
+    let accent: &str = if all_completed {
+        p.completed_check.as_str()
+    } else {
+        p.agent_purple()
+    };
+    let icon = colorize(&prefix_glyph, accent, color);
+    let count_str = format!("\u{00D7}{n}");
+    let count = colorize(&count_str, accent, color);
+    let parallel_lbl = colorize(" parallel", &p.structural, color);
+    let head_w = visible_width(&prefix_glyph) + count_str.chars().count() + 9 + 2; // " parallel" + ": "
+
+    let buckets: Vec<String> = bucket_by_type(group)
+        .into_iter()
+        .map(|(t, descs)| match descs.len() {
+            1 => format!("{t}: {}", descs[0]),
+            n => format!("{t} \u{00D7}{n} [{}]", descs.join(SUBITEM_SEP)),
+        })
+        .collect();
+    let body_raw = buckets.join(SUBITEM_SEP);
+    let budget = max_width.saturating_sub(head_w + RIGHT_MARGIN);
+    let body_truncated = truncate_to(&body_raw, budget);
+    let body = colorize(&body_truncated, &p.secondary, color);
+    let sep = colorize(": ", &p.structural, color);
+    format!("{icon}{count}{parallel_lbl}{sep}{body}")
 }
 
 fn truncate_to(s: &str, budget: usize) -> String {

@@ -111,7 +111,7 @@ fn overflow_summary(
 /// blurb used for cell bodies. Multi-line descriptions are common when the
 /// caller pastes a paragraph; everything past the first line is dropped
 /// to keep the row 1-line-tall.
-fn first_desc_line(a: &AgentSummary) -> &str {
+pub(crate) fn first_desc_line(a: &AgentSummary) -> &str {
     a.description.lines().next().unwrap_or("")
 }
 
@@ -119,7 +119,7 @@ fn first_desc_line(a: &AgentSummary) -> &str {
 /// appears exactly once; its descriptions accumulate in arrival order.
 /// Used by the heterogeneous parallel cell to surface type-runs as
 /// `Type ×N [d1 + d2]` instead of repeating the type prefix per agent.
-fn bucket_by_type<'a>(group: &[&'a AgentSummary]) -> Vec<(&'a str, Vec<&'a str>)> {
+pub(crate) fn bucket_by_type<'a>(group: &[&'a AgentSummary]) -> Vec<(&'a str, Vec<&'a str>)> {
     let mut buckets: Vec<(&str, Vec<&str>)> = Vec::with_capacity(group.len());
     for a in group {
         let t = a.agent_type.as_deref().unwrap_or("agent");
