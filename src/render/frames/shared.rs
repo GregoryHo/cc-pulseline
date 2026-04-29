@@ -476,13 +476,27 @@ pub fn ctx_gauge_cell(
 
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
 /// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
+///
+/// Cluster-layout helper: picks aurora color from the last sample (the
+/// historic behavior before the velocity-based redefinition). Cluster
+/// layouts die in the upcoming purge, so this last-sample fallback exists
+/// only to keep them rendering until then. New consumers (ledger) call
+/// `widgets::sparkline::render` directly with a velocity-derived color.
 pub fn ctx_sparkline(
     history: &[u8],
     mode: GlyphMode,
     p: &ThemePalette,
     color_enabled: bool,
 ) -> String {
-    widgets::sparkline::render(history, mode, p, color_enabled)
+    let last = history.last().copied().unwrap_or(0);
+    let fill = if last >= 67 {
+        &p.aurora_high
+    } else if last >= 34 {
+        &p.aurora_mid
+    } else {
+        &p.aurora_low
+    };
+    widgets::sparkline::render(history, fill, mode, color_enabled)
 }
 
 /// Token-rate widget — "TOK 1.2K/s" with `↗` only when `speed.is_some()`.

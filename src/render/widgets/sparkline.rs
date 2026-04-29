@@ -22,7 +22,7 @@
 //! reads naturally as "history is filling up."
 
 use crate::config::GlyphMode;
-use crate::render::color::{colorize, ThemePalette};
+use crate::render::color::colorize;
 
 const SPARK_CELLS: usize = 6;
 const SAMPLES_PER_CELL: usize = 2;
@@ -73,31 +73,25 @@ fn height_for(sample: u8) -> u8 {
 /// returns an empty string — the widget itself is the gate point so callers
 /// don't need to pre-check `glyph_mode.is_icon()`.
 ///
-/// Color: when `color_enabled`, picks one of `aurora_low/mid/high` based on
-/// the *latest* sample value: <34 low, <67 mid, ≥67 high. The whole strip
-/// uses one color — per-cell gradients would muddy the slope readout.
+/// Color: caller-supplied. The shape (braille curve) carries the trend
+/// direction; the color is reserved for an orthogonal signal — typically
+/// velocity-based aurora, picked by the layout per its own threshold rule.
+/// An empty `fill_color` (with `color_enabled = true`) renders raw glyphs
+/// without ANSI wrapping.
 pub fn render(
     samples: &[u8],
+    fill_color: &str,
     mode: GlyphMode,
-    palette: &ThemePalette,
     color_enabled: bool,
 ) -> String {
     if matches!(mode, GlyphMode::Ascii) {
         return String::new();
     }
     let raw = render_glyphs(samples);
-    if samples.is_empty() {
+    if !color_enabled || fill_color.is_empty() {
         return raw;
     }
-    let last = *samples.last().unwrap_or(&0);
-    let color = if last >= 67 {
-        &palette.aurora_high
-    } else if last >= 34 {
-        &palette.aurora_mid
-    } else {
-        &palette.aurora_low
-    };
-    colorize(&raw, color, color_enabled)
+    colorize(&raw, fill_color, color_enabled)
 }
 
 /// Like `render` but returns plain glyphs (no ANSI). Used by tests and by
@@ -189,38 +183,37 @@ mod tests {
     }
 
     #[test]
-    fn render_picks_aurora_color_by_last_sample() {
-        let palette = super::super::test_support::aurora_marker_palette();
-        let low = render(&[10], GlyphMode::Icon, &palette, true);
-        let mid = render(&[40], GlyphMode::Icon, &palette, true);
-        let high = render(&[80], GlyphMode::Icon, &palette, true);
-        assert!(low.contains("LOW"), "expected aurora_low marker in {low:?}");
-        assert!(mid.contains("MID"), "expected aurora_mid marker in {mid:?}");
-        assert!(
-            high.contains("HIGH"),
-            "expected aurora_high marker in {high:?}"
-        );
+    fn render_uses_caller_supplied_color() {
+        // Caller picks the color; widget just wraps the raw glyphs in it.
+        let s = render(&[10, 20, 30], "BRAND", GlyphMode::Icon, true);
+        assert!(s.contains("BRAND"), "expected caller color marker in {s:?}");
     }
 
     #[test]
     fn render_no_color_returns_raw_glyphs() {
-        let palette = super::super::test_support::aurora_marker_palette();
-        let plain = render(&[10, 20, 30], GlyphMode::Icon, &palette, false);
+        let plain = render(&[10, 20, 30], "BRAND", GlyphMode::Icon, false);
+        assert_eq!(plain.chars().count(), 6);
+        assert!(!plain.contains('\x1b'));
+        assert!(!plain.contains("BRAND"));
+    }
+
+    #[test]
+    fn render_empty_fill_color_returns_raw_glyphs() {
+        // Empty fill_color → no ANSI wrap (caller wants raw braille).
+        let plain = render(&[10, 20, 30], "", GlyphMode::Icon, true);
         assert_eq!(plain.chars().count(), 6);
         assert!(!plain.contains('\x1b'));
     }
 
     #[test]
     fn ascii_mode_returns_empty_string() {
-        let palette = super::super::test_support::aurora_marker_palette();
-        // Sparse and dense input alike — Ascii mode never emits braille.
-        assert_eq!(render(&[], GlyphMode::Ascii, &palette, true), "");
-        assert_eq!(render(&[50], GlyphMode::Ascii, &palette, true), "");
+        assert_eq!(render(&[], "", GlyphMode::Ascii, true), "");
+        assert_eq!(render(&[50], "BRAND", GlyphMode::Ascii, true), "");
         assert_eq!(
             render(
                 &[10, 20, 30, 40, 50, 60, 70, 80],
+                "BRAND",
                 GlyphMode::Ascii,
-                &palette,
                 true
             ),
             ""

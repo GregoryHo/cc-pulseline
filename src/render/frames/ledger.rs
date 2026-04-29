@@ -301,9 +301,12 @@ fn ctx_row_body(
     if wants_sparkline {
         let window = sparkline_window(history);
         if !window.is_empty() {
-            // Sparkline glyph (icon-only widget — empty under Ascii).
+            // Velocity-based aurora: shape carries direction (rise / fall /
+            // flat); color carries intensity (calm / active / hot). The two
+            // signals stay independent of the `pct` text on the same row.
+            let fill_color = aurora_for_velocity(window, p);
             let pcts: Vec<u8> = window.iter().map(|(p, _)| *p).collect();
-            let glyph = widgets::sparkline::render(&pcts, mode, p, color);
+            let glyph = widgets::sparkline::render(&pcts, fill_color, mode, color);
             if !glyph.is_empty() {
                 out.push_str(ITEM_GAP);
                 out.push_str(&glyph);
@@ -319,6 +322,44 @@ fn ctx_row_body(
         }
     }
     out
+}
+
+/// Pick the aurora color stop for the sparkline based on the *velocity*
+/// of CTX consumption across the visible window. The shape carries the
+/// trend direction; this color carries the intensity:
+///
+/// ```text
+/// velocity (% / minute)   → color
+/// < 1                     → aurora_low   (calm / idle)
+/// 1 .. 5                  → aurora_mid   (active)
+/// >= 5                    → aurora_high  (hot — burning context fast)
+/// ```
+///
+/// Thresholds verified against a 134-min real session (per
+/// `designs/console-redesign/palette-integration.md` § Aurora revisited).
+fn aurora_for_velocity<'p>(window: &[(u8, u64)], p: &'p ThemePalette) -> &'p str {
+    if window.len() < 2 {
+        return &p.aurora_low;
+    }
+    let first = window.first().map(|(p, _)| *p as f64).unwrap_or(0.0);
+    let last = window.last().map(|(p, _)| *p as f64).unwrap_or(0.0);
+    let span_ms = window
+        .last()
+        .map(|(_, t)| *t)
+        .unwrap_or(0)
+        .saturating_sub(window.first().map(|(_, t)| *t).unwrap_or(0));
+    if span_ms == 0 {
+        return &p.aurora_low;
+    }
+    let span_min = (span_ms as f64) / 60_000.0;
+    let velocity = (last - first).abs() / span_min;
+    if velocity >= 5.0 {
+        &p.aurora_high
+    } else if velocity >= 1.0 {
+        &p.aurora_mid
+    } else {
+        &p.aurora_low
+    }
 }
 
 /// Slice of `history` that the ledger sparkline draws — most-recent 12
