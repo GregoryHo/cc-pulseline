@@ -16,16 +16,17 @@
 //!   │                                                   │
 //!   │  TOOL    ✓ Read ×2   ✓ Bash ×1                    │
 //!   │          ▶ Read   .../console.rs                  │
+//!   │                                                   │
 //!   │  AGENT   󱦻 Explore   ...   [haiku]   <1s          │
 //!   │  TODO    0/3 done · 3 pending                     │
-//!   │                                                   │
 //!   ╰───────────────────────────────────────────────────╯
 //! ```
 //!
-//! Blank rows mark major group transitions only (Config → Budget,
-//! Quota → Activity, Activity → frame end). Within the Budget group
-//! (CTX/TOK/COST/5h/7d) and within Activity (TOOL/AGENT/TODO) rows
-//! pack consecutively without separators.
+//! Blank rows separate three boundaries: Config → Budget (after ENV),
+//! Quota → Activity-tools (after 7d), and Activity-tools →
+//! Activity-actors (after the last tool row, before AGENT). Other
+//! transitions pack consecutively. The bottom frame closes flush
+//! against the last AGENT/TODO row — no trailing blank padding.
 //!
 //! The CTX row appends a 6-cell braille sparkline + delta-time tail
 //! (`30→43% in 5m`) when `context_visual` includes `sparkline` (the
@@ -182,28 +183,25 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     }
 
     let tool_rows = build_tool_rows(frame, config, p, content_width, ctx.color);
-    for (i, body) in tool_rows.iter().enumerate() {
-        let tag = if i == 0 { "TOOL" } else { "" };
-        lines.push(framed_tag_row(tag, body, &ctx));
+    if !tool_rows.is_empty() {
+        for (i, body) in tool_rows.iter().enumerate() {
+            let tag = if i == 0 { "TOOL" } else { "" };
+            lines.push(framed_tag_row(tag, body, &ctx));
+        }
+        lines.push(blank_row(&ctx));
     }
 
-    let mut agent_todo_emitted = false;
     if config.show_agents {
         let agent_rows = build_agent_rows(frame, config, p, content_width);
         for (i, body) in agent_rows.iter().enumerate() {
             let tag = if i == 0 { "AGENT" } else { "" };
             lines.push(framed_tag_row(tag, body, &ctx));
-            agent_todo_emitted = true;
         }
     }
     if config.show_todo {
         if let Some(body) = todo_row_body(frame, p, ctx.color) {
             lines.push(framed_tag_row("TODO", &body, &ctx));
-            agent_todo_emitted = true;
         }
-    }
-    if agent_todo_emitted {
-        lines.push(blank_row(&ctx));
     }
 
     lines.push(bottom_frame(&ctx));
