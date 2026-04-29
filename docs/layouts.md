@@ -1,17 +1,25 @@
 # Layouts
 
 `layout.name` chooses how cc-pulseline arranges and decorates its rendered
-rows. Nine layouts ship in two flavours:
+rows. Six layouts ship:
 
-| Flavour | Names | What they do |
-|---|---|---|
-| **Flat-row decorators** | `none`, `zones`, `grid`, `cards`, `sections` | Render the same 3 core rows (Identity / Config / Budget) plus optional Activity rows, then optionally wrap them in chrome (rules, label columns, frames) |
-| **Instrument-cluster** | `cockpit`, `console`, `flightstrip`, `auto` | Own their full pipeline. Pack widget cells (gauge, sparkline, cost arc, tape) into a tighter row layout designed for live monitoring |
+| Layout | What it does |
+|---|---|
+| `none` | Flat output, no chrome. Default. |
+| `zones` | Inserts a single `─── activity ───` rule between state and activity rows. |
+| `grid` | Fixed label column + `│` divider + right-padded content. |
+| `sections` | Single `╭─┬─╮` outer frame with `├─┼─┤` between groups. |
+| `console` | `sections` with the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
+| `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
-All nine share the same theme palette, segment toggles, and per-segment
+All six share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
 TOML strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
+
+> **Removed in v1.0.6:** `cards`, `cockpit`, `flightstrip`, `auto` —
+> consolidated into the surviving six above. User configs naming any of
+> the removed layouts fall back to `console` with a stderr warning.
 
 ```toml
 [layout]
@@ -86,27 +94,6 @@ Activity  │ T:Read main.rs | T:Bash cargo test
 **Pick when** you want explicit group labels and aligned right edges
 without row overhead.
 
-### `cards` — one independent frame per group
-
-Each non-empty group becomes its own `╭─┬─╮ … ╰─┴─╯` card, stacked
-vertically. All cards share global `max_label_width` and
-`max_content_width` so internal divider and outer walls align column-for-
-column.
-
-```
-╭──────────┬───────────────────────────────────────────────────────────╮
-│ Identity │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline │
-╰──────────┴───────────────────────────────────────────────────────────╯
-╭──────────┬───────────────────────────────────────────────────────────╮
-│ Budget   │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50            │
-╰──────────┴───────────────────────────────────────────────────────────╯
-…
-```
-
-**Cost:** +2 rows per non-empty group.
-**Pick when** you want strong visual separation between groups; have
-plenty of vertical room.
-
 ### `sections` — single outer frame with internal separators
 
 One outer `╭─┬─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
@@ -122,58 +109,81 @@ between every pair of non-empty groups. Reads as one container.
 ╰──────────┴───────────────────────────────────────────────────────────╯
 ```
 
-**Cost:** +2 rows + 1 per gap between non-empty groups (cheaper than
-`cards`, same per-group separation).
-**Pick when** you want the framed dashboard feel of `cards` without the
-row cost between groups.
+**Cost:** +2 rows + 1 per gap between non-empty groups.
+**Pick when** you want a framed dashboard feel.
 
-### `cockpit` — 3-row instrument cluster (recommended live default)
+### `console` — sections + identity-in-title
 
-Identity headline + cluster row (gauge, sparkline, cost arc, quota) +
-activity ticker.
+`console` is structurally just `sections` with the Identity row hoisted
+into the top frame border:
 
 ```
-Opus 4.7  feat/x ↑3  ~/cc-pulseline                              43%·86k
-CFG  󰈙1  󰱇5  󰧜2  󱭧1  󰆧2  󰐱4  1h
-CTX  [██████▋          ] 43% ⠀⠀⠀⠀⠀⢠   TOK 1.2K/s   $3.50 ◑   5h [██▏        ] 17% (resets 2h 0m)
-▶ Read · ▶ Bash   ✓ ×8   A:Explore (2m)   • 6/6 todos
+╭─ Opus 4.7 · medium · ~/cc-pulseline · feat/x* ──────────────────────────╮
+│ Config   │ 󰈙 2 CLAUDE.md | 󰱇 10 rules | 󰧜 4 memories | 󱭧 36 hooks       │
+├──────────┼─────────────────────────────────────────────────────────────┤
+│ Budget   │ CTX:43% (86.0k/200.0k) | TOK I:1 O:8 C:5.7k/114.5k | $4.56  │
+├──────────┼─────────────────────────────────────────────────────────────┤
+│ Activity │ ✓ Read ×2 | ✓ Bash ×1                                       │
+│          │ T:Read .../console.rs | T:Edit .../gauge.rs                 │
+╰──────────┴─────────────────────────────────────────────────────────────╯
 ```
 
-**Cost:** 3-4 rows.
-**Pick when** you want the "instrument-cluster" feel with widget
-visualisation. Width-adaptive: collapses gracefully below 100 cols; falls
-back to a single line below 80.
+The title separator is ` · ` (middle dot) in `structural` color. Identity
+fields keep their existing semantic colors (model → `stable_blue`, branch
+→ `stable_green` / `alert_orange` for dirty, etc.).
 
-### `console` — framed dashboard, ≥130 cols recommended
+**Cost:** 1 row saved over `sections` (Identity is in the title, not a
+labelled row).
+**Pick when** terminal is ≥ 110 cols and you want a polished framed
+presentation. Below ~90 cols the frame chrome gets cramped — `sections`
+or `none` is friendlier there.
 
-Higher "quality feel" than cockpit. Wraps content in `╭─╮ │ ╰─╯`. Quota
-defaults to a gauge bar instead of text.
+### `ledger` — TAG-column typographic rhythm
 
-**Cost:** 5-7 rows.
-**Pick when** terminal is wide enough (laptop, external monitor) and you
-want the most polished presentation.
+Label-value pairs aligned in a fixed left column, like an accounting
+ledger. Each metric occupies its own row, prefixed by a 6-char TAG; blank
+rows separate logical groups. Tallest layout.
 
-### `flightstrip` — dense 2-row strip for narrow IDE statuslines
+```
+╭─ Opus 4.6 · ~/cc-pulseline · feat/status-pane* ↑21 ─────────────────────╮
+│                                                                         │
+│  ENV     󰈙 2 CLAUDE.md   󰱇 10 rules   󰧜 4 memories   󱭧 36 hooks        │
+│                                                                         │
+│  CTX     43%   86.0k / 200.0k   ⠀⠀⠀⠀⠀⢠   30→43% in 5m                  │
+│  TOK     1 in   8 out   5.7k / 114.5k cache                             │
+│  COST    $4.56   $4.42/h                                                │
+│                                                                         │
+│  5h      62%   resets 1h 59m                                            │
+│  7d      28%   resets 4d 23h 59m                                        │
+│                                                                         │
+│  TOOL    ✓ Read ×2   ✓ Bash ×1                                          │
+│          ▶ Read   .../console.rs                                        │
+│                                                                         │
+│  AGENT   󱦻 Explore   Investigate parser edge case   [haiku]   <1s       │
+│  TODO    0/3 done · 3 pending                                           │
+│                                                                         │
+╰─────────────────────────────────────────────────────────────────────────╯
+```
 
-L1: identity + pct + gauge + cost. L2: sparkline + activity ticker.
-Below 90 cols collapses to a single line.
+The CTX row is the only row with a sparkline (and the only place in the
+codebase the sparkline is rendered). Its color carries CTX consumption
+**velocity**, picked from the aurora palette stops:
 
-**Cost:** 1-2 rows.
-**Pick when** terminal is narrow (split panes, IDE bottom strip).
+| Velocity (% / min) | Color |
+|---|---|
+| < 1 | `aurora_low` (calm / idle) |
+| 1 – 5 | `aurora_mid` (active) |
+| ≥ 5 | `aurora_high` (hot — burning context fast) |
 
-### `auto` — width-bracket resolver
+The sparkline shape carries direction (rising / falling / flat); the
+delta-time tail (`30→43% in 5m`) carries the trend in plain text so the
+information survives `display.icons = false` (sparkline disappears,
+delta label remains).
 
-Re-runs every render tick. Picks the cluster layout that fits:
-
-| Width    | Picks         |
-|----------|---------------|
-| ≥ 130    | `console`     |
-| 110..130 | `cockpit`     |
-| 90..110  | `flightstrip` |
-| < 90     | `cockpit` (which itself collapses to a single row below 80) |
-
-Window resize triggers a layout switch on the next CC poll without any
-state. Inherits `cockpit`'s visual defaults.
+**Cost:** 12-15 rows when fully populated.
+**Pick when** the statusline pane has plenty of vertical room and you
+want to scan metrics by group rather than density. Below 90 cols falls
+back to `sections`.
 
 ---
 
@@ -196,32 +206,22 @@ means "use layout default". Unknown widget names are silently dropped.
 
 ```toml
 [segments.budget]
-context_visual = "gauge+sparkline"  # cockpit / console default
-context_visual = "gauge"            # text-free dashboard
-context_visual = "text"             # plain text inside cockpit
+context_visual = "text"             # default for every layout except ledger
+context_visual = "gauge"            # gauge bar replaces percentage text
+context_visual = "text+sparkline"   # numbers + braille trend (ledger default)
 context_visual = ""                 # = layout default
-
-cost_visual = "text+arc"            # cockpit / console default
-cost_visual = "arc"                 # icon only
-cost_visual = "text"                # text only
-
-[segments.quota]
-visual = "text"                     # cockpit / flightstrip default
-visual = "bar"                      # console default — gauge + pct overlay
-
-[segments.tools]
-visual = "tape"                     # instrument-cluster default (▶ Read · ▶ Bash)
-visual = "list"                     # flat-layout default (per-row T:Read: ...)
 ```
 
 ### Recognized widgets per segment
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracket-framed (`[████▎      ]` icon, `[####------]` ascii); empty cells are literal whitespace inside the frame so they read as "unused capacity" regardless of fill colour. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the legacy `<glyph>43% (86.0k/200.0k)` form. |
-| `cost_visual` | `text`, `arc` | `arc` is icon-only — empty under `display.icons = false`. Lone `text` always carries `($X.X/h)` rate annotation; compound `text+arc` text picks up the rate when arc disappears (so the user always sees burn rate, in icon or text form). |
-| `quota_visual` | `text`, `bar` | `bar` adds a gauge before the pct text — same bracket-framed visual as `context_visual`'s `gauge`. **pct number and `(resets …)` annotation render unconditionally** when their data is available; `bar` is purely additional visualisation. |
-| `tools_visual` | `tape`, `list` | `tape` arrow `▶` → `>` under ASCII; `list` is multi-row (used by flat-layout activity rows) — silently dropped from inline cluster contexts. |
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracket-framed (`[████▎      ]` icon, `[####------]` ascii); empty cells are literal whitespace inside the frame so they read as "unused capacity" regardless of fill colour. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+
+> Earlier versions exposed widget composition for `cost_visual`,
+> `quota_visual`, and `tools_visual` — those segments now render in a
+> single canonical form (text for cost / quota; one-line list for tools).
+> The hub-dispatch infrastructure remains for future widget additions.
 
 ### Per-layout defaults
 
@@ -232,11 +232,8 @@ paths (mostly tests) that construct `RenderConfig` directly.
 
 | Layout | `context_visual` | `cost_visual` | `quota_visual` | `tools_visual` |
 |--------|------------------|---------------|----------------|----------------|
-| `cockpit` | `gauge+sparkline` | `text+arc` | `text` | `tape` |
-| `console` | `gauge+sparkline` | `text+arc` | `bar` | `tape` |
-| `flightstrip` | `gauge` | `text` | `text` | `tape` |
-| `auto` | `gauge+sparkline` | `text+arc` | `text` | `tape` |
-| `none`, `zones`, `grid`, `cards`, `sections` | `text` | `text` | `text` | `list` |
+| `none`, `zones`, `grid`, `sections`, `console` | `text` | `text` | `text` | `list` |
+| `ledger` | `text+sparkline` | `text` | `text` | `list` |
 
 ### Composability examples
 

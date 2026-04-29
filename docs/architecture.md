@@ -130,7 +130,7 @@ Formats the `RenderFrame` into output lines:
 - **L4b**: Running/recent tools with targets (volatile)
 - **L5+**: Activity (agents, todos -- only when active)
 
-Dispatches to instrument-cluster layouts (`Cockpit` / `Console` / `Flightstrip` / `Auto`) which own their full pipeline; flat layouts fall through to v1-style line assembly.
+Single rendering pipeline: every layout flows through this assembly and is decorated by `apply_pane()`. The lone exception is `Ledger`, which owns its full pipeline because the TAG-column rhythm doesn't compose cleanly via `apply_pane`.
 
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
 1. Drop activity lines
@@ -139,7 +139,7 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/pane.rs` + `render/frames/` -- Layouts
 
-`pane.rs::LayoutStyle` enumerates the 9 layouts. `apply_pane()` decorates flat-layout output with frame chrome (zones rule, grid divider, cards/sections borders). `frames/` holds one file per layout (`cockpit.rs`, `console.rs`, `flightstrip.rs`, `auto.rs`, `cards.rs`, `sections.rs`, `grid.rs`, `zones.rs`) plus `shared.rs` which carries widget call helpers, the per-layout default visuals table (`default_visuals_for`), and the four dispatch hubs (`render_context_visual`, `render_cost_visual`, `render_quota_visual`, `render_tools_visual_inline`) that map `*_visual` config strings onto widget compositions.
+`pane.rs::LayoutStyle` enumerates the 6 surviving layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the CTX dispatch hub `render_context_visual` (maps `context_visual` specs like `"text+sparkline"` onto `ctx_text_cell` / `ctx_gauge_cell` / `ctx_sparkline`).
 
 ### `render/widgets/` -- Atomic Widgets
 
