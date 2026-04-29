@@ -55,24 +55,28 @@ When `terminal_width` is set and content exceeds it:
 
 ## Adding a Widget Variant via Visual Spec
 
-When adding a new widget *variant* for an existing widget-bearing segment (context / cost / quota / tools), wire it through the dispatch hub — never call `widgets::*::render` directly from a layout, or that widget choice can't reach other layouts.
+When adding a new widget *variant* for the context segment, wire it through the dispatch hub — never call `widgets::*::render` directly from a layout, or that widget choice can't reach other layouts.
 
 1. Add the renderer in `widgets/foo.rs` with the canonical signature `fn render(data, …, mode: GlyphMode, palette: &ThemePalette, color_enabled: bool) -> String`. Return `""` from incompatible modes (e.g. icon-only widget under `Ascii`) so the dispatch hub drops the cell cleanly.
 2. Match its name in the relevant dispatch hub in `render/frames/shared.rs`:
    - context: `render_context_visual` (`gauge`, `sparkline`, `text`, …)
-   - cost: `render_cost_visual` (`text`, `arc`, …)
-   - quota: `render_quota_visual` (`text`, `bar`, …)
-   - tools: `render_tools_visual_inline` (`tape`, `list`, …)
 3. Document the new widget name in `docs/layouts.md` "Recognized widgets per segment" table.
 4. Decide layout defaults: if a layout should ship the new widget out of the box, edit `frames::default_visuals_for(LayoutStyle)`.
-5. Test the new widget across all 9 layouts via `tests/display_axes.rs`. The `ascii_mode_emits_no_unicode_block_chars_across_every_layout` catch-net will fail if the new widget leaks Unicode block glyphs under Ascii.
+5. Test the new widget across every layout via `tests/display_axes.rs`. The `ascii_mode_emits_no_unicode_block_chars_across_every_layout` catch-net will fail if the new widget leaks Unicode block glyphs under Ascii.
+
+> **Cost / quota / tools visual hubs were deleted with the cluster
+> consolidation** — the `cost_visual` / `quota_visual` / `tools_visual`
+> config fields exist as forward-compat only and currently render no
+> widgets. Adding a variant for these segments first requires
+> resurrecting the dispatch hub. See `designs/maintenance-debt.md`
+> Item 1.
 
 ## Adding a New Widget-Bearing Segment
 
-If introducing a brand-new segment with widget composition (not just a variant of context / cost / quota / tools):
+If introducing a brand-new segment with widget composition:
 
 1. Add the `*_visual: String` field per the Config Layer Pattern (7 places).
 2. Add the per-layout default in `SegmentVisualDefaults` and `default_visuals_for` in `frames/mod.rs`.
-3. Add an `effective_*_visual()` helper on `RenderConfig` mirroring the existing four.
+3. Add an `effective_*_visual()` helper on `RenderConfig` mirroring `effective_context_visual()`.
 4. Add a new dispatch hub `render_<segment>_visual` in `frames/shared.rs`.
 5. Refactor every layout that renders the segment to call the hub instead of widgets directly.

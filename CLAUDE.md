@@ -79,7 +79,7 @@ stdin JSON → StdinPayload (deserialize)
 
 ### Layouts & Visual Composition
 
-`pane.rs::LayoutStyle` enumerates 6 layouts: `None` / `Zones` / `Grid` / `Sections` / `Console` (sections + identity-in-title) / `Ledger`. Each layout asserts a default `(context, cost, quota, tools)` visual tuple via `frames::default_visuals_for(LayoutStyle)`. The user's TOML `*_visual` strings override per segment when non-empty; otherwise `effective_*_visual()` falls back to the layout default.
+`pane.rs::LayoutStyle` enumerates the layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` (sections + identity-in-title) / `Ledger`; treat the enum as the source of truth). Each layout asserts a default `(context, cost, quota, tools)` visual tuple via `frames::default_visuals_for(LayoutStyle)`. The user's TOML `*_visual` strings override per segment when non-empty; otherwise `effective_*_visual()` falls back to the layout default.
 
 CTX widget composition runs through the dispatch hub `render_context_visual` in `frames/shared.rs`. Layouts call the hub with their preferred gauge sizing; the hub parses the `+`-joined spec (e.g. `"text+sparkline"`) and composes widget outputs. **New widgets must register with the hub** — never call `widgets::*::render` directly from a layout, or the user loses composability for that segment. (Ledger renders the sparkline directly because it picks the aurora fill color from CTX consumption velocity.)
 
@@ -128,7 +128,7 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 The project uses a `ThemePalette` struct with 31 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
 
-- **8 built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`: tokyo-night (default), echo-sub-zero, titanium-precision, cnc-telemetry, cyberdeck-hud, stark-hud, mako-reactor, aburaya-twilight
+- **Built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`. tokyo-night is the default; the directory is the source of truth for the full set.
 - **Custom themes** — JSON files in `~/.claude/pulseline/themes/` loaded at runtime with per-process caching
 - **Per-color overrides** — `[colors]` TOML section applies on top of any preset (e.g., `alert_red = 160`)
 - **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light variant within each theme

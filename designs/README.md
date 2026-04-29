@@ -9,7 +9,6 @@ is then the source of truth.
 
 | Doc | Scope | Status |
 |---|---|---|
-| [`statusline-v2-redesign.md`](statusline-v2-redesign.md) | Comprehensive v2 layout brief — cockpit / console / flightstrip / auto, Pulseline Aurora flagship theme, sparkline + braille gauge widgets, v1↔v2 namespace plan | Shipped. Deferred items still on the shelf: tool-burst rate (5b), quota gradient (5d) |
 | [`activity-width-budget.md`](activity-width-budget.md) | Architecture spec for the activity-row width-budget allocator (`render/activity/{budget,builder,cell,truncate}.rs`) — every row knows its char budget; truncators (KeepHead / Sentence / CommandSmart) compose | Shipped. Active reference for `render/activity/`. |
 | [`none-layout-redesign.md`](none-layout-redesign.md) | Density + consistency rework of the default `none` layout. Two iterations. | Iteration 2 Must items shipped: bracketed parallel cells, width-adaptive completed-tool rows, verb-first Bash. **Open**: A1 (promote all-done todo), A6 (overflow language), open questions 1–4 |
 
@@ -22,4 +21,6 @@ is then the source of truth.
   record" docs — `git log designs/` covers retired briefs, and any
   rationale worth preserving belongs in the user-facing docs (e.g.
   `docs/layouts.md` carries the Variation B rationale from the now-
-  deleted composability redesign brief).
+  deleted composability redesign brief, and the "added visual elements
+  must add information or rhythm" principle from the now-deleted
+  console-redesign brief).

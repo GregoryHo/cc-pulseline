@@ -1,7 +1,7 @@
 # Layouts
 
 `layout.name` chooses how cc-pulseline arranges and decorates its rendered
-rows. Six layouts ship:
+rows. The shipping layouts:
 
 | Layout | What it does |
 |---|---|
@@ -34,6 +34,45 @@ tonal_strata = true      # 2-tier separator tint (see docs/theme-palette.md)
 
 `min_width`, `max_width`, `cc_margin`, `tonal_strata`, and the
 `[segments.*]` toggles work identically across every layout.
+
+---
+
+## Design Principles
+
+> 新增的視覺元素必須追加資訊或節奏感，絕不能取代已有的可讀資訊。
+>
+> **Added visual elements must add information or rhythm — never
+> substitute meaning with decoration.**
+
+This is the gate every widget, glyph, and per-layout flourish has to
+pass. It governs which `*_visual` variants are accepted, how
+`apply_pane` decorates flat output, and whether a redesign earns its
+extra row.
+
+What the principle disqualifies, by example:
+
+- A glyph that requires a legend to decode (an arc widget showing
+  `◔ ◑ ●` next to a number the reader already has).
+- A trend chart with no axis or baseline (an unscaled sparkline
+  beside a percentage that already changes color at the threshold).
+- A compressed display that drops information the flat layout
+  rendered fully (a `▶ Read · ▶ Edit` tape that erases the file
+  paths the user came to read).
+
+What the principle permits, conditionally:
+
+- Gauges and running indicators **alongside** the original text — the
+  text stays readable; the gauge adds spatial intuition the text
+  alone can't provide.
+- Sparkline **with** a delta-time label or aurora-velocity color —
+  the trend acquires a scale, so it answers a question the number
+  alone doesn't.
+- Layout-specific rhythm (the ledger TAG column, the console
+  identity-in-frame title) — these add structure, not decoration.
+
+When in doubt, ask: *if I delete this widget, what information does
+the reader lose?* If the answer is "none — the text already said
+it", the widget fails the principle.
 
 ---
 
