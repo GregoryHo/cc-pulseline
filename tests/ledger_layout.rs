@@ -103,6 +103,37 @@ fn ledger_falls_back_to_sections_below_90_cols() {
 }
 
 #[test]
+fn ledger_fallback_width_matches_direct_console() {
+    // Ledger's <90-col fallback flips pane_style to Console and re-enters
+    // render_frame. Without restoring the un-adjusted width, render_frame
+    // subtracts `pane_cc_margin` a SECOND time and the fallback render
+    // ends up `cc_margin` cells narrower than a direct Console render at
+    // the same configured terminal width.
+    let f = frame_basic();
+    let mut ledger_cfg = cfg(80);
+    let mut console_cfg = cfg(80);
+    console_cfg.pane_style = LayoutStyle::Console;
+
+    let ledger_lines = render_frame(&f, &ledger_cfg);
+    let console_lines = render_frame(&f, &console_cfg);
+
+    // The framed top row's visible width is the most stable witness here
+    // — both layouts produce a `╭…╮` border whose length equals the inner
+    // cell budget. If the budgets diverge, the borders diverge.
+    let ledger_top = ledger_lines.first().expect("ledger emits a top frame");
+    let console_top = console_lines.first().expect("console emits a top frame");
+    assert_eq!(
+        cc_pulseline::render::color::visible_width(ledger_top),
+        cc_pulseline::render::color::visible_width(console_top),
+        "ledger fallback width must equal direct console width\nledger: {ledger_top:?}\nconsole: {console_top:?}"
+    );
+
+    // Silence unused-mut warnings — we set pane_style on console_cfg and
+    // intentionally do not mutate ledger_cfg.
+    let _ = &mut ledger_cfg;
+}
+
+#[test]
 fn ledger_renders_quota_when_data_present() {
     let mut f = frame_basic();
     f.quota = QuotaMetrics {
@@ -172,6 +203,103 @@ fn ledger_renders_agent_block() {
     assert!(blob.contains("AGENT"), "AGENT tag: {blob}");
     assert!(blob.contains("Explore"), "agent type: {blob}");
     assert!(blob.contains("haiku"), "agent model tag: {blob}");
+}
+
+#[test]
+fn ledger_completed_single_agent_renders_done_check() {
+    // A SINGLE completed agent must be visually distinct from a running one
+    // — the user observed ledger leaving completed agents stuck in the
+    // "running" appearance, which mirrored builder's contract divergence.
+    // Pinning ✓ in the rendered row is the minimum visual contract.
+    let mut f = frame_basic();
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "Visual probe — ledger agent row".to_string(),
+        agent_type: Some("general-purpose".to_string()),
+        started_at: Some(1000),
+        model: Some("haiku".to_string()),
+        completed_at: Some(2000),
+        message_id: None,
+    });
+    let lines = render_frame(&f, &cfg(140));
+    let blob = lines.join("\n");
+    assert!(blob.contains("AGENT"), "AGENT tag: {blob}");
+    assert!(
+        blob.contains('\u{2713}'),
+        "completed agent must show ✓: {blob}"
+    );
+}
+
+#[test]
+fn ledger_respects_agents_visual_name_only() {
+    // When the user opts out of description via `agents_visual = "name"`,
+    // ledger must honour it the same way other layouts do — otherwise the
+    // toggle is ineffective.
+    let mut f = frame_basic();
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "should not appear when description is hidden".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: None,
+        model: Some("haiku".to_string()),
+        completed_at: None,
+        message_id: None,
+    });
+    let mut c = cfg(140);
+    c.agents_visual = "name".to_string();
+    let lines = render_frame(&f, &c);
+    let blob = lines.join("\n");
+    assert!(blob.contains("AGENT"), "AGENT tag still rendered: {blob}");
+    assert!(blob.contains("Explore"), "agent name still appears: {blob}");
+    assert!(
+        !blob.contains("should not appear"),
+        "description must be suppressed when visual='name': {blob}"
+    );
+    assert!(
+        !blob.contains("haiku"),
+        "model must be suppressed when visual='name': {blob}"
+    );
+}
+
+#[test]
+fn ledger_keeps_newest_active_under_cap() {
+    // With more concurrent active agents than `max_agent_lines`, the cap
+    // must drop the OLDEST and surface the newest — otherwise users miss
+    // the most recent activity. `frame.agents` arrives oldest-first per
+    // `agents_for_display`'s contract, so a naive `.take(max)` would
+    // preserve the wrong end.
+    let mut f = frame_basic();
+    for (id, desc) in [
+        ("a1", "OLDEST agent description"),
+        ("a2", "MIDDLE agent description"),
+        ("a3", "NEWEST agent description"),
+    ] {
+        f.agents.push(AgentSummary {
+            id: id.to_string(),
+            description: desc.to_string(),
+            agent_type: Some("Explore".to_string()),
+            started_at: None,
+            model: None,
+            completed_at: None,
+            message_id: Some(format!("msg_{id}")), // unique → stays Single
+        });
+    }
+    let mut c = cfg(140);
+    c.max_agent_lines = 2;
+    let lines = render_frame(&f, &c);
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("NEWEST"),
+        "newest active must be kept under cap: {blob}"
+    );
+    assert!(
+        blob.contains("MIDDLE"),
+        "middle active must be kept under cap: {blob}"
+    );
+    assert!(
+        !blob.contains("OLDEST"),
+        "oldest active must be dropped under cap: {blob}"
+    );
 }
 
 #[test]

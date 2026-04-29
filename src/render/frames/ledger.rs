@@ -37,18 +37,16 @@
 //! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
-use crate::render::activity::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
-use crate::render::activity::builder::{
-    bucket_by_type, elapsed_for, first_desc_line, GROUP_SUBITEM_SEPARATOR,
-};
+use crate::render::activity::budget::pack_with_separator;
+use crate::render::activity::builder::{build_agent_cells, ROW_SEPARATOR, ROW_SEPARATOR_W};
+use crate::render::activity::cell::CellPriority;
 use crate::render::activity::cells::recent_tool::target_strategy_for;
 use crate::render::activity::truncate;
 use crate::render::color::{colorize, visible_width, ThemePalette};
-use crate::render::fmt::{format_agent_elapsed, format_number, format_reset_duration};
-use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL};
+use crate::render::fmt::{format_number, format_reset_duration};
 use crate::render::layout;
 use crate::render::widgets;
-use crate::types::{AgentSummary, Line1Metrics, Line3Metrics, RenderFrame};
+use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
 
 use super::shared::{self, FrameGlyphs};
 
@@ -77,10 +75,6 @@ const ITEM_GAP_W: usize = 3;
 /// Cells reserved on the right edge so truncated content doesn't kiss
 /// the frame border.
 const RIGHT_MARGIN: usize = 3;
-/// Bracket overhead for ` [...]` body wrapper.
-const BRACKET_OVERHEAD: usize = 3;
-/// Heterogeneous parallel-group head: ` parallel` (9) + `: ` (2).
-const PARALLEL_LABEL_W: usize = " parallel".len() + ": ".len();
 
 /// Per-render context bundle, threaded through every row builder. Bundles
 /// the four values (palette, glyph table, interior cell count, color flag)
@@ -215,6 +209,13 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
 fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut shrunk = config.clone();
     shrunk.pane_style = crate::render::pane::LayoutStyle::Console;
+    // The outer `render_frame` call already subtracted `pane_cc_margin` from
+    // `terminal_width` before dispatching to ledger. Restoring it here
+    // prevents the re-entrant `render_frame` from subtracting it a second
+    // time and shrinking the fallback render by `cc_margin` cells.
+    if let Some(w) = shrunk.terminal_width {
+        shrunk.terminal_width = Some(w + shrunk.pane_cc_margin);
+    }
     layout::render_frame(frame, &shrunk)
 }
 
@@ -590,14 +591,14 @@ fn build_tool_rows(
     rows
 }
 
-/// Per-render context bundle for the agent renderers.
-struct AgentCtx<'a> {
-    config: &'a RenderConfig,
-    p: &'a ThemePalette,
-    color: bool,
-    max_width: usize,
-}
-
+/// Build per-row strings for the AGENT block by delegating to
+/// `activity::builder::build_agent_cells`. Routing through the shared
+/// builder gives ledger:
+///   * correct completion icon/color (✓ + `completed_check` for finished
+///     single agents — was hard-coded `ICON_AGENT`/`stable_blue` before)
+///   * `agents_visual` toggle compliance (was ignored before)
+///   * active-first-newest selection under `max_agent_lines` (the prior
+///     `.take(max)` kept the OLDEST active groups)
 fn build_agent_rows(
     frame: &RenderFrame,
     config: &RenderConfig,
@@ -607,184 +608,44 @@ fn build_agent_rows(
     if frame.agents.is_empty() {
         return Vec::new();
     }
-    let ctx = AgentCtx {
-        config,
-        p,
-        color: config.color_enabled,
-        max_width,
-    };
+    let cells = build_agent_cells(&frame.agents, config, p);
     let max = config.max_agent_lines.max(1);
-    classify(&frame.agents)
-        .into_iter()
-        .take(max)
-        .map(|g| match g {
-            AgentGroup::Single(a) => render_single_agent(a, &ctx),
-            AgentGroup::Homogeneous(g) => render_homogeneous_agents(&g, &ctx),
-            AgentGroup::Heterogeneous(g) => render_heterogeneous_agents(&g, &ctx),
-        })
-        .collect()
-}
 
-/// Pick `(prefix_glyph, accent_color)` for a parallel agent group based
-/// on completion state. All-completed → ✓ + `completed_check`. Mirrors
-/// `activity::builder::build_agent_homogeneous_cell` /
-/// `build_agent_heterogeneous_cell`.
-fn parallel_prefix_accent<'p>(
-    group: &[&AgentSummary],
-    mode: GlyphMode,
-    p: &'p ThemePalette,
-    active_icon: (&str, &str),
-) -> (String, &'p str) {
-    let all_completed = group.iter().all(|a| a.is_completed());
-    if all_completed {
-        let g = match mode {
-            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
-            GlyphMode::Ascii => active_icon.1.to_string(),
-        };
-        (g, p.completed_check.as_str())
-    } else {
-        (glyph(mode, active_icon.0, active_icon.1), p.agent_purple())
-    }
-}
-
-/// Wrap `s` in ANSI only when both `s` is non-empty and `enabled`.
-/// Avoids the `\x1b[…m\x1b[0m` envelope around an empty string.
-fn colorize_if(s: &str, color: &str, enabled: bool) -> String {
-    if s.is_empty() {
-        String::new()
-    } else {
-        colorize(s, color, enabled)
-    }
-}
-
-fn avg_tail(group: &[&AgentSummary]) -> String {
-    avg_elapsed_ms(group)
-        .map(|ms| format!(" (avg {})", format_agent_elapsed(ms / 1000)))
-        .unwrap_or_default()
-}
-
-fn render_single_agent(a: &AgentSummary, ctx: &AgentCtx) -> String {
-    let p = ctx.p;
-    let icon_glyph = glyph(ctx.config.glyph_mode, ICON_AGENT, "A:");
-    let name_str = a.agent_type.as_deref().unwrap_or("agent");
-    let icon = colorize(&icon_glyph, &p.stable_blue, ctx.color);
-    let name = colorize(name_str, &p.stable_blue, ctx.color);
-    let model_str = a
-        .model
-        .as_ref()
-        .map(|m| format!("[{m}]"))
-        .unwrap_or_default();
-    let elapsed_str = elapsed_for(a);
-    let elapsed_tail_str = if elapsed_str.is_empty() {
-        String::new()
-    } else {
-        format!(" ({elapsed_str})")
-    };
-
-    let head_w = icon_glyph.chars().count() + 1 + name_str.chars().count();
-    let model_tail_w = if model_str.is_empty() {
-        0
-    } else {
-        ITEM_GAP_W + model_str.chars().count()
-    };
-    let elapsed_tail_w = elapsed_tail_str.chars().count();
-    let budget = ctx
-        .max_width
-        .saturating_sub(head_w + ITEM_GAP_W + model_tail_w + elapsed_tail_w + RIGHT_MARGIN);
-
-    let desc = colorize(
-        &truncate::keep_head(&a.description, budget),
-        &p.secondary,
-        ctx.color,
-    );
-    let model = if model_str.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "{ITEM_GAP}{}",
-            colorize(&model_str, &p.secondary, ctx.color)
-        )
-    };
-    let elapsed = colorize_if(&elapsed_tail_str, &p.structural, ctx.color);
-    format!("{icon} {name}{ITEM_GAP}{desc}{model}{elapsed}")
-}
-
-/// Homogeneous group: `<icon> type ×N [desc1 + desc2]`. All-completed
-/// flips icon to ✓ + `completed_check`.
-fn render_homogeneous_agents(group: &[&AgentSummary], ctx: &AgentCtx) -> String {
-    let p = ctx.p;
-    let n = group.len();
-    let agent_type = group[0].agent_type.as_deref().unwrap_or("agent");
-    let (prefix_glyph, accent) =
-        parallel_prefix_accent(group, ctx.config.glyph_mode, p, (ICON_AGENT, "A:"));
-    let icon = colorize(&prefix_glyph, accent, ctx.color);
-    let head_str = format!("{agent_type} \u{00D7}{n}");
-    let head = colorize(&head_str, accent, ctx.color);
-
-    let descs: Vec<&str> = group
+    // Cells come back as `[active.., completed..]`. Under cap: keep the
+    // newest `max` of active first, then fill remaining slots with newest
+    // completed. Mirrors `activity::builder::build_agent_rows` so layouts
+    // stay consistent.
+    let active_count = cells
         .iter()
-        .map(|a| first_desc_line(a))
+        .position(|c| c.priority == CellPriority::Optional)
+        .unwrap_or(cells.len());
+    let active = &cells[..active_count];
+    let completed = &cells[active_count..];
+
+    let active_keep = active.len().min(max);
+    let active_skip = active.len() - active_keep;
+    let remaining = max - active_keep;
+    let completed_keep = completed.len().min(remaining);
+
+    let color = config.color_enabled;
+    let sep = colorize(ROW_SEPARATOR, &p.separator, color);
+    let chosen = active
+        .iter()
+        .skip(active_skip)
+        .chain(completed.iter().take(completed_keep));
+
+    chosen
+        .map(|cell| {
+            pack_with_separator(
+                std::slice::from_ref(cell),
+                max_width,
+                &sep,
+                ROW_SEPARATOR_W,
+                color,
+            )
+        })
         .filter(|s| !s.is_empty())
-        .collect();
-    let avg = avg_tail(group);
-    let avg_colored = colorize_if(&avg, &p.structural, ctx.color);
-    let head_w = prefix_glyph.chars().count() + head_str.chars().count();
-
-    if descs.is_empty() {
-        return format!("{icon}{head}{avg_colored}");
-    }
-    let body_raw = descs.join(GROUP_SUBITEM_SEPARATOR);
-    let budget = ctx
-        .max_width
-        .saturating_sub(head_w + BRACKET_OVERHEAD + avg.chars().count() + RIGHT_MARGIN);
-    let body = colorize(
-        &truncate::keep_head(&body_raw, budget),
-        &p.secondary,
-        ctx.color,
-    );
-    let lb = colorize(" [", &p.structural, ctx.color);
-    let rb = colorize("]", &p.structural, ctx.color);
-    format!("{icon}{head}{lb}{body}{rb}{avg_colored}")
-}
-
-/// Heterogeneous group: `‖ ×N parallel: type_a ×2 [d1 + d2] + type_b ×2 [d3 + d4]`.
-fn render_heterogeneous_agents(group: &[&AgentSummary], ctx: &AgentCtx) -> String {
-    let p = ctx.p;
-    let n = group.len();
-    let (prefix_glyph, accent) = parallel_prefix_accent(
-        group,
-        ctx.config.glyph_mode,
-        p,
-        (ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1),
-    );
-    let icon = colorize(&prefix_glyph, accent, ctx.color);
-    let count_str = format!("\u{00D7}{n}");
-    let count = colorize(&count_str, accent, ctx.color);
-    let parallel_lbl = colorize(" parallel", &p.structural, ctx.color);
-    let avg = avg_tail(group);
-    let avg_colored = colorize_if(&avg, &p.structural, ctx.color);
-    let head_w = prefix_glyph.chars().count()
-        + count_str.chars().count()
-        + PARALLEL_LABEL_W
-        + avg.chars().count();
-
-    let typed = bucket_by_type(group);
-    let mut buckets: Vec<String> = Vec::with_capacity(typed.len());
-    for (t, descs) in typed {
-        buckets.push(match descs.len() {
-            1 => format!("{t}: {}", descs[0]),
-            n => format!("{t} \u{00D7}{n} [{}]", descs.join(GROUP_SUBITEM_SEPARATOR)),
-        });
-    }
-    let body_raw = buckets.join(GROUP_SUBITEM_SEPARATOR);
-    let budget = ctx.max_width.saturating_sub(head_w + RIGHT_MARGIN);
-    let body = colorize(
-        &truncate::keep_head(&body_raw, budget),
-        &p.secondary,
-        ctx.color,
-    );
-    let sep = colorize(": ", &p.structural, ctx.color);
-    format!("{icon}{count}{parallel_lbl}{avg_colored}{sep}{body}")
+        .collect()
 }
 
 fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<String> {
