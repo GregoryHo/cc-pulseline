@@ -227,6 +227,10 @@ pub fn identity_headline(
         }
     }
 
+    if config.show_project {
+        parts.push(colorize(&line1.project_path, &p.secondary, color));
+    }
+
     if config.show_git {
         let mut s = colorize(&line1.git_branch, p.git_green(), color);
         if line1.git_dirty {
@@ -266,10 +270,6 @@ pub fn identity_headline(
             s.push_str(&colorize(" (WT)", &p.structural, color));
         }
         parts.push(s);
-    }
-
-    if config.show_project {
-        parts.push(colorize(&line1.project_path, &p.secondary, color));
     }
 
     parts.join(&coloured_sep)
