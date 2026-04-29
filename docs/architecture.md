@@ -114,7 +114,7 @@ Persists `SessionState` across process invocations:
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
-- Per-segment visual specs (`context_visual`, `cost_visual`, `quota_visual`, `tools_visual`) — see `docs/layouts.md`
+- Per-segment visual specs (`context_visual`, `quota_visual`, `agents_visual`) — see `docs/layouts.md`
 
 Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pulseline.toml` (project override).
 

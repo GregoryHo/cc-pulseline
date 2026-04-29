@@ -30,9 +30,7 @@ use super::pane::LayoutStyle;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegmentVisualDefaults {
     pub context_visual: &'static str,
-    pub cost_visual: &'static str,
     pub quota_visual: &'static str,
-    pub tools_visual: &'static str,
     /// Agent visual spec — `+`-joined atoms `description`, `model`. The
     /// agent name is always rendered; `description` adds the body line
     /// and `model` adds a `[haiku]`-style slack tail.
@@ -52,9 +50,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
         // Minimalist flat layouts — no bars by default.
         LayoutStyle::None | LayoutStyle::Zones | LayoutStyle::Grid => SegmentVisualDefaults {
             context_visual: "text",
-            cost_visual: "text",
             quota_visual: "text",
-            tools_visual: "list",
             agents_visual: "name+description+model",
         },
         // Framed layouts — quota bar appears by default; CTX bar still
@@ -62,18 +58,14 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
         // by default would saturate the row).
         LayoutStyle::Sections | LayoutStyle::Console => SegmentVisualDefaults {
             context_visual: "text",
-            cost_visual: "text",
             quota_visual: "gauge",
-            tools_visual: "list",
             agents_visual: "name+description+model",
         },
         // Ledger ships sparkline on the CTX row + bar on the quota row.
         // The TAG-column rhythm has natural space for both.
         LayoutStyle::Ledger => SegmentVisualDefaults {
             context_visual: "text+sparkline",
-            cost_visual: "text",
             quota_visual: "gauge",
-            tools_visual: "list",
             agents_visual: "name+description+model",
         },
     }

@@ -297,10 +297,6 @@ pub struct BudgetSegmentConfig {
     /// layouts default), `"gauge"` (text-free dashboard).
     #[serde(default)]
     pub context_visual: String,
-    /// Cost visual spec. Recognized: `text`, `arc`, `text+arc`. Defers to
-    /// layout default when empty.
-    #[serde(default)]
-    pub cost_visual: String,
 }
 
 impl Default for BudgetSegmentConfig {
@@ -311,7 +307,6 @@ impl Default for BudgetSegmentConfig {
             show_cost: true,
             show_speed: false,
             context_visual: String::new(),
-            cost_visual: String::new(),
         }
     }
 }
@@ -351,10 +346,6 @@ pub struct ToolSegmentConfig {
     pub max_completed: usize,
     #[serde(default = "default_max_completed_lines")]
     pub max_completed_lines: usize,
-    /// Tools visual spec. Recognized: `list`, `tape`. Defers to layout
-    /// default when empty (see `frames::default_visuals_for`).
-    #[serde(default)]
-    pub visual: String,
 }
 
 impl Default for ToolSegmentConfig {
@@ -364,7 +355,6 @@ impl Default for ToolSegmentConfig {
             max_lines: 2,
             max_completed: 4,
             max_completed_lines: 2,
-            visual: String::new(),
         }
     }
 }
@@ -486,8 +476,6 @@ show_speed = false          # output tok/s rate
 #   context_visual = "text"             # plain percentage + token counts
 #   context_visual = "text+sparkline"   # numbers + braille trend
 context_visual = ""
-# cost_visual: same composition rule. Recognized: text.
-cost_visual = ""
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
 enabled = false             # opt-in: requires OAuth credentials
@@ -506,8 +494,6 @@ enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
 max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
-# visual: list (per-row T:Read: ...) or tape (▶ Read · ▶ Bash · ▶ Edit).
-visual = ""
 
 [segments.agents]
 enabled = true
@@ -629,8 +615,6 @@ pub struct ProjectBudgetOverride {
     pub show_speed: Option<bool>,
     /// CTX visual spec — see `BudgetSegmentConfig::context_visual`.
     pub context_visual: Option<String>,
-    /// Cost visual spec — see `BudgetSegmentConfig::cost_visual`.
-    pub cost_visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -648,8 +632,6 @@ pub struct ProjectToolOverride {
     pub max_lines: Option<usize>,
     pub max_completed: Option<usize>,
     pub max_completed_lines: Option<usize>,
-    /// Tools visual spec — see `ToolSegmentConfig::visual`.
-    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -824,9 +806,6 @@ pub fn merge_configs(
             if let Some(v) = &budget.context_visual {
                 user.segments.budget.context_visual = v.clone();
             }
-            if let Some(v) = &budget.cost_visual {
-                user.segments.budget.cost_visual = v.clone();
-            }
         }
         if let Some(quota) = &segments.quota {
             if let Some(v) = quota.enabled {
@@ -854,9 +833,6 @@ pub fn merge_configs(
             }
             if let Some(v) = tools.max_completed_lines {
                 user.segments.tools.max_completed_lines = v;
-            }
-            if let Some(v) = &tools.visual {
-                user.segments.tools.visual = v.clone();
             }
         }
         if let Some(agents) = &segments.agents {
@@ -1125,16 +1101,12 @@ pub struct RenderConfig {
     /// `frames::default_visuals_for` for the per-layout defaults and
     /// `widgets::visual::render_context` for the dispatcher.
     pub context_visual: String,
-    /// Effective cost visual spec. Same resolution rule as `context_visual`.
-    pub cost_visual: String,
     // Quota segment toggles
     pub show_quota: bool,
     pub show_quota_five_hour: bool,
     pub show_quota_seven_day: bool,
     /// Effective quota visual spec.
     pub quota_visual: String,
-    /// Effective tools visual spec.
-    pub tools_visual: String,
     /// Effective agents visual spec — atoms `description`, `model`.
     pub agents_visual: String,
     // Activity segment toggles + limits
@@ -1174,30 +1146,12 @@ impl RenderConfig {
         }
     }
 
-    /// See `effective_context_visual` — same fallback rule for cost.
-    pub fn effective_cost_visual(&self) -> &str {
-        if self.cost_visual.is_empty() {
-            crate::render::frames::default_visuals_for(self.pane_style).cost_visual
-        } else {
-            &self.cost_visual
-        }
-    }
-
     /// See `effective_context_visual` — same fallback rule for quota.
     pub fn effective_quota_visual(&self) -> &str {
         if self.quota_visual.is_empty() {
             crate::render::frames::default_visuals_for(self.pane_style).quota_visual
         } else {
             &self.quota_visual
-        }
-    }
-
-    /// See `effective_context_visual` — same fallback rule for tools.
-    pub fn effective_tools_visual(&self) -> &str {
-        if self.tools_visual.is_empty() {
-            crate::render::frames::default_visuals_for(self.pane_style).tools_visual
-        } else {
-            &self.tools_visual
         }
     }
 
@@ -1240,12 +1194,10 @@ impl Default for RenderConfig {
             show_cost: true,
             show_speed: false,
             context_visual: String::new(),
-            cost_visual: String::new(),
             show_quota: false,
             show_quota_five_hour: true,
             show_quota_seven_day: false,
             quota_visual: String::new(),
-            tools_visual: String::new(),
             agents_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
@@ -1426,10 +1378,6 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
             &pulseline.segments.budget.context_visual,
             layout_visual_defaults.context_visual,
         ),
-        cost_visual: resolve_visual_field(
-            &pulseline.segments.budget.cost_visual,
-            layout_visual_defaults.cost_visual,
-        ),
         // Quota
         show_quota: pulseline.segments.quota.enabled,
         show_quota_five_hour: pulseline.segments.quota.show_five_hour,
@@ -1437,10 +1385,6 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         quota_visual: resolve_visual_field(
             &pulseline.segments.quota.visual,
             layout_visual_defaults.quota_visual,
-        ),
-        tools_visual: resolve_visual_field(
-            &pulseline.segments.tools.visual,
-            layout_visual_defaults.tools_visual,
         ),
         agents_visual: resolve_visual_field(
             &pulseline.segments.agents.visual,

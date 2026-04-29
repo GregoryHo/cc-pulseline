@@ -258,11 +258,6 @@ context_visual = ""                 # = layout default
 | `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX uses window-aware marks (200k window → marks at 55% and 75%); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 
-> `cost_visual` and `tools_visual` exist as forward-compat config
-> fields but currently render no widgets — their dispatch hubs were
-> deleted in the cluster cleanup. See `designs/maintenance-debt.md`
-> Item 1 for the rationale and resolution paths.
-
 ### Per-layout defaults
 
 Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
@@ -270,11 +265,11 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
-| Layout | `context_visual` | `cost_visual` | `quota_visual` | `tools_visual` |
-|--------|------------------|---------------|----------------|----------------|
-| `none`, `zones`, `grid` | `text` | `text` | `text` | `list` |
-| `sections`, `console` | `text` | `text` | `gauge` | `list` |
-| `ledger` | `text+sparkline` | `text` | `gauge` | `list` |
+| Layout | `context_visual` | `quota_visual` |
+|--------|------------------|----------------|
+| `none`, `zones`, `grid` | `text` | `text` |
+| `sections`, `console` | `text` | `gauge` |
+| `ledger` | `text+sparkline` | `gauge` |
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only
@@ -310,7 +305,8 @@ For contributors:
 - Live dispatch hubs in `frames/shared.rs`:
   `render_context_visual`, `render_quota_visual`. Layouts call them;
   never call `widgets::*::render` directly from a layout (or that
-  segment loses user composability).
+  segment loses user composability). Enforced by
+  `tests/dispatch_hub_iron_rule.rs`.
 - Atomic widgets live in `widgets/`. The `gauge` widget takes
   `(pct, width, marks, fill_color, palette, mode, color)` — caller
   picks fill colour and threshold marks. Ascii-incompatible widgets
@@ -319,6 +315,41 @@ For contributors:
 - To add a new widget variant: add the renderer in `widgets/foo.rs`,
   match its name in the relevant dispatch hub, document it in this
   file's [Recognized widgets](#recognized-widgets-per-segment) table.
+
+### Why `agents_visual` has no symmetric dispatch hub
+
+The four `*_visual` segments aren't fully symmetric. `context_visual`
+and `quota_visual` flow through `render_context_visual` /
+`render_quota_visual` hubs; `agents_visual` doesn't. Its spec parser
+(`AgentVisualSpec::parse`) is called inline from
+`activity/builder.rs`.
+
+This is intentional. Agent rendering is inherently multi-cell —
+description, model tag, elapsed — assembled into a row, not a single
+`+`-joined string of swappable widget cells. The hub abstraction
+(parse spec → run each widget → join with spaces) doesn't model the
+agent-row structure cleanly. Forcing it through a hub would either
+flatten the row (losing the per-cell budgeting the activity builder
+does today) or invent a richer hub contract that only `agents` would
+ever use.
+
+Treat the asymmetry as a feature: hubs cover segments composed of
+single-cell widgets; agents stays inline because its row isn't that
+shape. If a third agent rendering flavour appears (e.g.
+`agents_visual = "graph"`), revisit — but the visual-spec abstraction
+has hit its useful ceiling for this segment.
+
+### Why ledger ignores `pane_tonal_strata`
+
+`tonal_strata = false` silences the tier-2 separator tint in flat
+layouts (see `tinted_palette` in `layout.rs`). Ledger doesn't read
+this flag — its TAG column is the rhythm anchor, and stacking a
+strata tint on top of the per-row TAG would compete with that
+structure rather than reinforce it.
+
+If you toggle `tonal_strata = false` and the ledger output looks
+unchanged, that's by design. For all other layouts the tint applies
+normally.
 
 ---
 
@@ -339,11 +370,10 @@ the multi-line render to a single visible line.
 `width_mode = "fixed"` pins a frame to `fixed_width` cols regardless of
 terminal size — useful for screenshot fixtures and reproducible mockups.
 
-Instrument-cluster layouts apply additional per-segment width gating
-inside their dispatch (e.g. `cockpit` drops `sparkline` from the spec
-below 100 cols, forces `cost_visual = "text"` below 100). These limits
-are layout-internal; the user-supplied spec is the *target*, not the
-guarantee.
+Layouts may apply additional per-segment width gating inside their
+dispatch (e.g. dropping `sparkline` from the spec below a threshold).
+These limits are layout-internal; the user-supplied spec is the
+*target*, not the guarantee.
 
 ---
 

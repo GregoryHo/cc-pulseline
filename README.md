@@ -154,17 +154,9 @@ max_lines = 2
 Each layout asserts a tasteful default for the four widget-bearing segments. The user can override per segment via `*_visual` strings — same widget, any layout:
 
 ```toml
-# Cockpit, but I prefer plain text — keeps the 3-row structure and
-# activity ticker, drops gauge/sparkline/arc.
+# Sections layout, but with a CTX gauge added (default is text-only).
 [layout]
-name = "cockpit"
-[segments.budget]
-context_visual = "text"
-cost_visual = "text"
-
-# Cards frame, but with a gauge inside the Budget card.
-[layout]
-name = "cards"
+name = "sections"
 [segments.budget]
 context_visual = "gauge"
 
@@ -175,7 +167,7 @@ name = "console"
 visual = "text"
 ```
 
-Recognized widgets: `gauge`, `sparkline`, `text` for context; `text`, `arc` for cost; `text`, `bar` for quota; `tape`, `list` for tools. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
+Recognized widgets: `gauge`, `sparkline`, `text` for context; `gauge`, `text` for quota. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
 
 ## CLI Usage
 

@@ -306,8 +306,7 @@ fn console_with_tape_detail_no_row_overflows_pane_width() {
             ),
         },
     ];
-    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
-    cfg.tools_visual = "tape+detail".to_string();
+    let cfg = cfg_for(LayoutStyle::Console, true, 130);
     let lines = render_frame(&f, &cfg);
     let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
     for line in &lines {
@@ -449,8 +448,7 @@ fn console_tools_split_to_two_rows_when_running_too_long_for_inline_counts() {
             last_completed_at: None,
         },
     ];
-    let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
-    cfg.tools_visual = "tape+detail".to_string();
+    let cfg = cfg_for(LayoutStyle::Console, true, 130);
     let lines = render_frame(&f, &cfg);
     let term_w = cfg.terminal_width.unwrap_or(usize::MAX);
     for line in &lines {
