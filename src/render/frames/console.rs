@@ -1,427 +1,56 @@
-//! Console — v2 framed dashboard layout (4-5 rows, highest "quality feel").
+//! Console — sections layout with the identity row hoisted into the
+//! top frame title.
 //!
 //! Output rows (full width):
-//!   ╭─ <identity> ───────────────╮
-//!   │  CTX  <gauge>  <pct/total>     <sparkline>          │
-//!   │  TOK  <rate>   COST <total> <arc>   Q5h <gauge>     │
-//!   │  ──────────────────────────────────                 │
-//!   │  <tools tape>                  <completed chips>    │
-//!   │  <agent rows>                  <todo chip>          │
-//!   ╰────────────────────────────────────────────────────╯
+//! ```text
+//!   ╭─ <identity-headline> ─────────────────────────────────────╮
+//!   │ Config   │ <config-row>                                    │
+//!   ├──────────┼─────────────────────────────────────────────────┤
+//!   │ Budget   │ <ctx-row>  <tok-row>  <cost-row>  <quota-row>   │
+//!   ├──────────┼─────────────────────────────────────────────────┤
+//!   │ Activity │ <tools-row>  <agents-rows>  <todo>              │
+//!   ╰──────────┴─────────────────────────────────────────────────╯
+//! ```
 //!
-//! Width handling:
-//!   ≥ 130   full framed
-//!   110-129 inner rule dropped, 4 rows
-//!   90-109  fall back to Cockpit (caller — `auto::resolve` decides)
-//!   < 90    fall back to Flightstrip
+//! Console is structurally just `Sections` with `identity_in_frame_title`
+//! turned on:
+//! - The first row of the Identity group is reused verbatim as the
+//!   title text (composed by `layout::render_frame` via
+//!   `shared::identity_headline` with `" · "` separators).
+//! - The top frame border becomes `╭─ <title> ───╮`, the Identity
+//!   range is skipped during body walling.
+//! - Every other group renders identically to Sections.
 //!
-//! Quota gets a real gauge bar here — the frame gives it room.
+//! No bespoke widget pipeline lives here anymore — gauge / sparkline /
+//! arc / tape composition is handled by the shared visual hubs that all
+//! flat-row layouts use, so any composability override picked up by
+//! Sections is automatically picked up by Console too.
 
-use crate::config::RenderConfig;
-use crate::render::color::{colorize, visible_width, ThemePalette};
-use crate::render::icons::{FRAME_BL, FRAME_BR, FRAME_H, FRAME_TL, FRAME_TR, FRAME_V};
-use crate::render::pane::LayoutStyle;
+use std::ops::Range;
 
-use super::{cockpit, flightstrip, shared};
+use crate::render::pane::{LineKind, PaneConfig};
 
-const FRAME_INNER_PAD: usize = 4; // "│  " left + "│" right + 1 trailing space
-/// Visible chars `framed()` consumes inside `inner` for its leading "  "
-/// indent before the content starts. Subtract from `inner` to get the
-/// width budget any row's content can actually use.
-const FRAMED_CONTENT_INSET: usize = 2;
+use super::sections;
+use super::shared::FrameGlyphs;
 
 pub fn render(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
+    lines: &[String],
+    groups: &[(LineKind, Range<usize>)],
+    cfg: &PaneConfig,
+    g: &FrameGlyphs,
 ) -> Vec<String> {
-    // Unknown width → assume 140 (console's intended bracket). Clamp to
-    // `pane_max_width` (default 140, configurable via `[layout].max_width`)
-    // so the framed dashboard never grows past the user's chosen ceiling
-    // even when the terminal is much wider — matches `apply_pane`'s
-    // behaviour for flat-row layouts.
-    let width = config
-        .terminal_width
-        .unwrap_or(140)
-        .min(config.pane_max_width);
-
-    // Below 110 cols the framed dashboard becomes claustrophobic; defer to
-    // smaller siblings rather than mangle our own borders.
-    if width < 90 {
-        return flightstrip::render(frame, config, p);
-    }
-    if width < 110 {
-        return cockpit::render(frame, config, p);
-    }
-
-    let inner = width.saturating_sub(FRAME_INNER_PAD);
-    let drop_inner_rule = width < 130;
-    let (ctx_gauge_w, quota_gauge_w) = shared::gauge_widths_for(LayoutStyle::Console, width);
-
-    let color = config.color_enabled;
-    let mut lines: Vec<String> = Vec::with_capacity(7);
-
-    lines.push(top_frame(frame, config, p, inner));
-
-    if shared::config_row_enabled(config) {
-        let row = shared::config_row(frame, config, p, inner);
-        if !row.is_empty() {
-            lines.push(framed(&row, p, inner, color));
-        }
-    }
-
-    lines.push(framed(
-        &ctx_row(frame, config, p, ctx_gauge_w),
-        p,
-        inner,
-        color,
-    ));
-    lines.push(framed(
-        &tok_cost_quota_row(frame, config, p, quota_gauge_w),
-        p,
-        inner,
-        color,
-    ));
-
-    if !drop_inner_rule {
-        lines.push(framed(&inner_rule(p, inner, color), p, inner, color));
-    }
-
-    for row in tools_rows(frame, config, p, inner) {
-        lines.push(framed(&row, p, inner, color));
-    }
-    for row in agent_todo_rows(frame, config, p, inner) {
-        lines.push(framed(&row, p, inner, color));
-    }
-
-    lines.push(bottom_frame(p, inner, color));
-    lines
+    let title = first_identity_line(lines, groups);
+    sections::render_with_options(lines, groups, cfg, g, title.as_deref())
 }
 
-fn top_frame(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    inner: usize,
-) -> String {
-    let color = config.color_enabled;
-    let head = shared::identity_headline(&frame.line1, config, p);
-    let head_w = visible_width(&head);
-    let dashes_after = inner.saturating_sub(head_w + 4);
-    let lhs = colorize(&format!("{FRAME_TL}{FRAME_H} "), &p.separator, color);
-    let rhs_dashes = colorize(
-        &FRAME_H.to_string().repeat(dashes_after),
-        &p.separator,
-        color,
-    );
-    let rhs = colorize(&format!("{FRAME_H}{FRAME_TR}"), &p.separator, color);
-    format!("{lhs}{head} {rhs_dashes}{rhs}")
-}
-
-fn bottom_frame(p: &ThemePalette, inner: usize, color: bool) -> String {
-    let dashes = colorize(&FRAME_H.to_string().repeat(inner), &p.separator, color);
-    let lhs = colorize(&FRAME_BL.to_string(), &p.separator, color);
-    let rhs = colorize(&FRAME_BR.to_string(), &p.separator, color);
-    format!("{lhs}{dashes}{rhs}")
-}
-
-fn framed(content: &str, p: &ThemePalette, inner: usize, color: bool) -> String {
-    let content_w = visible_width(content);
-    let pad = inner.saturating_sub(content_w + FRAMED_CONTENT_INSET);
-    let bar = colorize(&FRAME_V.to_string(), &p.separator, color);
-    format!("{bar}  {content}{}{bar}", " ".repeat(pad))
-}
-
-fn inner_rule(p: &ThemePalette, inner: usize, color: bool) -> String {
-    colorize(
-        &FRAME_H.to_string().repeat(inner.saturating_sub(2)),
-        &p.separator,
-        color,
-    )
-}
-
-fn ctx_row(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    gauge_w: usize,
-) -> String {
-    // Console's CTX row honours `context_visual`. The sizing hint comes from
-    // `gauge_widths_for(width).0` — render_context_visual passes it through
-    // to the gauge widget so console keeps its hero-instrument width.
-    // The gauge cell embeds `<used>/<total>` itself, so no further
-    // annotation is needed here.
-    let pcts: Vec<u8> = frame.ctx_history.iter().map(|(p, _)| *p).collect();
-    shared::render_context_visual(
-        config.effective_context_visual(),
-        &frame.line3,
-        &pcts,
-        gauge_w,
-        config.glyph_mode,
-        p,
-        config.color_enabled,
-    )
-}
-
-fn tok_cost_quota_row(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    quota_bar_w: usize,
-) -> String {
-    let color = config.color_enabled;
-    let mut parts: Vec<String> = Vec::new();
-    if config.show_tokens {
-        parts.push(shared::token_rate_cell(
-            &frame.line3,
-            frame.line3.output_speed_toks_per_sec,
-            p,
-            color,
-        ));
-    }
-    if config.show_cost {
-        let cost_lbl = colorize("COST  ", &p.structural, color);
-        let cost_body = shared::render_cost_visual(
-            config.effective_cost_visual(),
-            &frame.line3,
-            config.glyph_mode,
-            p,
-            color,
-        );
-        if !cost_body.is_empty() {
-            parts.push(format!("{cost_lbl}{cost_body}"));
-        }
-    }
-    if config.show_quota {
-        let quota_spec = config.effective_quota_visual();
-        if config.show_quota_five_hour {
-            let q = shared::render_quota_visual(
-                quota_spec,
-                "5h  ",
-                frame.quota.five_hour_pct,
-                frame.quota.five_hour_reset_minutes,
-                quota_bar_w,
-                config.glyph_mode,
-                p,
-                color,
-            );
-            if !q.is_empty() {
-                parts.push(q);
-            }
-        }
-        if config.show_quota_seven_day {
-            let q = shared::render_quota_visual(
-                quota_spec,
-                "7d  ",
-                frame.quota.seven_day_pct,
-                frame.quota.seven_day_reset_minutes,
-                quota_bar_w,
-                config.glyph_mode,
-                p,
-                color,
-            );
-            if !q.is_empty() {
-                parts.push(q);
-            }
-        }
-    }
-    parts.join("    ")
-}
-
-/// Tools segment as zero or more framed rows.
-///
-/// Layout rule (per user preference):
-/// - When the running tape + the completed-count chips fit together on a
-///   single row, render them side-by-side (`tape    counts`).
-/// - When the running tape alone is too long for the budget, push the
-///   completed counts to a row of their own. Counts then render on a new
-///   line below the running tape rather than overflowing the pane.
-///
-/// Returns rows in display order (top→bottom). Caller frames each row.
-fn tools_rows(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    inner: usize,
-) -> Vec<String> {
-    let color = config.color_enabled;
-    if !config.show_tools {
-        return Vec::new();
-    }
-    let budget = inner.saturating_sub(FRAMED_CONTENT_INSET);
-
-    let tape = if frame.tools.is_empty() {
-        String::new()
-    } else {
-        shared::render_tools_visual_inline(
-            config.effective_tools_visual(),
-            &frame.tools,
-            config.max_tool_lines.max(2),
-            budget,
-            config.glyph_mode,
-            p,
-            color,
-        )
-    };
-    let counts = if frame.completed_tools.is_empty() {
-        String::new()
-    } else {
-        shared::completed_tool_chips(&frame.completed_tools, 4, p, color)
-    };
-
-    let mut rows: Vec<String> = Vec::with_capacity(2);
-    if tape.is_empty() && counts.is_empty() {
-        return rows;
-    }
-    if tape.is_empty() {
-        rows.push(counts);
-        return rows;
-    }
-    if counts.is_empty() {
-        rows.push(tape);
-        return rows;
-    }
-    // Both present — try side-by-side first.
-    const INLINE_GAP: usize = 4;
-    let combined_w = visible_width(&tape) + INLINE_GAP + visible_width(&counts);
-    if combined_w <= budget {
-        rows.push(format!("{tape}    {counts}"));
-    } else {
-        rows.push(tape);
-        rows.push(counts);
-    }
-    rows
-}
-
-/// Agents + todo segment as zero or more framed rows.
-///
-/// Agent cells wrap to additional rows when they don't fit on one (via
-/// `pack_agent_cells`'s multi-row packer, capped by `max_agent_lines`).
-/// The todo chip — when present — sits inline at the end of the *last*
-/// agent row if it fits, else gets its own row.
-fn agent_todo_rows(
-    frame: &crate::types::RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-    inner: usize,
-) -> Vec<String> {
-    let color = config.color_enabled;
-    let budget = inner.saturating_sub(FRAMED_CONTENT_INSET);
-
-    let mut rows: Vec<String> = if config.show_agents && !frame.agents.is_empty() {
-        shared::pack_agent_cells(&frame.agents, config, p, budget)
-    } else {
-        Vec::new()
-    };
-
-    if config.show_todo {
-        if let Some(todo) = &frame.todo {
-            let bullet = colorize("\u{2022}", p.todo_teal(), color);
-            let txt = colorize(
-                &format!(" TODO {}/{}", todo.completed, todo.total),
-                p.todo_teal(),
-                color,
-            );
-            let chip = format!("{bullet}{txt}");
-            const INLINE_GAP: usize = 4;
-            // Try to attach to the last agent row; fall back to its own row.
-            if let Some(last) = rows.last_mut() {
-                if visible_width(last) + INLINE_GAP + visible_width(&chip) <= budget {
-                    last.push_str("    ");
-                    last.push_str(&chip);
-                } else {
-                    rows.push(chip);
-                }
-            } else {
-                rows.push(chip);
-            }
-        }
-    }
-
-    rows
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::RenderConfig;
-    use crate::render::color::resolve_palette;
-    use crate::types::RenderFrame;
-
-    fn frame_basic() -> RenderFrame {
-        let mut f = RenderFrame::default();
-        f.line1.model = "Opus 4.7".to_string();
-        f.line1.git_branch = "feat/status-pane".to_string();
-        f.line1.project_path = "~/cc-pulseline".to_string();
-        f.line3.context_window_size = Some(200_000);
-        f.line3.context_used_percentage = Some(43);
-        f.line3.total_cost_usd = Some(3.50);
-        f.line3.total_duration_ms = Some(60_000 * 30);
-        f.ctx_history = vec![(20, 1_000), (30, 2_000), (40, 3_000), (43, 4_000)];
-        f
-    }
-
-    fn cfg(width: usize) -> RenderConfig {
-        RenderConfig {
-            color_enabled: false,
-            terminal_width: Some(width),
-            palette: resolve_palette("tokyo-night", Some("dark"), &Default::default()),
-            pane_style: LayoutStyle::Console,
-            ..RenderConfig::default()
-        }
-    }
-
-    #[test]
-    fn console_emits_framed_top_and_bottom_at_full_width() {
-        let f = frame_basic();
-        let c = cfg(140);
-        let lines = render(&f, &c, &c.palette.clone());
-        assert!(lines.first().unwrap().starts_with(FRAME_TL));
-        assert!(lines.last().unwrap().starts_with(FRAME_BL));
-        // CTX row is identified by the total tokens. 200k window × 43%
-        // = 86k → `<icon> [gauge] 86.0k 200.0k`.
-        assert!(lines.iter().any(|l| l.contains("200.0k")));
-        assert!(lines.iter().any(|l| l.contains("$3.50")));
-    }
-
-    #[test]
-    fn console_falls_back_to_cockpit_below_110_cols() {
-        let f = frame_basic();
-        let c = cfg(100);
-        let lines = render(&f, &c, &c.palette.clone());
-        // No frame characters
-        assert!(!lines.first().unwrap().starts_with(FRAME_TL));
-    }
-
-    #[test]
-    fn console_falls_back_to_flightstrip_below_90_cols() {
-        let f = frame_basic();
-        let c = cfg(80);
-        let lines = render(&f, &c, &c.palette.clone());
-        assert!(!lines.first().unwrap().starts_with(FRAME_TL));
-        // Flightstrip at <90 cols drops cost from L1
-        assert!(!lines[0].contains("$3.50"));
-    }
-
-    /// CTX row no-data state: when the payload arrives before the first API
-    /// call (`context_used_percentage` is `None`), the gauge widget must not
-    /// render an empty bracket — it must show the same `--% --/--`
-    /// placeholder as `ctx_text_cell`. Otherwise the placeholder visually
-    /// outweighs every populated cell on row 4.
-    #[test]
-    fn console_ctx_row_shows_placeholder_when_no_pct_data() {
-        let mut f = frame_basic();
-        f.line3.context_used_percentage = None;
-        f.line3.context_window_size = None;
-        let c = cfg(140);
-        let lines = render(&f, &c, &c.palette.clone());
-        let ctx_row = lines
-            .iter()
-            .find(|l| l.contains("--%"))
-            .expect("CTX row with `--%` placeholder should exist");
-        assert!(
-            ctx_row.contains("--/--"),
-            "expected `--/--` placeholder on no-data CTX row, got: {ctx_row:?}"
-        );
-    }
+/// First raw line in the Identity group, or `None` if the layout-level
+/// pipeline didn't produce one (e.g. all `show_*` identity toggles off).
+fn first_identity_line(
+    lines: &[String],
+    groups: &[(LineKind, Range<usize>)],
+) -> Option<String> {
+    groups
+        .iter()
+        .find(|(k, _)| *k == LineKind::Identity)
+        .and_then(|(_, range)| lines.get(range.start).cloned())
 }

@@ -53,7 +53,7 @@ fn strip_l1(
 ) -> String {
     let color = config.color_enabled;
     let mut parts: Vec<String> = Vec::new();
-    parts.push(shared::identity_headline(&frame.line1, config, p));
+    parts.push(shared::identity_headline(&frame.line1, config, p, "  "));
 
     let pct = frame.line3.context_used_percentage.unwrap_or(0);
     let pct_color = p.color_for_ctx_pct(pct, frame.line3.context_window_size);

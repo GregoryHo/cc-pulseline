@@ -208,8 +208,14 @@ pub fn config_row_enabled(config: &RenderConfig) -> bool {
 ///
 /// Format: `<model>  <branch>[*][↑n] <project>` — hand-tuned spacing so the
 /// eye finds the branch quickly. Each segment honours its `show_*` toggle.
-pub fn identity_headline(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
+pub fn identity_headline(
+    line1: &Line1Metrics,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    separator: &str,
+) -> String {
     let color = config.color_enabled;
+    let coloured_sep = colorize(separator, &p.structural, color);
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_model {
@@ -289,7 +295,7 @@ pub fn identity_headline(line1: &Line1Metrics, config: &RenderConfig, p: &ThemeP
         parts.push(colorize(&line1.project_path, &p.secondary, color));
     }
 
-    parts.join("  ")
+    parts.join(&coloured_sep)
 }
 
 /// Right-edge "CTX 43%·86k" pill for Cockpit's L1.
@@ -963,7 +969,7 @@ pub fn degraded_single_row(frame: &RenderFrame, config: &RenderConfig, p: &Theme
         |c| c.show_worktree = false,
     ];
 
-    let mut head = identity_headline(&frame.line1, config, p);
+    let mut head = identity_headline(&frame.line1, config, p, "  ");
     if visible_width(&head) <= max_head {
         return format!("{head}  {pct_str}  {cost}");
     }
@@ -971,7 +977,7 @@ pub fn degraded_single_row(frame: &RenderFrame, config: &RenderConfig, p: &Theme
     let mut shrunk = config.clone();
     for trim in TRIMMERS {
         trim(&mut shrunk);
-        head = identity_headline(&frame.line1, &shrunk, p);
+        head = identity_headline(&frame.line1, &shrunk, p, "  ");
         if visible_width(&head) <= max_head {
             return format!("{head}  {pct_str}  {cost}");
         }

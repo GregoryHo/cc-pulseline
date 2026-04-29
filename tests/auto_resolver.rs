@@ -67,8 +67,11 @@ fn auto_picks_console_at_130_plus() {
     let lines = runner
         .run_from_str(&payload(cwd), cfg(140))
         .expect("render");
+    let first = lines.first().unwrap();
+    // Mode-aware: console honors `glyph_mode`. Ascii test config emits
+    // `+`, Icon mode `╭`. Either is evidence the framed console rendered.
     assert!(
-        lines.first().unwrap().starts_with(FRAME_TL),
+        first.starts_with(FRAME_TL) || first.starts_with('+'),
         "expected console (framed) at 140 cols, got {lines:?}"
     );
 }

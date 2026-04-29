@@ -46,7 +46,6 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let palette = &config.palette;
     match config.pane_style {
         LayoutStyle::Cockpit => return frames::cockpit::render(frame, config, palette),
-        LayoutStyle::Console => return frames::console::render(frame, config, palette),
         LayoutStyle::Flightstrip => return frames::flightstrip::render(frame, config, palette),
         LayoutStyle::Auto => return frames::auto::render(frame, config, palette),
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
@@ -54,7 +53,11 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         | LayoutStyle::Zones
         | LayoutStyle::Grid
         | LayoutStyle::Cards
-        | LayoutStyle::Sections => {}
+        | LayoutStyle::Sections
+        // Console flows through the flat path now; `apply_pane` routes
+        // it to `sections::render_with_options(_, _, _, _, Some(title))`
+        // which hoists Identity into the top frame border.
+        | LayoutStyle::Console => {}
     }
 
     let color = config.color_enabled;
@@ -70,7 +73,16 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
 
     let start = lines.len();
-    lines.push(format_line1(frame, config, &p_state));
+    // Console hoists the identity into the top frame title, so it gets a
+    // prefix-less ` · `-separated headline (no `M:` / `G:` icon labels —
+    // the title format is its own visual vocabulary). Other layouts keep
+    // `format_line1`'s body-row format.
+    let identity_str = if matches!(config.pane_style, LayoutStyle::Console) {
+        frames::shared::identity_headline(&frame.line1, config, &p_state, " · ")
+    } else {
+        format_line1(frame, config, &p_state)
+    };
+    lines.push(identity_str);
     groups.push((LineKind::Identity, start..lines.len()));
 
     let start = lines.len();
@@ -107,13 +119,13 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
         LayoutStyle::Grid => 12,
-        // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
-        // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
-        LayoutStyle::Cards | LayoutStyle::Sections => 16,
+        // Cards / Sections / Console use a wall-on-both-sides layout
+        // (`│ ` left + internal ` │ ` divider + ` │` right) — ~4 more cols
+        // than Grid.
+        LayoutStyle::Cards | LayoutStyle::Sections | LayoutStyle::Console => 16,
         // Instrument-cluster + ledger styles never reach this branch — they
         // returned above.
         LayoutStyle::Cockpit
-        | LayoutStyle::Console
         | LayoutStyle::Flightstrip
         | LayoutStyle::Auto
         | LayoutStyle::Ledger => 0,

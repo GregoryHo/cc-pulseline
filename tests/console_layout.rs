@@ -63,15 +63,17 @@ fn console_emits_framed_borders_at_full_width() {
     let lines = runner
         .run_from_str(&payload(cwd), cfg(150))
         .expect("render");
+    let first = lines.first().unwrap();
+    let last = lines.last().unwrap();
+    // Mode-aware: console renders sections frame chrome which honors
+    // `glyph_mode`. Ascii test config emits `+`, Icon mode `╭` / `╰`.
     assert!(
-        lines.first().unwrap().starts_with(FRAME_TL),
-        "expected ╭ top frame, got {:?}",
-        lines.first()
+        first.starts_with(FRAME_TL) || first.starts_with('+'),
+        "expected framed top, got {first:?}"
     );
     assert!(
-        lines.last().unwrap().starts_with(FRAME_BL),
-        "expected ╰ bottom frame, got {:?}",
-        lines.last()
+        last.starts_with(FRAME_BL) || last.starts_with('+'),
+        "expected framed bottom, got {last:?}"
     );
     // CTX gauge row inside the frame — identified by `used/total`
     // (label + `%` dropped from the row format).
@@ -129,8 +131,11 @@ fn console_includes_quota_when_enabled() {
     let mut runner = PulseLineRunner::default().with_user_home(tmp.path().join("fake_home"));
     let lines = runner.run_from_str(&payload, cfg_q).expect("render");
 
+    // Quota now renders inside the Budget group as a sub-row of the flat
+    // `Q:5h: 75% (resets ...)` format — the cluster `5h ` (with trailing
+    // space) was specific to the old framed cluster pipeline.
     assert!(
-        lines.iter().any(|l| l.contains("5h ")),
+        lines.iter().any(|l| l.contains("5h")),
         "console quota row missing 5h label, got {lines:?}"
     );
 }

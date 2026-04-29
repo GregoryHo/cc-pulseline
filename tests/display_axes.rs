@@ -259,8 +259,11 @@ fn console_renders_seven_day_alongside_five_hour() {
     cfg.show_quota_seven_day = true;
     let lines = render_frame(&f, &cfg);
     let blob = lines.join("\n");
-    assert!(blob.contains("5h "), "5h missing in console: {blob}");
-    assert!(blob.contains("7d "), "7d missing in console: {blob}");
+    // Console now uses the flat `5h: 75% (resets ...)` format inside its
+    // Budget group (sections + identity-in-title), not the cluster-style
+    // `5h ` cells. Assert on the stable label substrings.
+    assert!(blob.contains("5h"), "5h missing in console: {blob}");
+    assert!(blob.contains("7d"), "7d missing in console: {blob}");
 }
 
 // ── TOML rename: `[layout]` parses, `[pane]` no longer recognized ──
@@ -511,7 +514,8 @@ fn console_with_quota_visual_text_drops_gauge() {
     cfg.show_quota_five_hour = true;
     cfg.quota_visual = "text".to_string();
     let lines = render_frame(&f, &cfg);
-    let q5h = lines.iter().find(|l| l.contains("5h ")).expect("5h cell");
+    // New flat-style format inside the Console Budget group: `5h: 75% (resets ...)`.
+    let q5h = lines.iter().find(|l| l.contains("5h")).expect("5h cell");
     // No `█` block chars at all under text-only spec.
     assert!(
         !q5h.contains('\u{2588}'),

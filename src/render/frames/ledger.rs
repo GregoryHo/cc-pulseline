@@ -202,7 +202,7 @@ fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<Strin
 
 fn top_frame(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette, inner: usize) -> String {
     let color = config.color_enabled;
-    let head = shared::identity_headline(line1, config, p);
+    let head = shared::identity_headline(line1, config, p, " · ");
     let head_w = visible_width(&head);
     let dashes_after = inner.saturating_sub(head_w + 4);
     let lhs = colorize(&format!("{FRAME_TL}{FRAME_H} "), &p.separator, color);

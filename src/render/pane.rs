@@ -109,11 +109,15 @@ pub fn apply_pane(
     match cfg.style {
         LayoutStyle::None
         | LayoutStyle::Cockpit
-        | LayoutStyle::Console
         | LayoutStyle::Flightstrip
         | LayoutStyle::Auto
         | LayoutStyle::Ledger => return lines,
-        LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Cards | LayoutStyle::Sections => {}
+        // Console flows through here now (sections + identity-in-title).
+        LayoutStyle::Zones
+        | LayoutStyle::Grid
+        | LayoutStyle::Cards
+        | LayoutStyle::Sections
+        | LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
         return lines;
@@ -136,10 +140,10 @@ pub fn apply_pane(
         LayoutStyle::Grid => frames::grid::render(&lines, groups, cfg, g),
         LayoutStyle::Cards => frames::cards::render(&lines, groups, cfg, g),
         LayoutStyle::Sections => frames::sections::render(&lines, groups, cfg, g),
+        LayoutStyle::Console => frames::console::render(&lines, groups, cfg, g),
         // Decoration-bypassing styles short-circuited at the top of this fn.
         LayoutStyle::None
         | LayoutStyle::Cockpit
-        | LayoutStyle::Console
         | LayoutStyle::Flightstrip
         | LayoutStyle::Auto
         | LayoutStyle::Ledger => lines,

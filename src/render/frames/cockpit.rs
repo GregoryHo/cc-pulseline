@@ -64,7 +64,7 @@ fn headline_with_pill(
     p: &ThemePalette,
     width: usize,
 ) -> String {
-    let head = shared::identity_headline(&frame.line1, config, p);
+    let head = shared::identity_headline(&frame.line1, config, p, "  ");
     let pill = shared::ctx_pill(&frame.line3, p, config.color_enabled);
     if pill.is_empty() {
         return head;

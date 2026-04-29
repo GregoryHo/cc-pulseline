@@ -13,7 +13,7 @@ use crate::config::RenderConfig;
 use crate::render::color::ThemePalette;
 use crate::render::pane::LayoutStyle;
 
-use super::{cockpit, console, flightstrip};
+use super::{cockpit, flightstrip};
 
 /// Resolve "auto" to a concrete style based on `terminal_width`.
 pub fn resolve(terminal_width: Option<usize>) -> LayoutStyle {
@@ -36,7 +36,15 @@ pub fn render(
     p: &ThemePalette,
 ) -> Vec<String> {
     match resolve(config.terminal_width) {
-        LayoutStyle::Console => console::render(frame, config, p),
+        LayoutStyle::Console => {
+            // Console no longer owns its own pipeline — re-enter
+            // `render_frame` with the pane style overridden so the flat
+            // path runs and `apply_pane` routes Console → sections-with-
+            // identity-in-title.
+            let mut adjusted = config.clone();
+            adjusted.pane_style = LayoutStyle::Console;
+            crate::render::layout::render_frame(frame, &adjusted)
+        }
         LayoutStyle::Flightstrip => flightstrip::render(frame, config, p),
         _ => cockpit::render(frame, config, p),
     }
