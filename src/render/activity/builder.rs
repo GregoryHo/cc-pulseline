@@ -729,7 +729,7 @@ fn build_todo_inprogress_cell(
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn elapsed_for(a: &AgentSummary) -> String {
+pub(crate) fn elapsed_for(a: &AgentSummary) -> String {
     if a.is_completed() {
         match (a.started_at, a.completed_at) {
             (Some(start), Some(end)) => {

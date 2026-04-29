@@ -34,10 +34,10 @@
 //! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
-use crate::render::activity::agent_groups::{classify, AgentGroup};
-use crate::render::activity::builder::{bucket_by_type, first_desc_line};
+use crate::render::activity::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
+use crate::render::activity::builder::{bucket_by_type, elapsed_for, first_desc_line};
 use crate::render::color::{colorize, take_visible_chars, visible_width, ThemePalette};
-use crate::render::fmt::{format_number, format_reset_duration};
+use crate::render::fmt::{format_agent_elapsed, format_number, format_reset_duration};
 use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL};
 use crate::render::layout;
 use crate::render::widgets;
@@ -604,13 +604,21 @@ fn render_single_agent(
         .as_ref()
         .map(|m| format!("[{m}]"))
         .unwrap_or_default();
+    let elapsed_str = elapsed_for(a);
+    let elapsed_tail = if elapsed_str.is_empty() {
+        String::new()
+    } else {
+        format!(" ({elapsed_str})")
+    };
     let model_tail_w = if model_str.is_empty() {
         0
     } else {
         ITEM_GAP.chars().count() + model_str.chars().count()
     };
+    let elapsed_tail_w = elapsed_tail.chars().count();
     let gap_w = ITEM_GAP.chars().count();
-    let budget = max_width.saturating_sub(head_w + gap_w + model_tail_w + RIGHT_MARGIN);
+    let budget = max_width
+        .saturating_sub(head_w + gap_w + model_tail_w + elapsed_tail_w + RIGHT_MARGIN);
     let desc_str = truncate_to(&a.description, budget);
     let desc = colorize(&desc_str, &p.secondary, color);
     let model = if model_str.is_empty() {
@@ -618,7 +626,12 @@ fn render_single_agent(
     } else {
         format!("{ITEM_GAP}{}", colorize(&model_str, &p.secondary, color))
     };
-    format!("{icon} {name}{ITEM_GAP}{desc}{model}")
+    let elapsed = if elapsed_tail.is_empty() {
+        String::new()
+    } else {
+        colorize(&elapsed_tail, &p.structural, color)
+    };
+    format!("{icon} {name}{ITEM_GAP}{desc}{model}{elapsed}")
 }
 
 const SUBITEM_SEP: &str = " + ";
@@ -660,19 +673,28 @@ fn render_homogeneous_agents(
         .map(|a| first_desc_line(a).to_string())
         .filter(|s| !s.is_empty())
         .collect();
+    let avg_tail = avg_elapsed_ms(group)
+        .map(|ms| format!(" (avg {})", format_agent_elapsed(ms / 1000)))
+        .unwrap_or_default();
+    let avg_w = avg_tail.chars().count();
     let head_w = visible_width(&prefix_glyph) + head_str.chars().count();
+    let avg_colored = if avg_tail.is_empty() {
+        String::new()
+    } else {
+        colorize(&avg_tail, &p.structural, color)
+    };
     if descs.is_empty() {
-        return format!("{icon}{head}");
+        return format!("{icon}{head}{avg_colored}");
     }
     // Body shape: ` [d1 + d2 + d3]`
-    let body_raw = descs.join(SUBITEM_SEP);
     let bracket_overhead = 3; // " [" + "]"
-    let budget = max_width.saturating_sub(head_w + bracket_overhead + RIGHT_MARGIN);
+    let body_raw = descs.join(SUBITEM_SEP);
+    let budget = max_width.saturating_sub(head_w + bracket_overhead + avg_w + RIGHT_MARGIN);
     let body_truncated = truncate_to(&body_raw, budget);
     let lb = colorize(" [", &p.structural, color);
     let body = colorize(&body_truncated, &p.secondary, color);
     let rb = colorize("]", &p.structural, color);
-    format!("{icon}{head}{lb}{body}{rb}")
+    format!("{icon}{head}{lb}{body}{rb}{avg_colored}")
 }
 
 /// Heterogeneous group: `‖ ×N parallel: type_a ×2 [d1 + d2] + type_b ×2 [d3 + d4]`.
@@ -706,7 +728,17 @@ fn render_heterogeneous_agents(
     let count_str = format!("\u{00D7}{n}");
     let count = colorize(&count_str, accent, color);
     let parallel_lbl = colorize(" parallel", &p.structural, color);
-    let head_w = visible_width(&prefix_glyph) + count_str.chars().count() + 9 + 2; // " parallel" + ": "
+    let avg_part = avg_elapsed_ms(group)
+        .map(|ms| format!(" (avg {})", format_agent_elapsed(ms / 1000)))
+        .unwrap_or_default();
+    let avg_w = avg_part.chars().count();
+    let avg_colored = if avg_part.is_empty() {
+        String::new()
+    } else {
+        colorize(&avg_part, &p.structural, color)
+    };
+    // " parallel"=9, avg, ": "=2
+    let head_w = visible_width(&prefix_glyph) + count_str.chars().count() + 9 + avg_w + 2;
 
     let buckets: Vec<String> = bucket_by_type(group)
         .into_iter()
@@ -720,7 +752,7 @@ fn render_heterogeneous_agents(
     let body_truncated = truncate_to(&body_raw, budget);
     let body = colorize(&body_truncated, &p.secondary, color);
     let sep = colorize(": ", &p.structural, color);
-    format!("{icon}{count}{parallel_lbl}{sep}{body}")
+    format!("{icon}{count}{parallel_lbl}{avg_colored}{sep}{body}")
 }
 
 fn truncate_to(s: &str, budget: usize) -> String {
