@@ -1283,6 +1283,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "grid" => LayoutStyle::Grid,
         "cards" => LayoutStyle::Cards,
         "sections" => LayoutStyle::Sections,
+        "ledger" => LayoutStyle::Ledger,
         // Instrument-cluster layouts
         "cockpit" => LayoutStyle::Cockpit,
         "console" => LayoutStyle::Console,
@@ -1291,7 +1292,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | zones | grid | cards | sections | \
+                 (valid: none | zones | grid | cards | sections | ledger | \
                  cockpit | console | flightstrip | auto)"
             );
             LayoutStyle::None

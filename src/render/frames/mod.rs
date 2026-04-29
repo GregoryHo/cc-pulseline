@@ -17,6 +17,7 @@ pub mod cockpit;
 pub mod console;
 pub mod flightstrip;
 pub mod grid;
+pub mod ledger;
 pub mod sections;
 pub mod shared;
 pub mod zones;
@@ -96,6 +97,17 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
         | LayoutStyle::Cards
         | LayoutStyle::Sections => SegmentVisualDefaults {
             context_visual: "text",
+            cost_visual: "text",
+            quota_visual: "text",
+            tools_visual: "list",
+            agents_visual: "name+description+model",
+        },
+        // Ledger ships sparkline by default on the CTX row — `text+sparkline`
+        // means the existing `text` cell renders the `43% 86.0k/200.0k`
+        // numbers and the sparkline appends after. Users can opt out with
+        // `context_visual = "text"`.
+        LayoutStyle::Ledger => SegmentVisualDefaults {
+            context_visual: "text+sparkline",
             cost_visual: "text",
             quota_visual: "text",
             tools_visual: "list",

@@ -48,6 +48,12 @@ pub enum LayoutStyle {
     /// Width-bracket resolver — picks console/cockpit/flightstrip per
     /// terminal width on every render tick.
     Auto,
+    /// Label-value pairs aligned in a fixed left column, like an
+    /// accounting ledger. Owns its own pipeline (framed). One TAG per
+    /// metric (ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO);
+    /// blank rows separate groups. Tallest layout — favours typographic
+    /// rhythm over density.
+    Ledger,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +111,8 @@ pub fn apply_pane(
         | LayoutStyle::Cockpit
         | LayoutStyle::Console
         | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto => return lines,
+        | LayoutStyle::Auto
+        | LayoutStyle::Ledger => return lines,
         LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Cards | LayoutStyle::Sections => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
@@ -134,7 +141,8 @@ pub fn apply_pane(
         | LayoutStyle::Cockpit
         | LayoutStyle::Console
         | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto => lines,
+        | LayoutStyle::Auto
+        | LayoutStyle::Ledger => lines,
     }
 }
 

@@ -49,6 +49,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         LayoutStyle::Console => return frames::console::render(frame, config, palette),
         LayoutStyle::Flightstrip => return frames::flightstrip::render(frame, config, palette),
         LayoutStyle::Auto => return frames::auto::render(frame, config, palette),
+        LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
         LayoutStyle::None
         | LayoutStyle::Zones
         | LayoutStyle::Grid
@@ -109,12 +110,13 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // Cards / Sections use a wall-on-both-sides layout (`│ ` left +
         // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
         LayoutStyle::Cards | LayoutStyle::Sections => 16,
-        // Instrument-cluster styles never reach this branch — they returned
-        // above.
+        // Instrument-cluster + ledger styles never reach this branch — they
+        // returned above.
         LayoutStyle::Cockpit
         | LayoutStyle::Console
         | LayoutStyle::Flightstrip
-        | LayoutStyle::Auto => 0,
+        | LayoutStyle::Auto
+        | LayoutStyle::Ledger => 0,
     };
     let effective_width = config
         .terminal_width

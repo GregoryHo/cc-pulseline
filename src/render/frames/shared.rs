@@ -650,7 +650,8 @@ pub fn gauge_widths_for(layout: LayoutStyle, width: usize) -> (usize, usize) {
         | LayoutStyle::Zones
         | LayoutStyle::Grid
         | LayoutStyle::Cards
-        | LayoutStyle::Sections => (18, QUOTA_BAR_WIDTH),
+        | LayoutStyle::Sections
+        | LayoutStyle::Ledger => (18, QUOTA_BAR_WIDTH),
     }
 }
 
