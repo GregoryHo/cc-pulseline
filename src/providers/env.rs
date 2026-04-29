@@ -219,14 +219,15 @@ fn count_mcp_servers_scoped(
             user_set.insert(name);
         }
 
-        // ~/.claude.json → mcpServers + disabledMcpServers (single read)
+        // ~/.claude.json → mcpServers + disabledMcpServers. Capture the
+        // disabled set first; apply removal AFTER plugin servers are merged
+        // so a plugin can't silently re-enable a name the user disabled.
+        let mut user_disabled: HashSet<String> = HashSet::new();
         if let Some(claude_json) = read_json_file(&home.join(".claude.json")) {
             for name in mcp_server_names_from(&claude_json) {
                 user_set.insert(name);
             }
-            for name in disabled_servers_from(&claude_json, "disabledMcpServers") {
-                user_set.remove(&name);
-            }
+            user_disabled = disabled_servers_from(&claude_json, "disabledMcpServers");
         }
 
         // Plugin-provided MCP servers (CC 2.0.12+). Each enabled plugin may
@@ -236,6 +237,10 @@ fn count_mcp_servers_scoped(
             for name in get_mcp_server_names(&plugin_path.join(".mcp.json")) {
                 user_set.insert(name);
             }
+        }
+
+        for name in user_disabled {
+            user_set.remove(&name);
         }
     }
 
@@ -462,13 +467,20 @@ fn count_hooks_in_frontmatter(path: &Path) -> u32 {
         return 0;
     }
 
-    // Collect lines up to the closing `---`.
+    // Collect lines up to the closing `---`. If no closer is found, treat
+    // the file as malformed and bail — otherwise body content (which can
+    // contain bullet lines) gets misread as frontmatter.
     let mut fm_lines: Vec<&str> = Vec::new();
+    let mut closed = false;
     for line in lines {
         if line.trim() == "---" {
+            closed = true;
             break;
         }
         fm_lines.push(line);
+    }
+    if !closed {
+        return 0;
     }
 
     // Find the `hooks:` key (must be at column 0 — a top-level frontmatter key).
@@ -930,5 +942,55 @@ mod tests {
     #[test]
     fn memory_count_no_home() {
         assert_eq!(count_memory_files(None, "/some/project"), 0);
+    }
+
+    #[test]
+    fn mcp_disabled_filter_applies_to_plugin_servers() {
+        // A plugin's .mcp.json defines a server name listed in the user's
+        // `disabledMcpServers`. The disabled filter must apply uniformly —
+        // the plugin source must not silently re-enable it.
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        let home = tmp.path().join("home");
+        let plugin_path = tmp.path().join("cache/plugin-x");
+
+        fs::create_dir_all(root.join(".claude")).unwrap();
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::create_dir_all(&plugin_path).unwrap();
+
+        // User disables "shared" via ~/.claude.json
+        fs::write(
+            home.join(".claude.json"),
+            r#"{"disabledMcpServers":["shared"]}"#,
+        )
+        .unwrap();
+
+        // Plugin re-declares "shared" + adds "extra"
+        fs::write(
+            plugin_path.join(".mcp.json"),
+            r#"{"mcpServers":{"shared":{},"extra":{}}}"#,
+        )
+        .unwrap();
+
+        // "shared" must be filtered out → only "extra" counts → total 1
+        assert_eq!(
+            count_mcp_servers_scoped(&root, Some(&home), &[plugin_path]),
+            1
+        );
+    }
+
+    #[test]
+    fn frontmatter_unterminated_returns_zero_hooks() {
+        // A skill/agent file with an opening `---` and no closer — the body
+        // must NOT be treated as frontmatter, otherwise body bullets get
+        // miscounted as hooks.
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("malformed.md");
+        fs::write(
+            &path,
+            "---\nname: foo\nhooks:\n  - first\n\nBody content with bullets:\n- item one\n- item two\n",
+        )
+        .unwrap();
+        assert_eq!(count_hooks_in_frontmatter(&path), 0);
     }
 }

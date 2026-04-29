@@ -180,6 +180,7 @@ pub fn config_row_enabled(config: &RenderConfig) -> bool {
         || config.show_mcp
         || config.show_skills
         || config.show_plugins
+        || config.show_duration
 }
 
 /// Prefix-less identity headline used by Console (in the top frame title)
@@ -518,4 +519,38 @@ pub fn ctx_sparkline(
         &p.aurora_low
     };
     widgets::sparkline::render(history, fill, mode, color_enabled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg_all_off() -> RenderConfig {
+        RenderConfig {
+            show_claude_md: false,
+            show_rules: false,
+            show_memory: false,
+            show_hooks: false,
+            show_mcp: false,
+            show_skills: false,
+            show_plugins: false,
+            show_duration: false,
+            ..RenderConfig::default()
+        }
+    }
+
+    #[test]
+    fn config_row_enabled_respects_show_duration_alone() {
+        // All env counters off, only duration on — the row must still render
+        // because duration IS part of the L2 config row.
+        let mut cfg = cfg_all_off();
+        cfg.show_duration = true;
+        assert!(config_row_enabled(&cfg));
+    }
+
+    #[test]
+    fn config_row_enabled_false_when_everything_off() {
+        // Sanity guard for the predicate's negative case.
+        assert!(!config_row_enabled(&cfg_all_off()));
+    }
 }
