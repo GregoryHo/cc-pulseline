@@ -6,24 +6,26 @@
 //!
 //! ```text
 //!   ╭─ <identity> ──────────────────────────────────────╮
-//!   │                                                   │
 //!   │  ENV     󰈙 2 CLAUDE.md   󰱇 10 rules   ...         │
 //!   │                                                   │
 //!   │  CTX     43%   86.0k / 200.0k                     │
 //!   │  TOK     1 in   8 out   5.7k / 114.5k cache       │
 //!   │  COST    $4.56   $4.42/h                          │
-//!   │                                                   │
 //!   │  5h      62%   resets 1h 59m                      │
 //!   │  7d      28%   resets 4d 23h 59m                  │
 //!   │                                                   │
 //!   │  TOOL    ✓ Read ×2   ✓ Bash ×1                    │
 //!   │          ▶ Read   .../console.rs                  │
-//!   │                                                   │
 //!   │  AGENT   󱦻 Explore   ...   [haiku]   <1s          │
 //!   │  TODO    0/3 done · 3 pending                     │
 //!   │                                                   │
 //!   ╰───────────────────────────────────────────────────╯
 //! ```
+//!
+//! Blank rows mark major group transitions only (Config → Budget,
+//! Quota → Activity, Activity → frame end). Within the Budget group
+//! (CTX/TOK/COST/5h/7d) and within Activity (TOOL/AGENT/TODO) rows
+//! pack consecutively without separators.
 //!
 //! The CTX row appends a 6-cell braille sparkline + delta-time tail
 //! (`30→43% in 5m`) when `context_visual` includes `sparkline` (the
@@ -113,7 +115,6 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     let mut lines: Vec<String> = Vec::with_capacity(16);
 
     lines.push(top_frame(&frame.line1, config, &ctx));
-    lines.push(blank_row(&ctx));
 
     if shared::config_row_enabled(config) {
         let body = env_row_body(frame, config, p, content_width);
@@ -123,7 +124,6 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         }
     }
 
-    let mut budget_emitted = false;
     if config.show_context {
         let body = ctx_row_body(
             &frame.line3,
@@ -135,25 +135,19 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         );
         if !body.is_empty() {
             lines.push(framed_tag_row("CTX", &body, &ctx));
-            budget_emitted = true;
         }
     }
     if config.show_tokens {
         let body = tok_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
             lines.push(framed_tag_row("TOK", &body, &ctx));
-            budget_emitted = true;
         }
     }
     if config.show_cost {
         let body = cost_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
             lines.push(framed_tag_row("COST", &body, &ctx));
-            budget_emitted = true;
         }
-    }
-    if budget_emitted {
-        lines.push(blank_row(&ctx));
     }
 
     let mut quota_emitted = false;
@@ -188,12 +182,9 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     }
 
     let tool_rows = build_tool_rows(frame, config, p, content_width, ctx.color);
-    if !tool_rows.is_empty() {
-        for (i, body) in tool_rows.iter().enumerate() {
-            let tag = if i == 0 { "TOOL" } else { "" };
-            lines.push(framed_tag_row(tag, body, &ctx));
-        }
-        lines.push(blank_row(&ctx));
+    for (i, body) in tool_rows.iter().enumerate() {
+        let tag = if i == 0 { "TOOL" } else { "" };
+        lines.push(framed_tag_row(tag, body, &ctx));
     }
 
     let mut agent_todo_emitted = false;
