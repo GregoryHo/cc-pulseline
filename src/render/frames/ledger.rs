@@ -76,11 +76,15 @@ struct LedgerCtx<'a> {
 }
 
 pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
-    let width = config
-        .terminal_width
-        .unwrap_or(140)
-        .min(config.pane_max_width);
-
+    // Ledger renders fixed-width framed rows, so it MUST know the
+    // terminal width — otherwise a hardcoded default overflows narrower
+    // terminals and CC's wrap-collapse behaviour hides every body row.
+    // Fall back to sections (content-sized, never overflows) when width
+    // detection fails or the terminal is too narrow for the TAG column
+    // rhythm to read.
+    let Some(width) = config.terminal_width.map(|w| w.min(config.pane_max_width)) else {
+        return fallback_to_sections(frame, config);
+    };
     if width < 90 {
         return fallback_to_sections(frame, config);
     }
@@ -201,9 +205,13 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
     lines
 }
 
+/// Drop down to the next-best layout when ledger can't fit (or width
+/// detection failed). Console (sections + identity-in-title) preserves
+/// the title-in-frame look and is content-sized — never overflows the
+/// terminal even when `terminal_width` is `None`.
 fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut shrunk = config.clone();
-    shrunk.pane_style = crate::render::pane::LayoutStyle::Sections;
+    shrunk.pane_style = crate::render::pane::LayoutStyle::Console;
     layout::render_frame(frame, &shrunk)
 }
 
