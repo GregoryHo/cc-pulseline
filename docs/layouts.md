@@ -17,7 +17,7 @@ visual composition (see [Visual Composition](#visual-composition)). The
 TOML strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
 
-> **Removed in v1.0.6:** `cards`, `cockpit`, `flightstrip`, `auto` —
+> **Removed in v1.1.0:** `cards`, `cockpit`, `flightstrip`, `auto` —
 > consolidated into the surviving six above. User configs naming any of
 > the removed layouts fall back to `console` with a stderr warning.
 
@@ -255,7 +255,7 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX uses window-aware marks (200k window → marks at 55% and 75%); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 
 ### Per-layout defaults
@@ -413,21 +413,16 @@ Cluster-row quota cells used to repeat the `Q` prefix on every window
 followed by `5h: 75%` / `7d: 60%` (unchanged). No config migration —
 the prefix is a render-time string, not a setting.
 
-### Gauge visual: bracket-framed
+### Gauge visual: marks-on-track (1.1.0)
 
-The `gauge` widget changed from a colour-only "battery" texture
-(filled `█` in fill colour, empty `█` in `structural`) to a
-bracket-framed indicator (`[████▎      ]`). The interior empty cells
-are now literal whitespace inside `[ ]` brackets. The `width`
-parameter passed to `widgets::gauge::render(pct, width, …)` is the
-*interior* cell count — visible width is `width + 2`. Sub-cell
-precision (`▏▎▍▌▋▊▉`) at the fill boundary is preserved.
-
-### Quota cell: pct + `(resets …)` always shown
-
-`render_quota_visual` previously bound `pct` text to the `text`
-widget and `(reset)` to text mode only. Now both render unconditionally
-whenever the data is available, regardless of whether the spec asks
-for `bar`. The `bar` widget is purely additional visualisation in
-front of the pct — opting into `bar` no longer drops the precise
-percentage or the reset countdown.
+The `gauge` widget is bracketless and uses position-encoded threshold
+marks rather than per-cell colour zones: `▰` for filled cells, `─` for
+empty, `·` at threshold positions on the empty portion only (a mark
+falling inside the filled region is hidden by fill — by design). Ascii
+mode swaps to `=` / `-` / `:`. Caller supplies `(pct, width, marks,
+fill_color, palette, mode, color)`; `width` is the visible cell count.
+Both CTX and quota route through this single widget — quota passes
+fixed marks `[50, 85]`, CTX passes `ThemePalette::ctx_marks()` (`[55,
+70]`). The pct text and the `(resets …)` countdown always render
+alongside the gauge — opting into `gauge` adds visualisation, never
+strips information.

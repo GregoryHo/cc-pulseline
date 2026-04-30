@@ -5,31 +5,179 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-04-30
 
-### Changed
-
-- **Activity-row rendering rebuilt around a width-budget allocator** — The four ad-hoc per-line formatters in `render/layout.rs` (`format_completed_tool_lines`, `format_recent_tool_line`, `format_agent_line`, `format_todo_lines`) and the inline `truncate_str`/`truncate_path` calls in `providers/transcript.rs::extract_target` are replaced by a single `render::activity` module: 5 content-typed truncation strategies (`KeepHead`, `KeepTail`, `KeepMiddle`, `Sentence`, `CommandSmart`), `Cell`/`CellBody`/`TailFragment` data shapes, a row allocator, and a tool-kind→strategy table. **Bash command targets** now surface the meaningful payload (regex / file arg) instead of the verb+flag chain — e.g. `sed -i '' 's/^name = …` becomes `s/^name = …`. **Agent batches** spawned in one assistant turn (sharing the Anthropic `message.id`) collapse to one `parallel` row showing `×N` count and the first description; sequential agents never collapse. Heterogeneous parallel groups (mixed `agent_type`s in one turn) get a dedicated `‖ ×N parallel:` row joining each `type: description` with ` + `. Sequential overflow now emits `… + K more agents` at the top of the agent rows. `tools_per_line` / `max_tool_lines` / `max_agent_lines` / `max_completed_tools` become caps rather than fixed counts — the budget allocator decides how much fits per row. See `designs/activity-width-budget.md`
-- **`AgentSummary` and `PendingTask` schemas gain `message_id: Option<String>`** — Captured by the transcript Path-1 dispatcher from `event.message.id` (Anthropic API). Drives the new batch detection. `#[serde(default)]` keeps existing cache files compatible (legacy entries get `None`, classify treats them as `Single` agents, no behavior regression)
-- **`[pane]` → `[layout]`, `style` → `name` (BREAKING, pre-release)** — Config section + key rename to reflect that the choice is "which layout arranges the lines", not "frame chrome around fixed lines". The TOML enum strings (`none`/`zones`/`grid`/`cards`/`sections`/`cockpit`/`console`/`flightstrip`/`auto`) and internal `PaneStyle` Rust enum are unchanged — only the section/field labels move. v1/v2 distinction is dropped from user-facing comments; layouts are listed alphabetically (flat/framed group + instrument-cluster group) without internal-organization labels. Hard cut: existing `[pane]` blocks are silently ignored. See `designs/style-to-layout-taxonomy.md`
-- **v2 layouts now honor `display.icons`** — Hardcoded `A:` agent prefix in cockpit / console / flightstrip is replaced with `glyph(ICON_AGENT, "A:")`; cost arc (`◔◑◕●`) falls back to text rate `($X.X/h)` under `icons = false`. Sparkline emit is gated on the same axis. Every (layout × display) pair now composes cleanly
-- Per-frame pane impls split into `src/render/frames/v1/`; `PaneStyle` enum variants gain `V1` prefix. TOML strings unchanged, no behavior change. New `docs/pane-styles.md` documents the v1 frame styles
+> **⚠ Breaking changes** are clearly marked below. The `[pane]` → `[layout]`
+> config section rename and the removal of four layouts (`cards`, `cockpit`,
+> `flightstrip`, `auto`) require user-config updates. Old `[pane]` blocks
+> are silently ignored; configs naming a removed layout fall back to
+> `console` with a stderr warning.
 
 ### Added
 
-- **`show_ctx_sparkline` toggle** — New `[segments.budget]` opt-in (default `false`) for the 6-cell braille trend chart of CTX% history. Layout-agnostic: any layout that renders the CTX segment picks it up (cockpit / console / flightstrip cluster cells, v1 layouts append after CTX% on L3). Auto-hidden when `display.icons = false` since braille has no ASCII fallback
-- **Q7d in v2 layouts** — Cockpit cluster row and console quota row now render the seven-day quota window alongside Q5h when `show_quota_seven_day = true`. Previously the toggle was silently dropped on v2 layouts
-
-### Added
-
-- **Tonal strata — palette-native 2-tier chrome** — `ThemePalette` gains two hand-authored fields, `strata_state` and `strata_activity`, that tint the `|` separator differently on state rows (Identity / Config / Budget / Quota) versus activity rows (Tools / Agents / Todos). All 9 built-in themes now ship a chrome pair for both dark and light variants. A new `tests/theme_strata_contrast.rs` lint enforces `|state − activity| ≥ 3` on the ansi256 scale so no shipped theme can collapse the contract. See `designs/tonal-strata-redesign.md` for the design record and per-theme rationale
-- **`pane.tonal_strata` ships on by default** — Replaces the prior opt-in 4-way `LineKind→palette` mapping (audited as collapsing to 2–3 visually distinct tiers on every theme; see design doc) with the palette-native 2-tier split. The `pane.tonal_strata` config flag is preserved (`true` = the new behavior, `false` = a flat baseline using `emphasis_separator` on every row)
-- **Per-color overrides for strata** — `[colors]` TOML section accepts `strata_state` and `strata_activity` for fine-tuning on top of any theme preset
-- **`--palette-map` shows the Strata tier** — Field reference output ends with a `Strata` row listing both new fields and their ansi256 codes
+- **`ledger` layout** — New label-value layout with a fixed-width `TAG`
+  column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank
+  rows separate groups, parallel agent batches get their own group, and
+  the CTX row ships sparkline + delta-time annotation by default. Tallest
+  layout, designed for ≥110 cols. See `docs/layouts.md`
+- **`gauge` widget — marks-on-track form** — Replaces the prior bracket
+  battery `[████▎    ]` with a bracketless bar (`▰▰▰▰▰▰···──·──` icon,
+  `======...:--:--` ascii) where threshold positions are marked with `·`
+  (or `:` in ascii) on the empty track. CTX uses window-aware marks
+  (200k window → 55%/70%); quota uses fixed marks at 50%/85%. Fill
+  colour comes from the existing `color_for_*_pct` helpers — chroma
+  escalates through good/warn/critical at the same points the marks
+  call out. New widget signature: `(pct, width, marks, fill_color,
+  palette, mode, color)` — caller owns thresholds and fill colour.
+- **`quota_visual` config** — Per-segment spec (`"text"` | `"gauge"`)
+  routes through a new `render_quota_visual` dispatch hub. Per-layout
+  defaults: `none`/`zones`/`grid` → `text`; `sections`/`console`/
+  `ledger` → `gauge`. User overrides via `[segments.quota] visual = "..."`.
+- **`context_visual` gains `gauge` keyword** — `context_visual` now
+  composes `text` + `gauge` + `sparkline` via `+`-joined spec. Defaults:
+  flat layouts → `text`; `ledger` → `text+sparkline`. CTX gauge is
+  opt-in everywhere; users add `"gauge"` to the spec to enable.
+- **`agents_visual` config** — Per-segment composable spec for agent
+  rendering with `name` + `description` + `model` atoms.
+- **`show_ctx_sparkline` toggle** — `[segments.budget]` opt-in (default
+  `false`) for a 6-cell braille trend chart of CTX% history. Auto-hidden
+  under `display.icons = false`.
+- **Pulseline Aurora theme + matte-carbon-neon theme** — Two new
+  built-in themes. `pulseline-aurora` is the flagship: it uses the new
+  3-stop aurora gradient (`aurora_low` / `aurora_mid` / `aurora_high`)
+  to colour the ledger CTX sparkline by consumption velocity (calm /
+  active / hot). `matte-carbon-neon` adds an industrial chrome +
+  piercing neon variant. Theme count grows from 8 → 10 built-in presets.
+- **Tonal strata — palette-native 2-tier chrome** — `ThemePalette`
+  gains `strata_state` and `strata_activity`, tinting the `|` separator
+  differently on state rows (Identity / Config / Budget / Quota) vs.
+  activity rows (Tools / Agents / Todos). All built-in themes ship a
+  chrome pair for both dark and light variants. A `tests/
+  theme_strata_contrast.rs` lint enforces `|state − activity| ≥ 3` on
+  the ansi256 scale. `pane.tonal_strata = true` is the default.
+- **Per-color overrides for strata** — `[colors]` TOML accepts
+  `strata_state` and `strata_activity`.
+- **`--palette-map` shows the Strata tier** — Field reference output
+  ends with a `Strata` row listing both fields and their ansi256 codes.
+- **Q7d in framed layouts** — `console`, `sections`, and `ledger`
+  honour `show_quota_seven_day = true`, rendering the seven-day window
+  alongside Q5h.
+- **Frontmatter hooks detection** — Env collector counts hooks declared
+  via skill frontmatter alongside `settings.json` `hooks` entries.
+- **Plugins count metric** — New L2 segment counts active Claude Code
+  plugins discovered from `~/.claude/settings.json`.
+- **Effort + thinking display** — When CC payloads carry `effort` or
+  `thinking` fields, they surface alongside the model identity.
+- **Tool target extraction expanded** — Coverage for additional CC
+  tool names + new payload fields (see `tests/payload_new_fields.rs`,
+  `tests/new_tool_targets.rs`).
+- **`preview-all-layouts.sh` dev script** — Renders every layout
+  against a synthetic fixture at multiple widths (`./scripts/
+  preview-all-layouts.sh 160 110 80`) without touching the live CC
+  session. Companion skill at `.claude/skills/preview-layouts/`.
+- **MSRV verification CI job** — `chore(msrv): bump to 1.85`. CI now
+  pins and verifies the Minimum Supported Rust Version.
 
 ### Changed
 
-- **Theme palette grows to 28 fields** — `palette_mapping` adds `strata_state` and `strata_activity`. Custom themes that omit the fields fall back to `emphasis_separator` and `emphasis_structural` and emit a one-time warning
+- **BREAKING: `[pane]` → `[layout]`, `style` → `name`** — Config section
+  and key rename. Old `[pane]` blocks are silently ignored — users must
+  rename to `[layout]` to keep their settings.
+- **BREAKING: 4 layouts removed** — `cards`, `cockpit`, `flightstrip`,
+  `auto` are gone (along with the `arc` and `tape` cluster sub-widgets).
+  Configs naming any of them fall back to `console` with a stderr
+  warning. The shipping six are: `none`, `zones`, `grid`, `sections`,
+  `console`, `ledger`.
+- **`console` rebuilt** — Now `sections` + identity-in-frame-title,
+  recommended ≥110 cols. Replaces the prior cluster-era `console` impl.
+- **Activity-row rendering rebuilt around a width-budget allocator** —
+  The four ad-hoc per-line formatters in `render/layout.rs` and the
+  inline `truncate_str`/`truncate_path` calls in `providers/transcript.
+  rs::extract_target` are replaced by a single `render::activity`
+  module: 5 content-typed truncation strategies (`KeepHead`, `KeepTail`,
+  `KeepMiddle`, `Sentence`, `CommandSmart`), `Cell`/`CellBody`/
+  `TailFragment` data shapes, a row allocator, and a tool-kind→strategy
+  table. **Bash command targets** now surface the meaningful payload
+  (regex / file arg) instead of the verb+flag chain — e.g. `sed -i ''
+  's/^name = …` becomes `s/^name = …`. **Agent batches** spawned in one
+  assistant turn (sharing the Anthropic `message.id`) collapse to one
+  `parallel` row showing `×N` count and the first description.
+  Heterogeneous parallel groups (mixed `agent_type`s in one turn) get
+  a dedicated `‖ ×N parallel:` row joining each `type: description`
+  with ` + `. Sequential overflow emits `… + K more agents` at the
+  top of the agent rows. `tools_per_line` / `max_tool_lines` /
+  `max_agent_lines` / `max_completed_tools` become caps rather than
+  fixed counts — the budget allocator decides how much fits per row.
+  See `designs/activity-width-budget.md`.
+- **`AgentSummary` and `PendingTask` schemas gain `message_id:
+  Option<String>`** — Captured by the transcript Path-1 dispatcher
+  from `event.message.id` (Anthropic API). Drives batch detection.
+  `#[serde(default)]` keeps existing cache files compatible (legacy
+  entries get `None`, classify treats them as `Single` agents).
+- **Theme palette grows from 26 → 31 fields** — Adds `strata_state`,
+  `strata_activity`, and aurora-tier fields. Custom themes missing
+  the new fields fall back to `emphasis_separator`/`emphasis_structural`
+  with a one-time warning. The `palette_mapping` reference table in
+  `docs/theme-palette.md` is updated.
+- **Sparkline takes caller-supplied fill colour** — Each call site
+  picks the colour (e.g. `ledger` picks aurora-tier colour from CTX
+  consumption velocity). The widget no longer encodes a default colour.
+- **CTX thresholds simplified to fixed 55/70** — Drops the prior
+  window-aware threshold logic. Window-aware mark positions live in
+  the new `palette.ctx_marks_for_window(window_size)` helper instead.
+- **CTX text format** — `used / total` now uses a slash separator
+  (was a space): `86.0k/200.0k`. Icon prefix restored when the gauge
+  replaces the percentage.
+- **Identity row order** — Project segment now emits before git+stats,
+  matching the console-v2 spec.
+- **Composable rendering refactor (Phases 1-3)** — Per-segment visual
+  specs flow through a unified dispatch-hub pattern in
+  `render/frames/shared.rs`. Widgets share a unified `glyph_mode`
+  signature with explicit ASCII fallbacks. Layouts call hubs; never
+  call `widgets::*::render` directly. See `.claude/rules/patterns.md`
+  Visual Dispatch Hub Pattern.
+- **`recent_tool` cell builder hosted in the widgets layer** — Moved
+  from `widgets/` to `render/activity/cells/`; transitional inline
+  formatter dropped.
+- **Passive worktree detection + token-based 1M-context thresholds** —
+  Worktree state is now detected without git invocations; CTX colour
+  thresholds adapt to the active context-window size.
+- **Adaptive pane width with `cc_margin` safety margin** — Pane sizing
+  subtracts a configurable margin to leave room for CC's own statusline
+  trim.
+- **Aligned with Claude Code 2.1.119+** — Stdin payload changes (new
+  fields, renamed fields) absorbed.
+
+### Removed
+
+- **BREAKING: `cards`, `cockpit`, `flightstrip`, `auto` layouts** — See
+  Changed above.
+- **Cluster-only helpers** — ~14 helpers purged from
+  `render/frames/shared.rs`; `arc` / `tape` sub-widgets removed.
+- **v1/v2/cluster terminology** — Scrubbed from source. Layouts are
+  listed alphabetically without internal-organization labels.
+- **Old bracket-bar gauge implementation** — Replaced at the same
+  module path (`widgets::gauge::render`); existing
+  `context_visual = "gauge"` configs continue to work but render the
+  new marks-on-track form. No deprecation shim — visual change is
+  accepted (see `git log` for the F-style gauge migration rationale).
+
+### Fixed
+
+- **`ledger`: agent rendering** — Routed through `activity::builder` so
+  the bracketed/bucketed format matches the console layout (`397ebca`).
+- **`ledger`: tool target truncation** — Targets now truncate to fit
+  `content_width` (subtracting `TAG_COL_WIDTH`, not just indent), and
+  the layout falls back to `console` when terminal width is unknown.
+- **`ledger`: parallel agent groups + right margin** restored.
+- **`transcript`: register sub-agents as ACTIVE on Agent tool_use** —
+  Sub-agents spawned via the `Agent` tool now appear in the active
+  list immediately rather than only after their first progress event.
+- **P2 codex findings on PR #11** — Env / layout fixes from review.
+- **Tests**: use `serde_json::json!` macro to escape Windows paths
+  correctly.
+- **`cc_margin` overflow, stale groups, over-aggressive activity drop**
+  in adaptive width degradation.
 
 ## [1.0.6] - 2026-03-24
 
@@ -147,6 +295,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.6...v1.1.0
 [1.0.6]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.3...v1.0.4

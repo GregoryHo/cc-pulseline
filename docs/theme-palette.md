@@ -145,17 +145,18 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) -- replaced by emphasis tiers and rate-based cost coloring.
 
-## Tier Summary (7 types, ~28 unique fields)
+## Tier Summary (8 types, 31 unique fields)
 
 | Tier | Colors | Purpose | Status |
 |------|--------|---------|--------|
 | ALERT | 3 (196/214/201) | Critical states | Unchanged |
 | ACTIVE | 5 (117/183/80/178/209) | Live activity | Unchanged |
 | STABLE | 2 (111/71) | Static identity | Unchanged |
-| INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Added |
-| Emphasis | 4x2 themes | Gray hierarchy | Light values revised |
+| INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Unchanged |
+| Emphasis | 4x2 themes | Gray hierarchy | Unchanged |
 | Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
-| Strata | 2x2 themes (state/activity) | Per-row separator chrome | **Added (28-field palette)** |
+| Strata | 2x2 themes (state/activity) | Per-row separator chrome | Added in 1.1.0 |
+| Aurora | 3 (low/mid/high) | Sparkline velocity gradient on ledger CTX | **Added in 1.1.0** |
 
 ## Element Mapping
 
@@ -310,6 +311,7 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 | Theme | Description |
 |-------|-------------|
 | `tokyo-night` | Blue-tinted grays, 25+ semantic colors (default) |
+| `pulseline-aurora` | Aurora-pulse flagship: 3-stop velocity gradient on the ledger CTX sparkline |
 | `echo-sub-zero` | Mono-accent minimalist, 3-stage CTX/cost signaling |
 | `titanium-precision` | Industrial steel blues, amber warnings, brick reds |
 | `cnc-telemetry` | Hardware telemetry: anodized teal, matte copper, rust red |
@@ -318,6 +320,10 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 | `mako-reactor` | FFVII: Shinra steel, Mako cyan-green, Materia accents |
 | `aburaya-twilight` | Spirited Away: bathhouse red, dragon teal, spirit blues |
 | `matte-carbon-neon` | Industrial tech: grayscale chrome, piercing neon accents |
+
+> The full set of theme JSON files lives in `src/themes/`. New themes
+> dropped into that directory are picked up at build time — this table
+> is a curated snapshot, not the source of truth.
 
 Set theme in config:
 
@@ -351,7 +357,7 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    cp src/themes/echo-sub-zero.json ~/.claude/pulseline/themes/my-theme.json
    ```
 
-2. Edit `palette_mapping` — these are the 28 ANSI 256-color codes that control rendering:
+2. Edit `palette_mapping` — these are the 31 ANSI 256-color codes that control rendering:
 
    | Field | Purpose |
    |-------|---------|
@@ -383,11 +389,17 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    | `cost_high_rate` | Burn rate >$50/h |
    | `strata_state` | Chrome on the `\|` for state rows (L1/L2/L3/Quota) |
    | `strata_activity` | Chrome on the `\|` for activity rows (Tools/Agents/Todos) |
+   | `aurora_low` | Sparkline fill at low CTX-consumption velocity (calm / idle, < 1%/min) |
+   | `aurora_mid` | Sparkline fill at mid velocity (active, 1–5%/min) |
+   | `aurora_high` | Sparkline fill at high velocity (hot, ≥ 5%/min) |
 
    The strata pair must satisfy `\|state − activity\| ≥ 3` on the ansi256
-   scale; the `theme_strata_contrast` test fails CI otherwise. Authors should
-   pick chrome that reads quieter than the theme's `emphasis_primary` /
-   `emphasis_secondary` so the separator never competes with values.
+   scale; the `theme_strata_contrast` test fails CI otherwise. The aurora
+   triple is enforced separately by `tests/theme_aurora_contrast.rs`
+   (minimum spread between adjacent stops). Authors should pick strata
+   chrome that reads quieter than the theme's `emphasis_primary` /
+   `emphasis_secondary` so the separator never competes with values; the
+   aurora triple should read as a smooth velocity gradient.
 
 ### Palette → UI Mapping
 
@@ -452,7 +464,7 @@ theme.json
 ├── "author"               (string, optional)
 ├── "description"          (string, optional)
 │
-├── "palette_mapping"      ★ REQUIRED — the 28 ANSI color codes that control rendering
+├── "palette_mapping"      ★ REQUIRED — the 31 ANSI color codes that control rendering
 │   ├── emphasis_primary        (u8) ─── brightest text: token values, counts
 │   ├── emphasis_secondary      (u8) ─── supporting: style, version, project, targets
 │   ├── emphasis_structural     (u8) ─── labels, icons, metadata text
@@ -480,7 +492,10 @@ theme.json
 │   ├── cost_med_rate           (u8) ─── burn $10-50/h
 │   ├── cost_high_rate          (u8) ─── burn >$50/h
 │   ├── strata_state            (u8) ─── chrome on `|` for state rows
-│   └── strata_activity         (u8) ─── chrome on `|` for activity rows
+│   ├── strata_activity         (u8) ─── chrome on `|` for activity rows
+│   ├── aurora_low              (u8) ─── sparkline fill at low CTX velocity (<1%/min)
+│   ├── aurora_mid              (u8) ─── sparkline fill at mid CTX velocity (1–5%/min)
+│   └── aurora_high             (u8) ─── sparkline fill at high CTX velocity (≥5%/min)
 │
 ├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
 │   ├── primary            (u8)
@@ -488,7 +503,10 @@ theme.json
 │   ├── structural         (u8)
 │   ├── separator          (u8)
 │   ├── strata_state       (u8, optional — falls back to dark variant if absent)
-│   └── strata_activity    (u8, optional — falls back to dark variant if absent)
+│   ├── strata_activity    (u8, optional — falls back to dark variant if absent)
+│   ├── aurora_low         (u8, optional — falls back to dark variant if absent)
+│   ├── aurora_mid         (u8, optional — falls back to dark variant if absent)
+│   └── aurora_high        (u8, optional — falls back to dark variant if absent)
 │
 ├── "colors"               (optional — design documentation, not consumed by code)
 ├── "element_mapping"      (optional — documents which UI element uses which color)

@@ -139,11 +139,11 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/pane.rs` + `render/frames/` -- Layouts
 
-`pane.rs::LayoutStyle` enumerates the 6 surviving layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the CTX dispatch hub `render_context_visual` (maps `context_visual` specs like `"text+sparkline"` onto `ctx_text_cell` / `ctx_gauge_cell` / `ctx_sparkline`).
+`pane.rs::LayoutStyle` enumerates the 6 layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
 
 ### `render/widgets/` -- Atomic Widgets
 
-`gauge` (bracket-framed `[████▎      ]` — fill block + space empty in Icon mode, `[####------]` in Ascii), `sparkline` (braille, icon-only), `arc` (cost burn, icon-only), `tape` (`▶ Read · ▶ Bash`). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` parameter is the *interior* cell count — visible width is `width + 2` to accommodate the `[ ]` frame.
+`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======...:--:--` in Ascii) and `sparkline` (braille, icon-only). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 

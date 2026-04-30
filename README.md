@@ -37,12 +37,12 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ## Features
 
-- **4-line metrics dashboard** — Identity, config counts, budget, and live activity
+- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity (6 layouts from flat to label-value `ledger`)
 - **Incremental transcript parsing** — Seek-based JSONL parsing with per-session offsets
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
 - **Adaptive rendering** — Width degradation for narrow terminals
-- **8 built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview`
+- **10 built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview`
 - **Minimal dependencies** — 3 runtime crates (serde, serde_json, toml)
 - **Configurable** — TOML config with per-project overrides and segment toggles
 
@@ -136,7 +136,6 @@ enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
 max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
-# visual = "tape"       # optional: "list" (per-row) or "tape" (▶ Read · ▶ Bash). See docs/layouts.md.
 
 [segments.agents]
 enabled = true
@@ -149,7 +148,7 @@ max_lines = 2
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Nine layouts ship: `none` (flat default), `zones`, `grid`, `cards`, `sections` (chrome decorators on flat rows), and `cockpit`, `console`, `flightstrip`, `auto` (instrument-cluster layouts that pack widget cells like gauges and sparklines).
+`[layout].name` picks how rows are arranged and decorated. Six layouts ship: `none` (flat default), `zones` (one rule between state and activity), `grid` (label column + divider), `sections` (single outer frame), `console` (sections + identity-in-frame-title, recommended ≥110 cols), and `ledger` (label-value pairs in a fixed-width TAG column with sparkline + delta-time on CTX).
 
 Each layout asserts a tasteful default for the four widget-bearing segments. The user can override per segment via `*_visual` strings — same widget, any layout:
 
@@ -172,7 +171,7 @@ Recognized widgets: `gauge`, `sparkline`, `text` for context; `gauge`, `text` fo
 ## CLI Usage
 
 ```
-cc-pulseline 1.0.6 - High-performance Claude Code statusline
+cc-pulseline 1.1.0 - High-performance Claude Code statusline
 
 USAGE:
     cc-pulseline [OPTIONS]
@@ -206,6 +205,7 @@ ENVIRONMENT:
 
 THEMES:
     tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
+    pulseline-aurora    Aurora-pulse flagship: 3-stop velocity gradient
     echo-sub-zero       Mono-accent minimalist, 3-stage signaling
     titanium-precision  Industrial steel blues, amber warnings, brick reds
     cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
@@ -213,6 +213,7 @@ THEMES:
     stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
     mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
     aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
+    matte-carbon-neon   Industrial tech: grayscale chrome, piercing neon accents
 ```
 
 ## Environment Variables
