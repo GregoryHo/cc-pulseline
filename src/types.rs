@@ -18,6 +18,12 @@ pub struct StdinPayload {
     pub agent: Option<AgentInfo>,
     #[serde(default)]
     pub worktree: Option<WorktreeInfo>,
+    /// Active effort level (CC 2.1.119+): "low" | "medium" | "high" | "xhigh" | "max" | "auto".
+    #[serde(default)]
+    pub effort: Option<EffortInfo>,
+    /// Thinking mode toggle (CC 2.1.119+).
+    #[serde(default)]
+    pub thinking: Option<ThinkingInfo>,
 }
 
 impl StdinPayload {
@@ -33,6 +39,17 @@ impl StdinPayload {
                     .and_then(|workspace| workspace.current_dir.clone())
             })
             .or_else(|| self.cwd.clone())
+    }
+
+    /// True when this session is inside a git worktree — via either the explicit
+    /// `--worktree` flag (CC 2.1.69) or the passive `workspace.git_worktree` field
+    /// (CC 2.1.97+). Accepts any non-null `git_worktree` value defensively.
+    pub fn is_in_worktree(&self) -> bool {
+        self.worktree.is_some()
+            || self
+                .workspace
+                .as_ref()
+                .is_some_and(|w| w.git_worktree.as_ref().is_some_and(|v| !v.is_null()))
     }
 
     pub fn resolve_project_path_display(&self) -> String {
@@ -69,6 +86,13 @@ pub struct OutputStyleInfo {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WorkspaceInfo {
     pub current_dir: Option<String>,
+    /// CC 2.1.97+: present whenever the current directory sits in a linked git
+    /// worktree (independent of the `--worktree` CLI flag, which is `payload.worktree`).
+    ///
+    /// Type kept as `serde_json::Value` so a future CC schema change (bool → object)
+    /// does not break parsing — the renderer only checks for non-null presence.
+    #[serde(default)]
+    pub git_worktree: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -112,6 +136,22 @@ pub struct AgentInfo {
     pub agent_type: Option<String>,
 }
 
+/// Active effort level for the model (Claude Code 2.1.119+).
+///
+/// Known values: `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"auto"`.
+/// Unknown values are preserved as-is — Claude Code adds levels frequently
+/// (e.g. `xhigh` was added in 2.1.111), and the renderer falls back gracefully.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct EffortInfo {
+    pub level: Option<String>,
+}
+
+/// Thinking-mode toggle (Claude Code 2.1.119+).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct ThinkingInfo {
+    pub enabled: Option<bool>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct WorktreeInfo {
     pub name: Option<String>,
@@ -137,6 +177,10 @@ pub struct Line1Metrics {
     pub git_untracked: u32,
     pub agent_name: Option<String>,
     pub in_worktree: bool,
+    /// Effort level from stdin `effort.level` (CC 2.1.119+).
+    pub effort_level: Option<String>,
+    /// Thinking mode flag from stdin `thinking.enabled` (CC 2.1.119+).
+    pub thinking_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -147,6 +191,10 @@ pub struct Line2Metrics {
     pub mcp_count: u32,
     pub memory_count: u32,
     pub skills_count: u32,
+    /// Count of enabled Claude Code plugins (CC 2.0.12+).
+    /// Sourced from `~/.claude/plugins/installed_plugins.json` cross-referenced
+    /// with `enabledPlugins` in `~/.claude/settings.json`.
+    pub plugins_count: u32,
     pub elapsed_minutes: u64,
 }
 
@@ -201,6 +249,12 @@ pub struct PendingTask {
     pub agent_type: Option<String>,
     pub model: Option<String>,
     pub event_ts: Option<u64>,
+    /// Anthropic API `message.id` of the assistant turn that emitted the
+    /// Agent tool_use. Propagated to `AgentSummary` on link so batch
+    /// detection can group agents from the same turn. `None` when the
+    /// transcript event lacks message envelope (Path 2/3 fallbacks).
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -221,6 +275,12 @@ pub struct AgentSummary {
     pub started_at: Option<u64>,
     pub model: Option<String>,
     pub completed_at: Option<u64>,
+    /// Anthropic API message ID of the assistant turn that spawned this
+    /// agent. Agents sharing this ID belong to one parallel batch (filled
+    /// by `providers/transcript.rs` Path-1 dispatcher). `None` for legacy
+    /// cache files or when CC's JSONL schema drifts.
+    #[serde(default)]
+    pub message_id: Option<String>,
 }
 
 impl AgentSummary {
@@ -304,6 +364,11 @@ pub struct RenderFrame {
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
     pub quota: QuotaMetrics,
+    /// Rolling CTX% history (oldest → newest), each entry `(pct, epoch_ms)`.
+    /// Read by the ledger sparkline (and by `render_context_visual` when a
+    /// flat layout opts in to `+sparkline`). Populated by `PulseLineRunner`
+    /// from `SessionState.ctx_history`.
+    pub ctx_history: Vec<(u8, u64)>,
 }
 
 impl RenderFrame {
@@ -352,7 +417,9 @@ impl RenderFrame {
                 git_deleted: 0,
                 git_untracked: 0,
                 agent_name: payload.agent.as_ref().and_then(|a| a.name.clone()),
-                in_worktree: payload.worktree.is_some(),
+                in_worktree: payload.is_in_worktree(),
+                effort_level: payload.effort.as_ref().and_then(|e| e.level.clone()),
+                thinking_enabled: payload.thinking.as_ref().and_then(|t| t.enabled),
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
@@ -361,6 +428,7 @@ impl RenderFrame {
                 hooks_count: 0,
                 mcp_count: 0,
                 skills_count: 0,
+                plugins_count: 0,
                 elapsed_minutes,
             },
             line3: Line3Metrics {
@@ -392,6 +460,7 @@ impl RenderFrame {
                     QuotaMetrics::from_rate_limits(rl, now_secs)
                 })
                 .unwrap_or_default(),
+            ctx_history: Vec::new(),
         }
     }
 }

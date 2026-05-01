@@ -18,7 +18,7 @@ cargo fmt --check             # Format check (CI-enforced)
 cargo bench          # Run benchmarks (benches/render_pipeline.rs)
 ```
 
-The project uses Rust 2021 edition (MSRV 1.74) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
+The project uses Rust 2021 edition (MSRV 1.85) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
 
 ### CLI Flags
 
@@ -64,23 +64,34 @@ stdin JSON → StdinPayload (deserialize)
 - **`state/mod.rs`** — `SessionState` holds per-session mutable state: transcript file offset, active tools/agents/todo lists, recent tools (persist after completion for display), and cached env/git snapshots. `PulseLineRunner` maintains a `HashMap<String, SessionState>` keyed by session+transcript+project.
   - `state/cache.rs` — Persists `SessionState` to `{temp_dir}/cc-pulseline-{hash}.json` across process invocations (prevents L3 metric flicker). Uses atomic writes (.tmp + rename) with silent failure on errors.
 
-- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, `palette: ThemePalette` (resolved via `resolve_palette()`), line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, and segment toggles (`show_git_stats`, `show_agent`, `show_worktree`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`).
+- **`config.rs`** — `RenderConfig` controls rendering behavior: glyph mode, color, `palette: ThemePalette` (resolved via `resolve_palette()`), line caps (`max_tool_lines`, `max_agent_lines`), transcript windowing, poll throttle, terminal width, width degradation strategy order, segment toggles (`show_git_stats`, `show_agent`, `show_worktree`, `show_speed`, `show_quota`, `show_quota_five_hour`, `show_quota_seven_day`), and per-segment visual specs (`context_visual`, `quota_visual`, `agents_visual`). Empty visual strings defer to the layout default via `effective_*_visual()` helpers — see `docs/layouts.md`.
 
 - **`render/`** — Pure rendering logic, split into submodules:
-  - `layout.rs` — Formats the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines.
-  - `color.rs` — `ThemePalette` struct (26 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
+  - `layout.rs` — Assembles the `RenderFrame` into output lines (L1: identity, L2: config counts, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines. Single pipeline: every layout except `Ledger` flows through here and is decorated by `apply_pane()`; `Ledger` owns its full pipeline because the TAG-column rhythm doesn't compose via `apply_pane`.
+  - `pane.rs` — `LayoutStyle` enum (6 variants: `None`/`Zones`/`Grid`/`Sections`/`Console`/`Ledger`) + `PaneConfig` chrome wrapper. `apply_pane()` decorates the assembled lines with frame chrome.
+  - `frames/` — Per-layout `render()` fns: `zones`, `grid`, `sections`, `console`, `ledger`. `console` is a thin shim that calls `sections::render_with_options` with the Identity row hoisted into the top frame title. `frames/shared.rs` holds the box-drawing glyphs, label/content padding, identity headline, config row, and the per-segment dispatch hubs (`render_context_visual` and `render_quota_visual` — each maps a `+`-joined visual spec onto `widgets::gauge::render` / `widgets::sparkline::render` / inline text cells). `frames/mod.rs::default_visuals_for(LayoutStyle)` is the per-layout `*_visual` defaults table.
+  - `widgets/` — Atomic widget renderers: `gauge` (bracketless marks-on-track — `▰` filled / `─` empty / `·` threshold marks in Icon mode, `=` / `-` / `:` in Ascii) and `sparkline` (braille, icon-only — caller picks the fill color). Both take `(data, …, marks, mode, palette, color)` shape; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly. `gauge`'s `width` is the visible cell count (no frame); caller supplies threshold marks (CTX → `ThemePalette::ctx_marks()` = `[55, 70]`; quota → `[50, 85]`).
+  - `color.rs` — `ThemePalette` struct (31 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
 - **`lib.rs`** — Orchestrates the pipeline: `PulseLineRunner` manages sessions, calls providers, assembles the `RenderFrame`, and delegates to the renderer. Also exposes `run_from_str()` as a stateless convenience.
 
+### Layouts & Visual Composition
+
+`pane.rs::LayoutStyle` enumerates the layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` (sections + identity-in-title) / `Ledger`; treat the enum as the source of truth). Each layout asserts a default `(context, cost, quota, tools)` visual tuple via `frames::default_visuals_for(LayoutStyle)`. The user's TOML `*_visual` strings override per segment when non-empty; otherwise `effective_*_visual()` falls back to the layout default.
+
+CTX widget composition runs through the dispatch hub `render_context_visual` in `frames/shared.rs`. Layouts call the hub with their preferred gauge sizing; the hub parses the `+`-joined spec (e.g. `"text+sparkline"`) and composes widget outputs. **New widgets must register with the hub** — never call `widgets::*::render` directly from a layout, or the user loses composability for that segment. (Ledger renders the sparkline directly because it picks the aurora fill color from CTX consumption velocity.)
+
+Full layout × visual reference: `docs/layouts.md`.
+
 ### Output Line Format
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format, all togglable)
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)`
-- **Quota**: `Q: 5h: 75% (resets 2h 0m)` (usage quota from CC's native `rate_limits` field, between L3 and activity)
-- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed tool counts — stable, accumulates over session)
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)` (default `text` form; opt in to gauge or sparkline via `context_visual`).
+- **Quota**: `Q: 5h: 75% (resets 2h 0m)` (single `Q:` group prefix). Driven by CC's native `rate_limits` field.
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed tool counts — stable, accumulates over session; capped by `max_completed_lines` rows)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools with targets — volatile)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)` (agents — active first, then recent completed)
 - **TODO variants**:
@@ -115,9 +126,9 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 ### Color System
 
-The project uses a `ThemePalette` struct with 26 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
+The project uses a `ThemePalette` struct with 31 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
 
-- **8 built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`: tokyo-night (default), echo-sub-zero, titanium-precision, cnc-telemetry, cyberdeck-hud, stark-hud, mako-reactor, aburaya-twilight
+- **Built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`. tokyo-night is the default; the directory is the source of truth for the full set.
 - **Custom themes** — JSON files in `~/.claude/pulseline/themes/` loaded at runtime with per-process caching
 - **Per-color overrides** — `[colors]` TOML section applies on top of any preset (e.g., `alert_red = 160`)
 - **Emphasis tiers** (Primary/Secondary/Structural/Separator) vary by dark/light variant within each theme

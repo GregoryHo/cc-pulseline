@@ -5,3 +5,10 @@ npm-publish/
 .npmrc
 *.tgz
 .claude/pulseline.toml
+.claude/settings.local.json
+
+# stray .claude/logs in arbitrary subdirs from interactive sessions
+**/.claude/logs/
+
+# Serena MCP cache directory
+.serena/

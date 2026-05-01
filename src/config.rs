@@ -1,4 +1,5 @@
 use crate::render::color::{resolve_palette, ThemePalette};
+use crate::render::pane::{LayoutStyle, PaneWidth};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -16,8 +17,11 @@ fn default_max_lines() -> usize {
 fn default_max_completed() -> usize {
     4
 }
-fn default_tools_per_line() -> usize {
-    6
+/// Hard cap on completed-tool rows. Width-aware packing fills rows
+/// greedily; once this many rows are filled, remaining items collapse
+/// into a `… + N more tools` summary line at the bottom.
+fn default_max_completed_lines() -> usize {
+    2
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -28,6 +32,61 @@ pub struct PulselineConfig {
     pub colors: ColorsConfig,
     #[serde(default)]
     pub segments: SegmentsConfig,
+    #[serde(default)]
+    pub layout: LayoutSection,
+}
+
+fn default_layout_name() -> String {
+    "none".to_string()
+}
+fn default_layout_width_mode() -> String {
+    "auto".to_string()
+}
+fn default_layout_min_width() -> usize {
+    60
+}
+fn default_layout_max_width() -> usize {
+    140
+}
+fn default_layout_cc_margin() -> usize {
+    crate::render::pane::DEFAULT_PANE_CC_MARGIN
+}
+fn default_layout_tonal_strata() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LayoutSection {
+    #[serde(default = "default_layout_name")]
+    pub name: String,
+    #[serde(default = "default_layout_width_mode")]
+    pub width_mode: String,
+    #[serde(default)]
+    pub fixed_width: Option<usize>,
+    #[serde(default = "default_layout_min_width")]
+    pub min_width: usize,
+    #[serde(default = "default_layout_max_width")]
+    pub max_width: usize,
+    #[serde(default = "default_layout_cc_margin")]
+    pub cc_margin: usize,
+    /// Two-tier separator tint: state rows use `strata_state`, activity rows
+    /// use `strata_activity`. See `designs/tonal-strata-redesign.md`.
+    #[serde(default = "default_layout_tonal_strata")]
+    pub tonal_strata: bool,
+}
+
+impl Default for LayoutSection {
+    fn default() -> Self {
+        Self {
+            name: default_layout_name(),
+            width_mode: default_layout_width_mode(),
+            fixed_width: None,
+            min_width: default_layout_min_width(),
+            max_width: default_layout_max_width(),
+            cc_margin: default_layout_cc_margin(),
+            tonal_strata: default_layout_tonal_strata(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -113,6 +172,18 @@ pub struct ColorsConfig {
     pub cost_med_rate: Option<u8>,
     #[serde(default)]
     pub cost_high_rate: Option<u8>,
+    // Tonal strata (chrome tier)
+    #[serde(default)]
+    pub strata_state: Option<u8>,
+    #[serde(default)]
+    pub strata_activity: Option<u8>,
+    // Aurora pulse (3-stop gradient — sparkline velocity color)
+    #[serde(default)]
+    pub aurora_low: Option<u8>,
+    #[serde(default)]
+    pub aurora_mid: Option<u8>,
+    #[serde(default)]
+    pub aurora_high: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -128,7 +199,7 @@ pub struct SegmentsConfig {
     #[serde(default)]
     pub tools: ToolSegmentConfig,
     #[serde(default)]
-    pub agents: SegmentToggle,
+    pub agents: AgentSegmentConfig,
     #[serde(default)]
     pub todo: SegmentToggle,
 }
@@ -151,6 +222,10 @@ pub struct IdentitySegmentConfig {
     pub show_agent: bool,
     #[serde(default = "default_true")]
     pub show_worktree: bool,
+    #[serde(default = "default_true")]
+    pub show_effort: bool,
+    #[serde(default = "default_true")]
+    pub show_thinking: bool,
 }
 
 impl Default for IdentitySegmentConfig {
@@ -164,6 +239,8 @@ impl Default for IdentitySegmentConfig {
             show_git_stats: false,
             show_agent: true,
             show_worktree: true,
+            show_effort: true,
+            show_thinking: true,
         }
     }
 }
@@ -183,6 +260,8 @@ pub struct ConfigSegmentConfig {
     #[serde(default = "default_true")]
     pub show_skills: bool,
     #[serde(default = "default_true")]
+    pub show_plugins: bool,
+    #[serde(default = "default_true")]
     pub show_duration: bool,
 }
 
@@ -195,6 +274,7 @@ impl Default for ConfigSegmentConfig {
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
+            show_plugins: true,
             show_duration: true,
         }
     }
@@ -210,6 +290,13 @@ pub struct BudgetSegmentConfig {
     pub show_cost: bool,
     #[serde(default)]
     pub show_speed: bool,
+    /// CTX visual spec — `"+"` separated widget names. Recognized:
+    /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
+    /// (see `frames::default_visuals_for`).
+    /// Examples: `"gauge+sparkline"` (cockpit default), `"text"` (flat
+    /// layouts default), `"gauge"` (text-free dashboard).
+    #[serde(default)]
+    pub context_visual: String,
 }
 
 impl Default for BudgetSegmentConfig {
@@ -219,6 +306,7 @@ impl Default for BudgetSegmentConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            context_visual: String::new(),
         }
     }
 }
@@ -231,6 +319,10 @@ pub struct QuotaSegmentConfig {
     pub show_five_hour: bool,
     #[serde(default)]
     pub show_seven_day: bool,
+    /// Quota visual spec. Recognized: `text`, `bar`. Defers to layout
+    /// default when empty (see `frames::default_visuals_for`).
+    #[serde(default)]
+    pub visual: String,
 }
 
 impl Default for QuotaSegmentConfig {
@@ -239,6 +331,7 @@ impl Default for QuotaSegmentConfig {
             enabled: false,
             show_five_hour: true,
             show_seven_day: false,
+            visual: String::new(),
         }
     }
 }
@@ -251,8 +344,8 @@ pub struct ToolSegmentConfig {
     pub max_lines: usize,
     #[serde(default = "default_max_completed")]
     pub max_completed: usize,
-    #[serde(default = "default_tools_per_line")]
-    pub tools_per_line: usize,
+    #[serde(default = "default_max_completed_lines")]
+    pub max_completed_lines: usize,
 }
 
 impl Default for ToolSegmentConfig {
@@ -261,7 +354,31 @@ impl Default for ToolSegmentConfig {
             enabled: true,
             max_lines: 2,
             max_completed: 4,
-            tools_per_line: 6,
+            max_completed_lines: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentSegmentConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_max_lines")]
+    pub max_lines: usize,
+    /// Agent visual spec. Recognized atoms (`+`-joined): `description`,
+    /// `model`. The agent's name (type or first description line) is
+    /// always rendered. Defers to the layout default when empty (see
+    /// `frames::default_visuals_for`).
+    #[serde(default)]
+    pub visual: String,
+}
+
+impl Default for AgentSegmentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_lines: 2,
+            visual: String::new(),
         }
     }
 }
@@ -321,7 +438,9 @@ icons = true            # nerd font icons vs ascii
 # [colors]              # Override individual ANSI 256-color codes (0-255)
 # primary = 251         # emphasis tiers
 # alert_red = 196       # alert/active/stable/indicator/cost tiers
-# See docs/theme-palette.md for all 26 field names
+# strata_state = 238    # chrome on state rows (L1/L2/L3/Quota)
+# strata_activity = 103 # chrome on activity rows (Tools/Agents/Todos)
+# See docs/theme-palette.md for all 28 field names
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -332,6 +451,8 @@ show_git = true
 show_git_stats = false  # !3 +1 ✘2 ?4 file stats after branch
 show_agent = true       # AG:agent-name when --agent is active
 show_worktree = true    # (WT) indicator when in a worktree session
+show_effort = true      # effort level pill (low/medium/high/xhigh/max, CC 2.1.119+)
+show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 show_claude_md = true
@@ -340,6 +461,7 @@ show_memory = true
 show_hooks = true
 show_mcp = true
 show_skills = true
+show_plugins = true      # N plugins (enabled Claude Code plugins, CC 2.0.12+)
 show_duration = true
 
 [segments.budget]       # Line 3 — context, tokens, cost
@@ -347,25 +469,76 @@ show_context = true
 show_tokens = true
 show_cost = true
 show_speed = false          # output tok/s rate
+# context_visual: per-segment widget composition. `+`-joined widget names.
+# Empty (the default) defers to the layout's choice — most layouts use
+# "text", ledger uses "text+sparkline". Examples:
+#   context_visual = "gauge"            # gauge bar replaces percentage text
+#   context_visual = "text"             # plain percentage + token counts
+#   context_visual = "text+sparkline"   # numbers + braille trend
+context_visual = ""
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
 enabled = false             # opt-in: requires OAuth credentials
 show_five_hour = true
 show_seven_day = false
+# visual: bar gauge or text. Empty (default) defers to the layout —
+# sections / console / ledger default to "gauge" (F-style bar with
+# threshold marks at 50% / 85% positions); flat layouts (none /
+# zones / grid) default to "text". Examples:
+#   visual = "gauge"            # ▰▰▰▰▰▰▰▰▰───·─ 62% (resets ...)
+#   visual = "text"             # 62% (resets ...) — no bar
+visual = ""
 
 [segments.tools]
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
-tools_per_line = 6      # completed tools per line
+max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
 
 [segments.agents]
 enabled = true
 max_lines = 2
+# visual: `+`-joined atoms — `description`, `model`. The agent name
+# (type or first-line description) is always rendered.
+#   visual = "name"               # name + ×N (parallel grouping kept)
+#   visual = "name+description"   # name + body description
+#   visual = "name+model"         # name + [haiku] tag
+#   visual = "name+description+model"  # everything
+visual = ""
 
 [segments.todo]
 enabled = true
 max_lines = 2
+
+[layout]
+# Which renderer arranges the lines.
+#
+# Plain / decorated:
+#   "none"     — flat output, no grouping markers
+#   "zones"    — `─── activity ───` rule between state and activity (+1 row)
+#   "grid"     — fixed label column + │ + right-padded content (table layout)
+#   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between groups
+#   "console"  — sections, with the identity row hoisted into the top frame
+#                title (best ≥110 cols)
+#
+# Typographic-rhythm:
+#   "ledger"   — TAG-column rows with blank-row group separation. Tallest
+#                layout — favours rhythm over density. Ships sparkline +
+#                delta-time on the CTX row by default.
+name = "none"
+#
+# Width only applies to "zones" (which draws a horizontal rule).
+width_mode = "auto"     # "auto" | "terminal" | "fixed"
+# fixed_width = 100     # only used when width_mode = "fixed"
+min_width = 60          # skip framing when terminal can't fit this many cols
+max_width = 160         # clamp auto-sized frames to this many cols
+# cc_margin = 4         # cols subtracted from detected width in "terminal" mode
+
+# Per-line separator tint. When true, the `|` between segments uses a
+# theme-authored chrome pair: state rows (Identity/Config/Budget/Quota) get
+# `strata_state`, activity rows (Tools/Agents/Todos) get `strata_activity`.
+# Set to false for a fully flat baseline.
+tonal_strata = true
 "#
 }
 
@@ -376,6 +549,18 @@ pub struct ProjectOverrideConfig {
     pub display: Option<ProjectDisplayOverride>,
     pub colors: Option<ColorsConfig>,
     pub segments: Option<ProjectSegmentsOverride>,
+    pub layout: Option<ProjectLayoutOverride>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectLayoutOverride {
+    pub name: Option<String>,
+    pub width_mode: Option<String>,
+    pub fixed_width: Option<usize>,
+    pub min_width: Option<usize>,
+    pub max_width: Option<usize>,
+    pub cc_margin: Option<usize>,
+    pub tonal_strata: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -392,7 +577,7 @@ pub struct ProjectSegmentsOverride {
     pub budget: Option<ProjectBudgetOverride>,
     pub quota: Option<ProjectQuotaOverride>,
     pub tools: Option<ProjectToolOverride>,
-    pub agents: Option<ProjectSegmentToggleOverride>,
+    pub agents: Option<ProjectAgentOverride>,
     pub todo: Option<ProjectSegmentToggleOverride>,
 }
 
@@ -406,6 +591,8 @@ pub struct ProjectIdentityOverride {
     pub show_git_stats: Option<bool>,
     pub show_agent: Option<bool>,
     pub show_worktree: Option<bool>,
+    pub show_effort: Option<bool>,
+    pub show_thinking: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -416,6 +603,7 @@ pub struct ProjectConfigOverride {
     pub show_hooks: Option<bool>,
     pub show_mcp: Option<bool>,
     pub show_skills: Option<bool>,
+    pub show_plugins: Option<bool>,
     pub show_duration: Option<bool>,
 }
 
@@ -425,6 +613,8 @@ pub struct ProjectBudgetOverride {
     pub show_tokens: Option<bool>,
     pub show_cost: Option<bool>,
     pub show_speed: Option<bool>,
+    /// CTX visual spec — see `BudgetSegmentConfig::context_visual`.
+    pub context_visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -432,6 +622,8 @@ pub struct ProjectQuotaOverride {
     pub enabled: Option<bool>,
     pub show_five_hour: Option<bool>,
     pub show_seven_day: Option<bool>,
+    /// Quota visual spec — see `QuotaSegmentConfig::visual`.
+    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -439,7 +631,15 @@ pub struct ProjectToolOverride {
     pub enabled: Option<bool>,
     pub max_lines: Option<usize>,
     pub max_completed: Option<usize>,
-    pub tools_per_line: Option<usize>,
+    pub max_completed_lines: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectAgentOverride {
+    pub enabled: Option<bool>,
+    pub max_lines: Option<usize>,
+    /// Agent visual spec — see `AgentSegmentConfig::visual`.
+    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -523,6 +723,11 @@ pub fn merge_configs(
         merge_color!(cost_low_rate);
         merge_color!(cost_med_rate);
         merge_color!(cost_high_rate);
+        merge_color!(strata_state);
+        merge_color!(strata_activity);
+        merge_color!(aurora_low);
+        merge_color!(aurora_mid);
+        merge_color!(aurora_high);
     }
 
     // Segment overrides
@@ -552,6 +757,12 @@ pub fn merge_configs(
             if let Some(v) = identity.show_worktree {
                 user.segments.identity.show_worktree = v;
             }
+            if let Some(v) = identity.show_effort {
+                user.segments.identity.show_effort = v;
+            }
+            if let Some(v) = identity.show_thinking {
+                user.segments.identity.show_thinking = v;
+            }
         }
         if let Some(config) = &segments.config {
             if let Some(v) = config.show_claude_md {
@@ -572,6 +783,9 @@ pub fn merge_configs(
             if let Some(v) = config.show_skills {
                 user.segments.config.show_skills = v;
             }
+            if let Some(v) = config.show_plugins {
+                user.segments.config.show_plugins = v;
+            }
             if let Some(v) = config.show_duration {
                 user.segments.config.show_duration = v;
             }
@@ -589,6 +803,9 @@ pub fn merge_configs(
             if let Some(v) = budget.show_speed {
                 user.segments.budget.show_speed = v;
             }
+            if let Some(v) = &budget.context_visual {
+                user.segments.budget.context_visual = v.clone();
+            }
         }
         if let Some(quota) = &segments.quota {
             if let Some(v) = quota.enabled {
@@ -599,6 +816,9 @@ pub fn merge_configs(
             }
             if let Some(v) = quota.show_seven_day {
                 user.segments.quota.show_seven_day = v;
+            }
+            if let Some(v) = &quota.visual {
+                user.segments.quota.visual = v.clone();
             }
         }
         if let Some(tools) = &segments.tools {
@@ -611,8 +831,8 @@ pub fn merge_configs(
             if let Some(v) = tools.max_completed {
                 user.segments.tools.max_completed = v;
             }
-            if let Some(v) = tools.tools_per_line {
-                user.segments.tools.tools_per_line = v;
+            if let Some(v) = tools.max_completed_lines {
+                user.segments.tools.max_completed_lines = v;
             }
         }
         if let Some(agents) = &segments.agents {
@@ -622,6 +842,9 @@ pub fn merge_configs(
             if let Some(v) = agents.max_lines {
                 user.segments.agents.max_lines = v;
             }
+            if let Some(v) = &agents.visual {
+                user.segments.agents.visual = v.clone();
+            }
         }
         if let Some(todo) = &segments.todo {
             if let Some(v) = todo.enabled {
@@ -630,6 +853,30 @@ pub fn merge_configs(
             if let Some(v) = todo.max_lines {
                 user.segments.todo.max_lines = v;
             }
+        }
+    }
+
+    if let Some(layout) = &project.layout {
+        if let Some(v) = &layout.name {
+            user.layout.name = v.clone();
+        }
+        if let Some(v) = &layout.width_mode {
+            user.layout.width_mode = v.clone();
+        }
+        if layout.fixed_width.is_some() {
+            user.layout.fixed_width = layout.fixed_width;
+        }
+        if let Some(v) = layout.min_width {
+            user.layout.min_width = v;
+        }
+        if let Some(v) = layout.max_width {
+            user.layout.max_width = v;
+        }
+        if let Some(v) = layout.cc_margin {
+            user.layout.cc_margin = v;
+        }
+        if let Some(v) = layout.tonal_strata {
+            user.layout.tonal_strata = v;
         }
     }
 
@@ -748,10 +995,13 @@ pub fn default_project_config_toml() -> &'static str {
 # show_git_stats = true
 # show_agent = true
 # show_worktree = true
+# show_effort = false
+# show_thinking = false
 
 # [segments.config]
 # show_memory = false
 # show_skills = false
+# show_plugins = false
 
 # [segments.budget]
 # show_tokens = false
@@ -766,15 +1016,26 @@ pub fn default_project_config_toml() -> &'static str {
 # enabled = true
 # max_lines = 2
 # max_completed = 4
-# tools_per_line = 6
+# max_completed_lines = 2
 
 # [segments.agents]
 # enabled = true
 # max_lines = 2
+# visual = ""               # "name" | "name+description" | "name+model" | "name+description+model"
 
 # [segments.todo]
 # enabled = true
 # max_lines = 2
+
+# [layout]
+# # Surviving layouts: "none" | "zones" | "grid" | "sections" | "console" | "ledger"
+# name = "grid"
+# width_mode = "auto"       # "auto" | "terminal" | "fixed"
+# fixed_width = 100
+# min_width = 60
+# max_width = 140
+# cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
+# tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 "#
 }
 
@@ -784,6 +1045,12 @@ pub fn default_project_config_toml() -> &'static str {
 pub enum GlyphMode {
     Ascii,
     Icon,
+}
+
+impl GlyphMode {
+    pub fn is_icon(self) -> bool {
+        matches!(self, GlyphMode::Icon)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -813,6 +1080,8 @@ pub struct RenderConfig {
     pub show_git_stats: bool,
     pub show_agent: bool,
     pub show_worktree: bool,
+    pub show_effort: bool,
+    pub show_thinking: bool,
     // L2 segment toggles
     pub show_claude_md: bool,
     pub show_rules: bool,
@@ -820,20 +1089,31 @@ pub struct RenderConfig {
     pub show_hooks: bool,
     pub show_mcp: bool,
     pub show_skills: bool,
+    pub show_plugins: bool,
     pub show_duration: bool,
     // L3 segment toggles
     pub show_context: bool,
     pub show_tokens: bool,
     pub show_cost: bool,
     pub show_speed: bool,
+    /// Effective CTX visual spec — already resolved against the layout
+    /// default if the user TOML left it empty. See
+    /// `frames::default_visuals_for` for the per-layout defaults and
+    /// `widgets::visual::render_context` for the dispatcher.
+    pub context_visual: String,
     // Quota segment toggles
     pub show_quota: bool,
     pub show_quota_five_hour: bool,
     pub show_quota_seven_day: bool,
+    /// Effective quota visual spec.
+    pub quota_visual: String,
+    /// Effective agents visual spec — atoms `description`, `model`.
+    pub agents_visual: String,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
-    pub tools_per_line: usize,
+    /// Hard cap on completed-tool rows. See `default_max_completed_lines`.
+    pub max_completed_lines: usize,
     pub max_agent_lines: usize,
     pub max_todo_lines: usize,
     pub show_tools: bool,
@@ -843,6 +1123,46 @@ pub struct RenderConfig {
     pub transcript_poll_throttle_ms: u64,
     pub terminal_width: Option<usize>,
     pub degrade_order: Vec<WidthDegradeStrategy>,
+    // Pane framing
+    pub pane_style: LayoutStyle,
+    pub pane_width_mode: PaneWidth,
+    pub pane_min_width: usize,
+    pub pane_max_width: usize,
+    pub pane_cc_margin: usize,
+    pub pane_tonal_strata: bool,
+}
+
+impl RenderConfig {
+    /// Effective CTX visual spec — falls back to the layout's default when
+    /// the field is empty. `build_render_config` resolves this up-front so
+    /// production renders never see an empty string; this helper exists for
+    /// tests that construct `RenderConfig` directly via `Default` + field
+    /// overrides.
+    pub fn effective_context_visual(&self) -> &str {
+        if self.context_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).context_visual
+        } else {
+            &self.context_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for quota.
+    pub fn effective_quota_visual(&self) -> &str {
+        if self.quota_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).quota_visual
+        } else {
+            &self.quota_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for agents.
+    pub fn effective_agents_visual(&self) -> &str {
+        if self.agents_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).agents_visual
+        } else {
+            &self.agents_visual
+        }
+    }
 }
 
 impl Default for RenderConfig {
@@ -859,23 +1179,29 @@ impl Default for RenderConfig {
             show_git_stats: false,
             show_agent: true,
             show_worktree: true,
+            show_effort: true,
+            show_thinking: true,
             show_claude_md: true,
             show_rules: true,
             show_memory: true,
             show_hooks: true,
             show_mcp: true,
             show_skills: true,
+            show_plugins: true,
             show_duration: true,
             show_context: true,
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            context_visual: String::new(),
             show_quota: false,
             show_quota_five_hour: true,
             show_quota_seven_day: false,
+            quota_visual: String::new(),
+            agents_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
-            tools_per_line: 6,
+            max_completed_lines: 2,
             max_agent_lines: 2,
             max_todo_lines: 2,
             show_tools: true,
@@ -884,13 +1210,113 @@ impl Default for RenderConfig {
             transcript_window_events: 400,
             transcript_poll_throttle_ms: 250,
             terminal_width: None,
+            // Order matters: cheapest, least-destructive moves first.
+            // CompressLine2 collapses L2 separators (no info loss);
+            // CompressCoreLines truncates L1/L2/L3 with `...`;
+            // DropActivityLinesFirst is last — it removes activity entirely,
+            // so it should only fire if compression alone can't make room.
             degrade_order: vec![
-                WidthDegradeStrategy::DropActivityLinesFirst,
                 WidthDegradeStrategy::CompressLine2,
                 WidthDegradeStrategy::CompressCoreLines,
+                WidthDegradeStrategy::DropActivityLinesFirst,
             ],
+            pane_style: LayoutStyle::None,
+            pane_width_mode: PaneWidth::Auto,
+            pane_min_width: 60,
+            pane_max_width: 140,
+            pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
+            pane_tonal_strata: true,
         }
     }
+}
+
+fn parse_layout_name(value: &str) -> LayoutStyle {
+    match value.to_lowercase().as_str() {
+        "none" => LayoutStyle::None,
+        "zones" => LayoutStyle::Zones,
+        "grid" => LayoutStyle::Grid,
+        "sections" => LayoutStyle::Sections,
+        "console" => LayoutStyle::Console,
+        "ledger" => LayoutStyle::Ledger,
+        // Removed in the layout consolidation: cards, cockpit, flightstrip,
+        // auto. Provide a hint toward the closest replacement.
+        "cards" | "cockpit" | "flightstrip" | "auto" => {
+            eprintln!(
+                "warning: layout.name {value:?} was removed; falling back to \
+                 \"console\" (valid: none | zones | grid | sections | console | \
+                 ledger)"
+            );
+            LayoutStyle::Console
+        }
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
+                 (valid: none | zones | grid | sections | console | ledger)"
+            );
+            LayoutStyle::None
+        }
+    }
+}
+
+/// Resolve a user-supplied `*_visual` config string against the layout's
+/// default. Empty user value means "use the layout's choice"; any non-empty
+/// value wins outright. Returns an owned `String` because `RenderConfig`
+/// stores effective specs as owned strings (the layout default is a
+/// `'static str` literal).
+fn resolve_visual_field(user_value: &str, default_value: &'static str) -> String {
+    if user_value.is_empty() {
+        default_value.to_string()
+    } else {
+        user_value.to_string()
+    }
+}
+
+fn parse_pane_width_mode(value: &str, fixed_width: Option<usize>) -> PaneWidth {
+    match value.to_lowercase().as_str() {
+        "terminal" => PaneWidth::Terminal,
+        "fixed" => PaneWidth::Fixed(fixed_width.unwrap_or(100)),
+        _ => PaneWidth::Auto,
+    }
+}
+
+/// Resolve the terminal width from (in priority order): the `COLUMNS` env var,
+/// then an `ioctl(TIOCGWINSZ)` probe. Returns `None` only when the process
+/// has no controlling terminal at all — e.g. a daemon or systemd unit.
+fn resolve_terminal_width(columns_env: Option<&str>, ioctl_probe: Option<u16>) -> Option<usize> {
+    if let Some(raw) = columns_env {
+        if let Ok(w) = raw.parse::<usize>() {
+            return Some(w);
+        }
+    }
+    ioctl_probe.map(|w| w as usize)
+}
+
+/// Two-stage ioctl probe: first try the inherited stdio fds via
+/// `terminal_size::terminal_size()` (checks stdout → stderr → stdin), then on
+/// Unix fall back to opening `/dev/tty` directly. The fallback is critical for
+/// the Claude Code statusline hook context, where stdin, stdout, and stderr
+/// are all pipes — in that case the inherited-fd probe returns `None`, but the
+/// process is still attached to a controlling terminal reachable via
+/// `/dev/tty`.
+fn probe_ioctl_width() -> Option<u16> {
+    if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size() {
+        return Some(w);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        if let Ok(f) = std::fs::File::open("/dev/tty") {
+            if let Some((terminal_size::Width(w), _)) = terminal_size::terminal_size_of(f.as_fd()) {
+                return Some(w);
+            }
+        }
+    }
+    None
+}
+
+fn detect_terminal_width() -> Option<usize> {
+    let env_columns = std::env::var("COLUMNS").ok();
+    resolve_terminal_width(env_columns.as_deref(), probe_ioctl_width())
 }
 
 /// Build a RenderConfig from PulselineConfig + environment overrides.
@@ -909,7 +1335,12 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         &pulseline.colors,
     );
 
-    let terminal_width = std::env::var("COLUMNS").ok().and_then(|v| v.parse().ok());
+    let terminal_width = detect_terminal_width();
+
+    // Visual spec resolution (Variation B): when the user TOML leaves a
+    // `*_visual` field empty, fall back to the layout's tasteful default.
+    let layout_style = parse_layout_name(&pulseline.layout.name);
+    let layout_visual_defaults = crate::render::frames::default_visuals_for(layout_style);
 
     RenderConfig {
         color_enabled,
@@ -925,6 +1356,8 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_git_stats: pulseline.segments.identity.show_git_stats,
         show_agent: pulseline.segments.identity.show_agent,
         show_worktree: pulseline.segments.identity.show_worktree,
+        show_effort: pulseline.segments.identity.show_effort,
+        show_thinking: pulseline.segments.identity.show_thinking,
         // L2 config toggles
         show_claude_md: pulseline.segments.config.show_claude_md,
         show_rules: pulseline.segments.config.show_rules,
@@ -932,25 +1365,78 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_hooks: pulseline.segments.config.show_hooks,
         show_mcp: pulseline.segments.config.show_mcp,
         show_skills: pulseline.segments.config.show_skills,
+        show_plugins: pulseline.segments.config.show_plugins,
         show_duration: pulseline.segments.config.show_duration,
         // L3 budget toggles
         show_context: pulseline.segments.budget.show_context,
         show_tokens: pulseline.segments.budget.show_tokens,
         show_cost: pulseline.segments.budget.show_cost,
         show_speed: pulseline.segments.budget.show_speed,
+        // Visual specs: empty user value defers to layout default. Resolved
+        // here so the rest of the pipeline reads a fully-specified string.
+        context_visual: resolve_visual_field(
+            &pulseline.segments.budget.context_visual,
+            layout_visual_defaults.context_visual,
+        ),
         // Quota
         show_quota: pulseline.segments.quota.enabled,
         show_quota_five_hour: pulseline.segments.quota.show_five_hour,
         show_quota_seven_day: pulseline.segments.quota.show_seven_day,
+        quota_visual: resolve_visual_field(
+            &pulseline.segments.quota.visual,
+            layout_visual_defaults.quota_visual,
+        ),
+        agents_visual: resolve_visual_field(
+            &pulseline.segments.agents.visual,
+            layout_visual_defaults.agents_visual,
+        ),
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
         max_completed_tools: pulseline.segments.tools.max_completed,
-        tools_per_line: pulseline.segments.tools.tools_per_line,
+        max_completed_lines: pulseline.segments.tools.max_completed_lines,
         max_agent_lines: pulseline.segments.agents.max_lines,
         max_todo_lines: pulseline.segments.todo.max_lines,
         show_tools: pulseline.segments.tools.enabled,
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,
+        pane_style: layout_style,
+        pane_width_mode: parse_pane_width_mode(
+            &pulseline.layout.width_mode,
+            pulseline.layout.fixed_width,
+        ),
+        pane_min_width: pulseline.layout.min_width,
+        pane_max_width: pulseline.layout.max_width,
+        pane_cc_margin: pulseline.layout.cc_margin,
+        pane_tonal_strata: pulseline.layout.tonal_strata,
         ..RenderConfig::default()
+    }
+}
+
+#[cfg(test)]
+mod terminal_width_tests {
+    use super::resolve_terminal_width;
+
+    #[test]
+    fn columns_env_wins_over_ioctl() {
+        assert_eq!(resolve_terminal_width(Some("120"), Some(80)), Some(120));
+    }
+
+    #[test]
+    fn falls_back_to_ioctl_when_env_absent() {
+        assert_eq!(resolve_terminal_width(None, Some(180)), Some(180));
+    }
+
+    #[test]
+    fn falls_back_to_ioctl_when_env_unparseable() {
+        assert_eq!(
+            resolve_terminal_width(Some("not-a-number"), Some(160)),
+            Some(160)
+        );
+    }
+
+    #[test]
+    fn returns_none_when_both_sources_fail() {
+        assert_eq!(resolve_terminal_width(None, None), None);
+        assert_eq!(resolve_terminal_width(Some("bogus"), None), None);
     }
 }

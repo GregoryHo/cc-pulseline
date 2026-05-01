@@ -117,7 +117,11 @@ fn quota_hidden_when_no_data() {
 }
 
 #[test]
-fn quota_dropped_in_width_degradation() {
+fn quota_kept_when_only_activity_is_dropped() {
+    // Quota belongs to the Budget group, not activity. The
+    // DropActivityLinesFirst strategy must NOT drop quota — it only drops
+    // rows past `activity_start`. With no activity rows at all, quota
+    // remains as the 4th line even at narrow widths.
     let quota = QuotaMetrics {
         five_hour_pct: Some(50.0),
         ..Default::default()
@@ -125,15 +129,14 @@ fn quota_dropped_in_width_degradation() {
     let config = RenderConfig {
         show_quota: true,
         show_quota_five_hour: true,
-        terminal_width: Some(20), // Very narrow — forces degradation
+        terminal_width: Some(20),
         ..Default::default()
     };
     let lines = render_with_quota(quota, config);
-    // Width degradation drops activity lines (including quota) first
-    assert!(
-        lines.len() <= 3,
-        "quota line should be dropped in narrow width, got {} lines",
-        lines.len()
+    assert_eq!(
+        lines.len(),
+        4,
+        "quota stays as part of Budget group; only activity rows get dropped"
     );
 }
 

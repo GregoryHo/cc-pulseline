@@ -104,6 +104,27 @@ Provides unique icon colors for each L2 metric, enabling fast visual scanning. C
 | `COST_MED_RATE` | 221 | Burn rate $10-50/h |
 | `COST_HIGH_RATE` | 201 | Burn rate >$50/h |
 
+### Strata Tier -- Two-Tier Chrome Split (state vs activity)
+
+The strata tier tints the `|` separator on a per-row basis when
+`layout.tonal_strata = true` (default). Two values per theme variant:
+
+| Field | Tokyo Night Dark | Tokyo Night Light | Use |
+|-------|------------------|-------------------|-----|
+| `strata_state` | 238 | 253 | Identity / Config / Budget / Quota rows |
+| `strata_activity` | 103 | 246 | Tools / Agents / Todos rows |
+
+Strata is **chrome, not value** — these colors live below the emphasis
+tiers and never render data. Theme authors hand-pick both values per
+variant; a CI lint enforces `|state − activity| ≥ 3` on the ansi256
+scale so no shipped theme can collapse the contract. See
+`designs/tonal-strata-redesign.md` for the full spec and per-theme
+rationale.
+
+**Custom themes that omit the fields** fall back to `separator` /
+`structural` and emit a one-time warning pointing at the missing field
+names — existing customizations keep rendering.
+
 ### Legacy Aliases
 
 For backward compatibility, old names map to the new tier system:
@@ -124,16 +145,18 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) -- replaced by emphasis tiers and rate-based cost coloring.
 
-## Tier Summary (6 types, ~25 unique colors)
+## Tier Summary (8 types, 31 unique fields)
 
 | Tier | Colors | Purpose | Status |
 |------|--------|---------|--------|
 | ALERT | 3 (196/214/201) | Critical states | Unchanged |
 | ACTIVE | 5 (117/183/80/178/209) | Live activity | Unchanged |
 | STABLE | 2 (111/71) | Static identity | Unchanged |
-| INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Added |
-| Emphasis | 4x2 themes | Gray hierarchy | Light values revised |
+| INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Unchanged |
+| Emphasis | 4x2 themes | Gray hierarchy | Unchanged |
 | Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
+| Strata | 2x2 themes (state/activity) | Per-row separator chrome | Added in 1.1.0 |
+| Aurora | 3 (low/mid/high) | Sparkline velocity gradient on ledger CTX | **Added in 1.1.0** |
 
 ## Element Mapping
 
@@ -288,6 +311,7 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 | Theme | Description |
 |-------|-------------|
 | `tokyo-night` | Blue-tinted grays, 25+ semantic colors (default) |
+| `pulseline-aurora` | Aurora-pulse flagship: 3-stop velocity gradient on the ledger CTX sparkline |
 | `echo-sub-zero` | Mono-accent minimalist, 3-stage CTX/cost signaling |
 | `titanium-precision` | Industrial steel blues, amber warnings, brick reds |
 | `cnc-telemetry` | Hardware telemetry: anodized teal, matte copper, rust red |
@@ -296,6 +320,10 @@ All semantic colors are theme-invariant -- they are chosen to be readable on bot
 | `mako-reactor` | FFVII: Shinra steel, Mako cyan-green, Materia accents |
 | `aburaya-twilight` | Spirited Away: bathhouse red, dragon teal, spirit blues |
 | `matte-carbon-neon` | Industrial tech: grayscale chrome, piercing neon accents |
+
+> The full set of theme JSON files lives in `src/themes/`. New themes
+> dropped into that directory are picked up at build time — this table
+> is a curated snapshot, not the source of truth.
 
 Set theme in config:
 
@@ -329,7 +357,7 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    cp src/themes/echo-sub-zero.json ~/.claude/pulseline/themes/my-theme.json
    ```
 
-2. Edit `palette_mapping` — these are the 26 ANSI 256-color codes that control rendering:
+2. Edit `palette_mapping` — these are the 31 ANSI 256-color codes that control rendering:
 
    | Field | Purpose |
    |-------|---------|
@@ -359,6 +387,19 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    | `cost_low_rate` | Burn rate <$10/h |
    | `cost_med_rate` | Burn rate $10-50/h |
    | `cost_high_rate` | Burn rate >$50/h |
+   | `strata_state` | Chrome on the `\|` for state rows (L1/L2/L3/Quota) |
+   | `strata_activity` | Chrome on the `\|` for activity rows (Tools/Agents/Todos) |
+   | `aurora_low` | Sparkline fill at low CTX-consumption velocity (calm / idle, < 1%/min) |
+   | `aurora_mid` | Sparkline fill at mid velocity (active, 1–5%/min) |
+   | `aurora_high` | Sparkline fill at high velocity (hot, ≥ 5%/min) |
+
+   The strata pair must satisfy `\|state − activity\| ≥ 3` on the ansi256
+   scale; the `theme_strata_contrast` test fails CI otherwise. The aurora
+   triple is enforced separately by `tests/theme_aurora_contrast.rs`
+   (minimum spread between adjacent stops). Authors should pick strata
+   chrome that reads quieter than the theme's `emphasis_primary` /
+   `emphasis_secondary` so the separator never competes with values; the
+   aurora triple should read as a smooth velocity gradient.
 
 ### Palette → UI Mapping
 
@@ -373,7 +414,8 @@ How each `palette_mapping` field connects to the rendered statusline:
  stable_green ────────────────────────────────→ G:main (clean branch)
  alert_orange ────────────────────────────────→ G:main* (dirty asterisk)
  active_coral ────────────────────────────────→ ↑2 ↓1 (ahead/behind)
- emphasis_separator ──────────────────────────→ | (pipes between segments)
+ emphasis_separator ──────────────────────────→ | (default pipe color when tonal_strata = false)
+ strata_state ────────────────────────────────→ | (pipes on L1/L2/L3/Quota when tonal_strata = true)
 
                                                L2: Config Counts
  indicator_claude_md ─┐                        ┌→ 󰈙 (CLAUDE.md icon)
@@ -410,6 +452,7 @@ How each `palette_mapping` field connects to the rendered statusline:
  active_purple ───────────────────────────────→ A:Explore [haiku]: ...
  active_teal ─────────────────────────────────→ TODO:Fixing auth bug
  completed_check ─────────────────────────────→ ✓ All todos complete
+ strata_activity ─────────────────────────────→ | (pipes on activity rows when tonal_strata = true)
 ```
 
 ### JSON File Structure
@@ -421,7 +464,7 @@ theme.json
 ├── "author"               (string, optional)
 ├── "description"          (string, optional)
 │
-├── "palette_mapping"      ★ REQUIRED — the 26 ANSI color codes that control rendering
+├── "palette_mapping"      ★ REQUIRED — the 31 ANSI color codes that control rendering
 │   ├── emphasis_primary        (u8) ─── brightest text: token values, counts
 │   ├── emphasis_secondary      (u8) ─── supporting: style, version, project, targets
 │   ├── emphasis_structural     (u8) ─── labels, icons, metadata text
@@ -447,13 +490,23 @@ theme.json
 │   ├── cost_base               (u8) ─── total cost display
 │   ├── cost_low_rate           (u8) ─── burn <$10/h
 │   ├── cost_med_rate           (u8) ─── burn $10-50/h
-│   └── cost_high_rate          (u8) ─── burn >$50/h
+│   ├── cost_high_rate          (u8) ─── burn >$50/h
+│   ├── strata_state            (u8) ─── chrome on `|` for state rows
+│   ├── strata_activity         (u8) ─── chrome on `|` for activity rows
+│   ├── aurora_low              (u8) ─── sparkline fill at low CTX velocity (<1%/min)
+│   ├── aurora_mid              (u8) ─── sparkline fill at mid CTX velocity (1–5%/min)
+│   └── aurora_high             (u8) ─── sparkline fill at high CTX velocity (≥5%/min)
 │
 ├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
 │   ├── primary            (u8)
 │   ├── secondary          (u8)
 │   ├── structural         (u8)
-│   └── separator          (u8)
+│   ├── separator          (u8)
+│   ├── strata_state       (u8, optional — falls back to dark variant if absent)
+│   ├── strata_activity    (u8, optional — falls back to dark variant if absent)
+│   ├── aurora_low         (u8, optional — falls back to dark variant if absent)
+│   ├── aurora_mid         (u8, optional — falls back to dark variant if absent)
+│   └── aurora_high        (u8, optional — falls back to dark variant if absent)
 │
 ├── "colors"               (optional — design documentation, not consumed by code)
 ├── "element_mapping"      (optional — documents which UI element uses which color)

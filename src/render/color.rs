@@ -40,15 +40,28 @@ pub struct ThemePalette {
     pub cost_low_rate: String,
     pub cost_med_rate: String,
     pub cost_high_rate: String,
+    // Tonal strata — chrome tier for the `|` separator (state vs activity rows).
+    pub strata_state: String,
+    pub strata_activity: String,
+    // Aurora pulse — 3-stop gradient. Used by the sparkline widget; ledger
+    // picks a stop based on CTX consumption velocity (calm / active / hot).
+    pub aurora_low: String,
+    pub aurora_mid: String,
+    pub aurora_high: String,
 }
 
-/// Context usage thresholds for color switching.
+/// CTX threshold percentages — fired by `color_for_ctx_pct` and
+/// surfaced as bar marks by `ctx_marks`. Fixed regardless of
+/// context-window size: 55%+ → warn, 70%+ → critical.
 pub const CTX_WARN_THRESHOLD: u64 = 55;
 pub const CTX_CRITICAL_THRESHOLD: u64 = 70;
 
 /// Semantic aliases and color-selection helpers.
 impl ThemePalette {
-    /// Pick the context color for a given usage percentage.
+    /// Pick the context color for a given usage percentage. Visual
+    /// progress semantics, not token-pressure: 55% on a 1M window
+    /// still fires `warn`. See `designs/quota-gauge-revival/` for
+    /// the trade-off rationale.
     pub fn color_for_ctx_pct(&self, pct: u64) -> &str {
         if pct >= CTX_CRITICAL_THRESHOLD {
             self.ctx_critical()
@@ -67,6 +80,20 @@ impl ThemePalette {
             &self.cost_med_rate
         } else {
             &self.cost_low_rate
+        }
+    }
+
+    /// Pick an intensity-appropriate color for a model effort level.
+    /// Unknown values fall through to `secondary` so future Claude Code
+    /// levels render without code changes.
+    pub fn color_for_effort_level(&self, level: &str) -> &str {
+        match level {
+            "low" => &self.structural,
+            "medium" => &self.stable_blue,
+            "high" => &self.active_amber,
+            "xhigh" => &self.active_coral,
+            "max" => &self.alert_red,
+            _ => &self.secondary,
         }
     }
 
@@ -96,6 +123,26 @@ impl ThemePalette {
     }
     pub fn ctx_critical(&self) -> &str {
         &self.alert_red
+    }
+    /// Quota threshold ladder — `≥85% → critical`, `≥50% → warn`, else good.
+    /// Used by `format_quota_period` and the ledger quota row so the colors
+    /// stay consistent across layouts.
+    pub fn color_for_quota_pct(&self, pct: f64) -> &str {
+        if pct >= 85.0 {
+            self.ctx_critical()
+        } else if pct >= 50.0 {
+            self.ctx_warn()
+        } else {
+            self.ctx_good()
+        }
+    }
+
+    /// CTX threshold marks (warn, critical) as percentages, for the
+    /// gauge widget's `marks` parameter. Matches `color_for_ctx_pct`
+    /// so mark positions land at the same percentages as colour
+    /// transitions.
+    pub fn ctx_marks() -> [u64; 2] {
+        [CTX_WARN_THRESHOLD, CTX_CRITICAL_THRESHOLD]
     }
     pub fn tool_blue(&self) -> &str {
         &self.active_cyan
@@ -152,15 +199,41 @@ struct PresetColors {
     cost_low_rate: u8,
     cost_med_rate: u8,
     cost_high_rate: u8,
+    /// Optional in JSON — built-in themes set both, custom themes may omit.
+    /// Missing fields fall back to `separator` / `structural` in `build_palette`.
+    #[serde(default)]
+    strata_state: Option<u8>,
+    #[serde(default)]
+    strata_activity: Option<u8>,
+    /// Aurora pulse — 3-stop gradient. Built-in themes set all three;
+    /// custom themes may omit (fall back to `completed_check` / `active_cyan`
+    /// / `active_coral` in `build_palette`).
+    #[serde(default)]
+    aurora_low: Option<u8>,
+    #[serde(default)]
+    aurora_mid: Option<u8>,
+    #[serde(default)]
+    aurora_high: Option<u8>,
 }
 
-/// Light variant emphasis overrides (only 4 fields differ from dark).
+/// Light variant emphasis overrides (only 4 fields differ from dark, plus
+/// optional strata pair and aurora triple when light should diverge from dark).
 #[derive(Deserialize)]
 struct LightEmphasis {
     primary: u8,
     secondary: u8,
     structural: u8,
     separator: u8,
+    #[serde(default)]
+    strata_state: Option<u8>,
+    #[serde(default)]
+    strata_activity: Option<u8>,
+    #[serde(default)]
+    aurora_low: Option<u8>,
+    #[serde(default)]
+    aurora_mid: Option<u8>,
+    #[serde(default)]
+    aurora_high: Option<u8>,
 }
 
 /// Top-level theme JSON file structure.
@@ -189,6 +262,11 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             secondary: le.secondary,
             structural: le.structural,
             separator: le.separator,
+            strata_state: le.strata_state.or(dark.strata_state),
+            strata_activity: le.strata_activity.or(dark.strata_activity),
+            aurora_low: le.aurora_low.or(dark.aurora_low),
+            aurora_mid: le.aurora_mid.or(dark.aurora_mid),
+            aurora_high: le.aurora_high.or(dark.aurora_high),
             ..dark
         },
         None => dark,
@@ -225,6 +303,10 @@ static BUILTIN_THEMES: &[(&str, &str)] = &[
     (
         "matte-carbon-neon",
         include_str!("../themes/matte-carbon-neon.json"),
+    ),
+    (
+        "pulseline-aurora",
+        include_str!("../themes/pulseline-aurora.json"),
     ),
 ];
 
@@ -325,6 +407,14 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         cost_low_rate: ansi256(preset.cost_low_rate),
         cost_med_rate: ansi256(preset.cost_med_rate),
         cost_high_rate: ansi256(preset.cost_high_rate),
+        // Custom themes may omit strata fields → fall back to baseline chrome.
+        strata_state: ansi256(preset.strata_state.unwrap_or(preset.separator)),
+        strata_activity: ansi256(preset.strata_activity.unwrap_or(preset.structural)),
+        // Custom themes may omit aurora fields → fall back to existing semantic
+        // colours that approximate the calm → present → warming gradient.
+        aurora_low: ansi256(preset.aurora_low.unwrap_or(preset.completed_check)),
+        aurora_mid: ansi256(preset.aurora_mid.unwrap_or(preset.active_cyan)),
+        aurora_high: ansi256(preset.aurora_high.unwrap_or(preset.active_coral)),
     }
 }
 
@@ -363,6 +453,46 @@ pub fn apply_color_overrides(palette: &mut ThemePalette, overrides: &ColorsConfi
     apply!(cost_low_rate);
     apply!(cost_med_rate);
     apply!(cost_high_rate);
+    apply!(strata_state);
+    apply!(strata_activity);
+    apply!(aurora_low);
+    apply!(aurora_mid);
+    apply!(aurora_high);
+}
+
+/// Emit one warning per custom theme name that omits the strata fields.
+/// Authors need the signal once; users don't need it on every render tick.
+fn warn_strata_fallback_once(theme_name: &str) {
+    type Seen = std::sync::Mutex<Vec<String>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut list) = seen.lock() {
+        if list.iter().any(|n| n == theme_name) {
+            return;
+        }
+        list.push(theme_name.to_string());
+    }
+    eprintln!(
+        "warning: custom theme \"{theme_name}\" is missing strata_state / strata_activity; \
+         falling back to separator/structural. See docs/theme-palette.md for the strata tier."
+    );
+}
+
+/// Emit one warning per custom theme name that omits aurora pulse fields.
+fn warn_aurora_fallback_once(theme_name: &str) {
+    type Seen = std::sync::Mutex<Vec<String>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut list) = seen.lock() {
+        if list.iter().any(|n| n == theme_name) {
+            return;
+        }
+        list.push(theme_name.to_string());
+    }
+    eprintln!(
+        "warning: custom theme \"{theme_name}\" is missing aurora_low / aurora_mid / aurora_high; \
+         falling back to completed_check/active_cyan/active_coral. See docs/theme-palette.md for the aurora tier."
+    );
 }
 
 /// Resolve theme name + variant to a ThemePalette, with TOML overrides applied.
@@ -392,12 +522,23 @@ pub fn resolve_palette(
         other => other,
     };
 
-    let preset = load_builtin_theme(resolved_name)
-        .or_else(|| load_custom_theme(resolved_name))
-        .unwrap_or_else(|| {
-            eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
-            load_builtin_theme("tokyo-night").expect("built-in tokyo-night must exist")
-        });
+    let preset = if let Some(p) = load_builtin_theme(resolved_name) {
+        p
+    } else if let Some(p) = load_custom_theme(resolved_name) {
+        if p.dark.strata_state.is_none() || p.dark.strata_activity.is_none() {
+            warn_strata_fallback_once(resolved_name);
+        }
+        if p.dark.aurora_low.is_none()
+            || p.dark.aurora_mid.is_none()
+            || p.dark.aurora_high.is_none()
+        {
+            warn_aurora_fallback_once(resolved_name);
+        }
+        p
+    } else {
+        eprintln!("warning: unknown theme \"{resolved_name}\", falling back to tokyo-night");
+        load_builtin_theme("tokyo-night").expect("built-in tokyo-night must exist")
+    };
 
     let preset_colors = match resolved_variant {
         ColorTheme::Dark => &preset.dark,
@@ -406,6 +547,41 @@ pub fn resolve_palette(
     let mut palette = build_palette(preset_colors);
     apply_color_overrides(&mut palette, overrides);
     palette
+}
+
+/// Strata pair for a built-in theme variant, as authored in the JSON (no
+/// fallback substitution). Either field may be `None` if the theme JSON omits
+/// it — used by the contrast-floor lint to fail loudly on un-authored built-ins.
+/// Returns `None` for the whole pair when the name is not a built-in.
+pub fn builtin_strata_pair(name: &str, variant: ColorTheme) -> Option<(Option<u8>, Option<u8>)> {
+    let preset = load_builtin_theme(name)?;
+    let pc = match variant {
+        ColorTheme::Dark => &preset.dark,
+        ColorTheme::Light => &preset.light,
+    };
+    Some((pc.strata_state, pc.strata_activity))
+}
+
+/// Aurora triple (low, mid, high) for a built-in theme variant, as authored
+/// in JSON (no fallback substitution). Any field may be `None` if the theme
+/// omits it — used by the contrast-floor lint to fail loudly on un-authored
+/// built-ins. Returns `None` for the whole triple when the name is not a
+/// built-in.
+pub fn builtin_aurora_triple(
+    name: &str,
+    variant: ColorTheme,
+) -> Option<(Option<u8>, Option<u8>, Option<u8>)> {
+    let preset = load_builtin_theme(name)?;
+    let pc = match variant {
+        ColorTheme::Dark => &preset.dark,
+        ColorTheme::Light => &preset.light,
+    };
+    Some((pc.aurora_low, pc.aurora_mid, pc.aurora_high))
+}
+
+/// All built-in theme names. Stable order matches `BUILTIN_THEMES`.
+pub fn builtin_theme_names() -> impl Iterator<Item = &'static str> {
+    BUILTIN_THEMES.iter().map(|(n, _)| *n)
 }
 
 /// Returns built-in preset names + any custom themes found in `~/.claude/pulseline/themes/`.
@@ -744,5 +920,24 @@ mod tests {
         assert_eq!(p.tool_blue(), &p.active_cyan);
         assert_eq!(p.agent_purple(), &p.active_purple);
         assert_eq!(p.todo_teal(), &p.active_teal);
+    }
+
+    // ── Context threshold: fixed percentages, window-agnostic ──
+
+    #[test]
+    fn ctx_threshold_ladder_55_70() {
+        let p = ThemePalette::default();
+        assert_eq!(p.color_for_ctx_pct(40), p.ctx_good());
+        assert_eq!(p.color_for_ctx_pct(54), p.ctx_good());
+        assert_eq!(p.color_for_ctx_pct(55), p.ctx_warn());
+        assert_eq!(p.color_for_ctx_pct(69), p.ctx_warn());
+        assert_eq!(p.color_for_ctx_pct(70), p.ctx_critical());
+        assert_eq!(p.color_for_ctx_pct(95), p.ctx_critical());
+        assert_eq!(p.color_for_ctx_pct(255), p.ctx_critical());
+    }
+
+    #[test]
+    fn ctx_marks_returns_55_70() {
+        assert_eq!(ThemePalette::ctx_marks(), [55, 70]);
     }
 }

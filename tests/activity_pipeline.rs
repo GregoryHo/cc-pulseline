@@ -867,7 +867,9 @@ fn links_agent_progress_to_task_tool_use() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Agent tool_use → pending queue, no agent visible
+    // Event 0: Agent tool_use → registered as active immediately so
+    // running sub-agents are visible (CC's Task tool never emits
+    // `agent_progress` for sub-agents).
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -877,8 +879,8 @@ fn links_agent_progress_to_task_tool_use() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        !joined.contains("A:"),
-        "Agent tool_use should not create visible agent yet: got {joined}"
+        joined.contains("A:Explore"),
+        "Agent tool_use should register active sub-agent: got {joined}"
     );
 
     // Event 1: first agent_progress → links to pending, creates single agent
@@ -947,7 +949,9 @@ fn links_concurrent_agents_fifo() {
         ..RenderConfig::default()
     };
 
-    // Event 0: Two Agent tool_uses in one message → two pending tasks
+    // Event 0: Two Agent tool_uses in one message → two active sub-agents
+    // immediately visible (CC's Task tool never emits agent_progress, so we
+    // can't wait for it).
     append_line(&transcript, events[0]);
     let lines = runner
         .run_from_str(
@@ -956,9 +960,15 @@ fn links_concurrent_agents_fifo() {
         )
         .expect("render should succeed");
     let joined = lines.join("\n");
+    let agent_lines: Vec<&String> = lines.iter().filter(|l| l.starts_with("A:")).collect();
+    assert_eq!(
+        agent_lines.len(),
+        2,
+        "two Agent tool_uses should register two active sub-agents: got {agent_lines:?}"
+    );
     assert!(
-        !joined.contains("A:"),
-        "no agents should be visible yet: got {joined}"
+        joined.contains("A:Explore") && joined.contains("A:Bash"),
+        "both subagent types should be visible: got {joined}"
     );
 
     // Events 1-2: agent_progress for each → FIFO linking
@@ -1091,9 +1101,17 @@ fn task_completes_without_agent_progress() {
         )
         .expect("render should succeed");
     let joined = lines.join("\n");
+    // The Agent tool_use registers the sub-agent as ACTIVE immediately
+    // (CC's Task tool never emits `agent_progress` for sub-agents, so
+    // waiting for one would leave running agents invisible). The agent
+    // shows up as `A:Explore: Quick lookup` while in flight.
     assert!(
-        !joined.contains("A:"),
-        "no agent visible during pending: got {joined}"
+        joined.contains("A:Explore: Quick lookup"),
+        "Agent tool_use should register active sub-agent: got {joined}"
+    );
+    assert!(
+        !joined.contains("[done]"),
+        "should not be marked completed yet: got {joined}"
     );
 
     // tool_result with NO agent_progress in between → drain pending, create+complete
@@ -1143,8 +1161,8 @@ fn tracks_task_create_and_update_as_todo() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
-        "3 TaskCreates should show TODO:3 tasks (0/3): got {joined}"
+        joined.contains("TODO: 3 tasks") && joined.contains("(0/3)"),
+        "3 TaskCreates should show TODO: 3 tasks (0/3): got {joined}"
     );
 
     // Event 3: TaskUpdate task 1 → in_progress → shows active_form text
@@ -1554,7 +1572,7 @@ fn todo_pending_only_shows_task_count() {
         .expect("render should succeed");
     let joined = lines.join("\n");
     assert!(
-        joined.contains("TODO:3 tasks") && joined.contains("(0/3)"),
+        joined.contains("TODO: 3 tasks") && joined.contains("(0/3)"),
         "pending-only should show task count format: got {joined}"
     );
 }
@@ -1762,7 +1780,7 @@ fn completed_tools_wraps_to_multiple_lines() {
     let config = RenderConfig {
         transcript_poll_throttle_ms: 0,
         max_completed_tools: 8,
-        tools_per_line: 6,
+        max_completed_lines: 2,
         ..RenderConfig::default()
     };
 
@@ -1770,13 +1788,26 @@ fn completed_tools_wraps_to_multiple_lines() {
         .run_from_str(&payload_json(&workspace, &transcript, "wrap-test"), config)
         .expect("render should succeed");
 
-    // Count lines containing ✓ (completed tool markers)
+    // 8 short cells fit into one row at width 200.
     let completed_lines: Vec<&String> = lines.iter().filter(|l| l.contains("✓")).collect();
     assert_eq!(
         completed_lines.len(),
-        2,
-        "8 tools at 6 per line should produce 2 completed lines: got {completed_lines:?}"
+        1,
+        "8 tools should pack onto ONE line: got {completed_lines:?}"
     );
+    let row = completed_lines[0];
+    for name in [
+        "Read",
+        "Write",
+        "Edit",
+        "Bash",
+        "Grep",
+        "Glob",
+        "WebFetch",
+        "WebSearch",
+    ] {
+        assert!(row.contains(name), "row missing {name}: {row:?}");
+    }
 }
 
 #[test]
@@ -1806,7 +1837,7 @@ fn completed_tools_single_line_when_under_per_line() {
     let config = RenderConfig {
         transcript_poll_throttle_ms: 0,
         max_completed_tools: 8,
-        tools_per_line: 6,
+        max_completed_lines: 2,
         ..RenderConfig::default()
     };
 

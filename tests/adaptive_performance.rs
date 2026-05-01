@@ -92,26 +92,48 @@ fn degrades_layout_for_narrow_terminal_widths() {
         .run_from_str(&payload, narrow)
         .expect("narrow render should succeed");
 
-    assert_eq!(
-        narrow_lines.len(),
-        3,
-        "narrow render should prioritize core lines"
-    );
+    // Width-fit invariant — the only hard requirement for narrow renders.
+    // The previous version of this test also asserted that activity lines
+    // were dropped at width=36, but that codified the old over-aggressive
+    // `DropActivityLinesFirst` strategy. The new degrade order compresses
+    // first and only drops activity as a last resort, so short activity
+    // rows ("T:ReadFile", etc.) are correctly preserved when they fit.
     assert!(
         narrow_lines.iter().all(|line| visible_width(line) <= 36),
         "all lines should fit target width"
     );
     assert!(
-        narrow_lines.iter().all(|line| !line.starts_with("T:")),
-        "tool lines should be dropped during degradation"
+        !narrow_lines.is_empty(),
+        "narrow render should still produce core lines"
     );
-    assert!(
-        narrow_lines.iter().all(|line| !line.starts_with("A:")),
-        "agent lines should be dropped during degradation"
+}
+
+#[test]
+fn drop_activity_strategy_still_fires_when_compression_alone_cannot_help() {
+    // Direct test of the strategy as a last-resort mechanism. Use a
+    // pathologically narrow width and a custom degrade_order containing
+    // only DropActivityLinesFirst — verify activity rows are still dropped.
+    let workspace = TempDir::new().expect("temp workspace");
+    fs::write(workspace.path().join("CLAUDE.md"), "# Claude\n").expect("claude file");
+    let transcript = workspace.path().join("drop-flow.jsonl");
+    append_line(
+        &transcript,
+        r#"{"type":"tool_use","tool_use_id":"t1","name":"ReadFile"}"#,
     );
+
+    let payload = payload_json(&workspace, &transcript, "drop-test");
+    let mut runner = PulseLineRunner::default();
+
+    let cfg = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        terminal_width: Some(36),
+        degrade_order: vec![cc_pulseline::config::WidthDegradeStrategy::DropActivityLinesFirst],
+        ..RenderConfig::default()
+    };
+    let lines = runner.run_from_str(&payload, cfg).expect("render");
     assert!(
-        narrow_lines.iter().all(|line| !line.starts_with("TODO:")),
-        "todo lines should be dropped during degradation"
+        lines.iter().all(|line| !line.starts_with("T:")),
+        "DropActivityLinesFirst should remove tool lines when configured alone"
     );
 }
 

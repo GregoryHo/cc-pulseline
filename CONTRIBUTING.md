@@ -6,7 +6,7 @@ Thank you for your interest in contributing to cc-pulseline!
 
 ### Prerequisites
 
-- Rust 1.74+ (for `let-else` syntax and `toml` 0.8)
+- Rust 1.85+ (MSRV — driven by `toml` dependency chain requiring edition 2024)
 - Git
 
 ### Getting Started

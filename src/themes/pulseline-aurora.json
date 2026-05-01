@@ -1,0 +1,75 @@
+{
+  "$schema": "../../docs/theme-schema.json",
+  "theme": "pulseline-aurora",
+  "author": "cc-pulseline",
+  "description": "Bespoke palette tuned for peripheral statusline reading. Three intent layers: substrate (chrome), datum (values), pulse (movement). Aurora gradient teal → coral.",
+
+  "colors": {
+    "intent_layers": {
+      "substrate": "Frame, separators, section breaks — never read, only seen.",
+      "datum":     "Numbers, names, token counts — high-contrast pearl on dark / charcoal on light.",
+      "pulse":     "Anything that moves — sparklines, gauges, active rows. 3-stop gradient cool→mid→warm."
+    }
+  },
+
+  "palette_mapping": {
+    "emphasis_primary":    254,
+    "emphasis_secondary":  248,
+    "emphasis_structural": 244,
+    "emphasis_separator":  237,
+
+    "alert_red":           196,
+    "alert_orange":        178,
+    "alert_magenta":       217,
+
+    "active_cyan":         80,
+    "active_purple":       80,
+    "active_teal":         80,
+    "active_amber":        178,
+    "active_coral":        209,
+
+    "stable_blue":         67,
+    "stable_green":        71,
+
+    "indicator_claude_md": 109,
+    "indicator_rules":     108,
+    "indicator_memory":    144,
+    "indicator_hooks":     178,
+    "indicator_mcp":       73,
+    "indicator_skills":    80,
+    "indicator_duration":  152,
+
+    "completed_check":     67,
+
+    "cost_base":           222,
+    "cost_low_rate":       80,
+    "cost_med_rate":       178,
+    "cost_high_rate":      209,
+
+    "strata_state":        237,
+    "strata_activity":     109,
+
+    "aurora_low":          73,
+    "aurora_mid":          80,
+    "aurora_high":         209
+  },
+
+  "light_emphasis": {
+    "primary":    232,
+    "secondary":  240,
+    "structural": 244,
+    "separator":  252,
+    "strata_state":    252,
+    "strata_activity": 246,
+    "aurora_low":  73,
+    "aurora_mid":  80,
+    "aurora_high": 209
+  },
+
+  "design_notes": {
+    "philosophy": "Peripheral statusline reading. Substrate disappears, datum jumps, pulse animates. Aurora gradient is the only place colour 'moves'.",
+    "active_collapsed": "active_cyan / active_purple / active_teal all collapsed to aurora_mid (80). Differentiation by icon shape, not hue. Reduces colour count from 5 active variants to 1.",
+    "alert_calmed": "alert_orange uses 178 (vs tokyo-night's 214) — Aurora is calmer. alert_magenta is 217 rose, not the hard 201.",
+    "aurora_gradient_invariant": "aurora_low/mid/high are theme-invariant (same dark + light codes). They are brand pigment, not mode-aware chrome. Confirmed legible on light backgrounds via 73/80/209 contrast check."
+  }
+}

@@ -1,7 +1,7 @@
 pub mod cache;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -15,6 +15,11 @@ use crate::{
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
 
 const MAX_RECENT_TOOLS_CAP: usize = 10;
+
+/// Maximum number of CTX% samples retained for the ledger sparkline. The
+/// widget draws 12 (6 braille cells × 2 samples each); the surplus lets
+/// the adaptive 1-minute window expand when samples arrive in bursts.
+pub const MAX_CTX_HISTORY: usize = 30;
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionState {
@@ -40,6 +45,10 @@ pub struct SessionState {
     pub last_output_tokens: Option<u64>,
     pub last_output_token_time_ms: Option<u64>,
     pub output_speed_toks_per_sec: Option<f64>,
+    /// Sparkline source: rolling window of `(pct, epoch_ms)` samples.
+    /// Timestamps drive the ledger's adaptive 1-minute window + velocity-
+    /// based aurora coloring.
+    pub ctx_history: VecDeque<(u8, u64)>,
 }
 
 impl SessionState {
@@ -62,7 +71,17 @@ impl SessionState {
             self.last_output_tokens = None;
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
+            self.ctx_history.clear();
         }
+    }
+
+    /// Push a fresh CTX% sample stamped with `ts_ms`, discarding the oldest
+    /// when at capacity.
+    pub fn push_ctx_sample(&mut self, pct: u8, ts_ms: u64) {
+        if self.ctx_history.len() == MAX_CTX_HISTORY {
+            self.ctx_history.pop_front();
+        }
+        self.ctx_history.push_back((pct.min(100), ts_ms));
     }
 
     /// Compute output token speed from successive payload snapshots.
@@ -200,11 +219,12 @@ impl SessionState {
         agent_type: Option<String>,
         started_at: Option<u64>,
         model: Option<String>,
+        message_id: Option<String>,
     ) {
-        let (started_at, existing_model) =
+        let (started_at, existing_model, existing_message_id) =
             if let Some(position) = self.active_agents.iter().position(|agent| agent.id == id) {
                 let old = self.active_agents.remove(position);
-                (old.started_at, old.model)
+                (old.started_at, old.model, old.message_id)
             } else {
                 let ts = started_at.or_else(|| {
                     Some(
@@ -214,7 +234,7 @@ impl SessionState {
                             .as_millis() as u64,
                     )
                 });
-                (ts, None)
+                (ts, None, None)
             };
         self.active_agents.push(AgentSummary {
             id,
@@ -223,6 +243,7 @@ impl SessionState {
             started_at,
             model: model.or(existing_model),
             completed_at: None,
+            message_id: message_id.or(existing_message_id),
         });
     }
 
@@ -244,6 +265,16 @@ impl SessionState {
         }
     }
 
+    /// Drop an agent from the active list without recording it as
+    /// completed. Used when an agent_progress event re-keys an existing
+    /// active agent under a new id (e.g. progress assigns a runtime
+    /// `agent_id` distinct from the original `tool_use_id`).
+    pub fn discard_active_agent(&mut self, id: &str) {
+        if let Some(pos) = self.active_agents.iter().position(|a| a.id == id) {
+            self.active_agents.remove(pos);
+        }
+    }
+
     pub fn set_todo(&mut self, todo: Option<TodoSummary>) {
         self.todo = todo;
     }
@@ -257,6 +288,7 @@ impl SessionState {
         agent_type: Option<String>,
         model: Option<String>,
         event_ts: Option<u64>,
+        message_id: Option<String>,
     ) {
         self.pending_tasks.push(PendingTask {
             tool_use_id,
@@ -264,6 +296,7 @@ impl SessionState {
             agent_type,
             model,
             event_ts,
+            message_id,
         });
     }
 
@@ -390,7 +423,7 @@ impl SessionState {
         let remaining = max_total.saturating_sub(result.len());
         if remaining > 0 {
             let mut completed: Vec<&AgentSummary> = self.completed_agents.iter().collect();
-            completed.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+            completed.sort_by_key(|agent| std::cmp::Reverse(agent.completed_at));
             for agent in completed.into_iter().take(remaining) {
                 result.push(agent.clone());
             }
@@ -420,6 +453,12 @@ impl SessionState {
         self.last_output_tokens = cache.last_output_tokens;
         self.last_output_token_time_ms = cache.last_output_token_time_ms;
         self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
+        // Defensive trim: a future cap reduction must not over-restore here.
+        let mut history = cache.ctx_history;
+        while history.len() > MAX_CTX_HISTORY {
+            history.pop_front();
+        }
+        self.ctx_history = history;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -454,6 +493,7 @@ impl SessionState {
             last_output_tokens: self.last_output_tokens,
             last_output_token_time_ms: self.last_output_token_time_ms,
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
+            ctx_history: self.ctx_history.clone(),
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),
@@ -482,12 +522,13 @@ mod tests {
 
     #[test]
     fn update_output_speed_computes_rate_within_window() {
-        let mut state = SessionState::default();
         let now = cache::now_epoch_ms();
-
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(now.saturating_sub(500));
-        state.output_speed_toks_per_sec = None;
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(now.saturating_sub(500)),
+            output_speed_toks_per_sec: None,
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(Some(150));
         assert!(result.is_some(), "should compute speed");
@@ -500,12 +541,13 @@ mod tests {
 
     #[test]
     fn update_output_speed_keeps_last_beyond_2s() {
-        let mut state = SessionState::default();
         let now = cache::now_epoch_ms();
-
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(now.saturating_sub(3000));
-        state.output_speed_toks_per_sec = Some(42.0);
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(now.saturating_sub(3000)),
+            output_speed_toks_per_sec: Some(42.0),
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(Some(200));
         assert_eq!(result, Some(42.0), "should keep last known speed");
@@ -513,11 +555,13 @@ mod tests {
 
     #[test]
     fn update_speed_resets_on_transcript_change() {
-        let mut state = SessionState::default();
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(1000);
-        state.output_speed_toks_per_sec = Some(50.0);
-        state.last_transcript_path = Some("/old/path".to_string());
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(1000),
+            output_speed_toks_per_sec: Some(50.0),
+            last_transcript_path: Some("/old/path".to_string()),
+            ..SessionState::default()
+        };
 
         state.reset_transcript_if_path_changed("/new/path");
 
@@ -528,10 +572,12 @@ mod tests {
 
     #[test]
     fn update_output_speed_none_tokens_preserves_state() {
-        let mut state = SessionState::default();
-        state.last_output_tokens = Some(100);
-        state.last_output_token_time_ms = Some(1000);
-        state.output_speed_toks_per_sec = Some(50.0);
+        let mut state = SessionState {
+            last_output_tokens: Some(100),
+            last_output_token_time_ms: Some(1000),
+            output_speed_toks_per_sec: Some(50.0),
+            ..SessionState::default()
+        };
 
         let result = state.update_output_speed(None);
         // Bug #2 fix: None tokens should NOT corrupt state

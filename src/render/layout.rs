@@ -1,317 +1,184 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::borrow::Cow;
+use std::ops::Range;
 
 use crate::{
     config::{RenderConfig, WidthDegradeStrategy},
-    types::{AgentSummary, Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame, TodoSummary},
+    types::{Line1Metrics, Line3Metrics, QuotaMetrics, RenderFrame},
 };
 
 use super::color::{colorize, take_visible_chars, visible_width, ThemePalette, RESET};
-use super::fmt::{
-    format_agent_elapsed, format_duration, format_number, format_reset_duration, format_speed,
-};
+use super::fmt::{format_duration, format_number, format_reset_duration, format_speed};
+use super::frames;
 use super::icons::*;
+use super::pane::{apply_pane, LayoutStyle, LineKind, PaneConfig, PaneGroup};
 
-/// Number of core lines (L1 identity, L2 config, L3 budget) that are always rendered.
-/// Used in width degradation to determine what counts as "activity" lines.
-const CORE_LINE_COUNT: usize = 3;
+/// Borrow `base` or yield an owned variant whose `separator` is overridden with
+/// the row-appropriate strata tier. See `designs/tonal-strata-redesign.md`:
+/// `is_activity = true` → `strata_activity`, otherwise → `strata_state`.
+fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_, ThemePalette> {
+    if !tonal {
+        return Cow::Borrowed(base);
+    }
+    let mut out = base.clone();
+    out.separator = if is_activity {
+        base.strata_activity.clone()
+    } else {
+        base.strata_state.clone()
+    };
+    Cow::Owned(out)
+}
 
 pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
+    // CC allocates the statusline a sub-region narrower than the raw
+    // terminal (see DEFAULT_PANE_CC_MARGIN). The flat path and the ledger
+    // path must both size against the sub-region, not the raw terminal —
+    // otherwise CC's overflow detection wraps the over-wide line and
+    // collapses the whole multi-line render to one visible line.
+    let adjusted = config.terminal_width.map(|w| {
+        let mut c = config.clone();
+        c.terminal_width = Some(w.saturating_sub(config.pane_cc_margin));
+        c
+    });
+    let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
+
+    // Ledger owns its full pipeline; every other layout flows through the
+    // flat-row assembly below and gets decorated by `apply_pane`.
+    let palette = &config.palette;
+    match config.pane_style {
+        LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
+        // Every other layout flows through the flat-line pipeline below
+        // and is decorated by `apply_pane`.
+        LayoutStyle::None
+        | LayoutStyle::Zones
+        | LayoutStyle::Grid
+        | LayoutStyle::Sections
+        | LayoutStyle::Console => {}
+    }
+
     let color = config.color_enabled;
-    let p = &config.palette;
+    let base_palette = &config.palette;
+    let tonal = config.pane_tonal_strata;
 
-    let mut lines = vec![
-        format_line1(frame, config, p),
-        format_line2(frame, config, " | ", p),
-        format_line3(frame, config, p),
-    ];
+    // Two strata tiers, not four: state rows (Identity/Config/Budget/Quota)
+    // share `p_state`; activity rows (Tools/Agents/Todos) get `p_activity`.
+    let p_state = tinted_palette(base_palette, false, tonal);
+    let p_activity = tinted_palette(base_palette, true, tonal);
 
-    // Quota line: between L3 and activity lines
+    let mut lines: Vec<String> = Vec::new();
+    let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
+
+    let start = lines.len();
+    // Console hoists the identity into the top frame title, so it gets a
+    // prefix-less ` · `-separated headline (no `M:` / `G:` icon labels —
+    // the title format is its own visual vocabulary). Other layouts keep
+    // `format_line1`'s body-row format.
+    let identity_str = if matches!(config.pane_style, LayoutStyle::Console) {
+        frames::shared::identity_headline(&frame.line1, config, &p_state, " · ")
+    } else {
+        format_line1(frame, config, &p_state)
+    };
+    lines.push(identity_str);
+    groups.push((LineKind::Identity, start..lines.len()));
+
+    let start = lines.len();
+    lines.push(format_line2(frame, config, " | ", &p_state));
+    groups.push((LineKind::Config, start..lines.len()));
+
+    let start = lines.len();
+    lines.push(format_line3(frame, config, &p_state));
     if config.show_quota {
-        if let Some(line) = format_quota_line(&frame.quota, config, p) {
+        if let Some(line) = format_quota_line(&frame.quota, config, &p_state) {
             lines.push(line);
         }
     }
+    groups.push((LineKind::Budget, start..lines.len()));
 
-    // Tool lines: completed counts (stable, multi-line) then recent tools (volatile)
-    if config.show_tools {
-        if !frame.completed_tools.is_empty() {
-            lines.extend(format_completed_tool_lines(frame, config, p));
-        }
-        if !frame.tools.is_empty() {
-            lines.push(format_recent_tool_line(frame, config, p));
-        }
+    let activity_start = lines.len();
+    let activity_width = config.terminal_width.unwrap_or(usize::MAX);
+    lines.extend(crate::render::activity::build_activity_rows(
+        frame,
+        config,
+        &p_activity,
+        activity_width,
+    ));
+    if lines.len() > activity_start {
+        groups.push((LineKind::Activity, activity_start..lines.len()));
     }
 
-    // Agent lines: one per agent, conditional
-    if config.show_agents {
-        for agent in frame.agents.iter().take(config.max_agent_lines) {
-            lines.push(format_agent_line(agent, config, p));
-        }
+    // Deduct the active style's horizontal overhead from the degradation
+    // budget so content + decoration together fit the terminal.
+    let pane_active = !matches!(config.pane_style, LayoutStyle::None);
+    let style_overhead = match config.pane_style {
+        LayoutStyle::None | LayoutStyle::Zones => 0,
+        // Grid consumes `label_width + 2` cols on the left. The default group
+        // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
+        // + 2 for " │ " = ~12 cols. Budget value for width degradation.
+        LayoutStyle::Grid => 12,
+        // Sections / Console use a wall-on-both-sides layout (`│ ` left +
+        // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
+        LayoutStyle::Sections | LayoutStyle::Console => 16,
+        // Ledger owns its own pipeline and never reaches this branch.
+        LayoutStyle::Ledger => 0,
+    };
+    let effective_width = config
+        .terminal_width
+        .map(|w| w.saturating_sub(style_overhead));
+
+    if let Some(width) = effective_width {
+        let compressed_line2 = format_line2(frame, config, " ", &p_state);
+        lines = apply_width_degradation(
+            lines,
+            width,
+            &config.degrade_order,
+            compressed_line2,
+            color,
+            activity_start,
+        );
+        // `apply_width_degradation` may have truncated `lines`; clamp every
+        // group range so downstream renderers (cards/sections) don't push
+        // chrome for indices that no longer exist (which produces empty
+        // framed boxes).
+        groups.retain_mut(|(_, range)| {
+            range.end = range.end.min(lines.len());
+            range.start < range.end
+        });
     }
 
-    // Todo lines: conditional
-    if config.show_todo {
-        if let Some(todo) = &frame.todo {
-            lines.extend(format_todo_lines(todo, config, p));
-        }
-    }
-
-    if let Some(width) = config.terminal_width {
-        let compressed_line2 = format_line2(frame, config, " ", p);
-        lines =
-            apply_width_degradation(lines, width, &config.degrade_order, compressed_line2, color);
+    if pane_active {
+        lines = apply_pane(lines, &groups, &pane_config_from(config));
     }
 
     lines
 }
 
-/// Format completed tool counts across multiple lines.
-fn format_completed_tool_lines(
-    frame: &RenderFrame,
-    config: &RenderConfig,
-    p: &ThemePalette,
-) -> Vec<String> {
-    let color = config.color_enabled;
-    let sep = colorize(" | ", &p.separator, color);
-    let per_line = config.tools_per_line.max(1);
-
-    frame
-        .completed_tools
-        .chunks(per_line)
-        .map(|chunk| {
-            let parts: Vec<String> = chunk
-                .iter()
-                .map(|completed| {
-                    let check = colorize("✓", &p.completed_check, color);
-                    let name_str = colorize(&completed.name, &p.completed_check, color);
-                    let count_str =
-                        colorize(&format!(" ×{}", completed.count), &p.secondary, color);
-                    format!("{check} {name_str}{count_str}")
-                })
-                .collect();
-            parts.join(&sep)
-        })
-        .collect()
-}
-
-/// Format the recent/running tools line with targets.
-fn format_recent_tool_line(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
-    let mode = config.glyph_mode;
-    let color = config.color_enabled;
-    let sep = colorize(" | ", &p.separator, color);
-
-    let parts: Vec<String> = frame
-        .tools
-        .iter()
-        .take(config.max_tool_lines)
-        .map(|tool| {
-            let prefix = colorize(&glyph(mode, ICON_TOOL, "T:"), p.tool_blue(), color);
-            let name_str = colorize(&tool.name, p.tool_blue(), color);
-            if let Some(target) = &tool.target {
-                let target_str = colorize(&format!(": {target}"), &p.secondary, color);
-                format!("{prefix}{name_str}{target_str}")
-            } else {
-                format!("{prefix}{name_str}")
-            }
-        })
-        .collect();
-
-    parts.join(&sep)
-}
-
-/// Max visible chars for activity line text (agent descriptions, todo task text).
-const ACTIVITY_TEXT_MAX_CHARS: usize = 40;
-
-/// Truncate text to `max_chars`, appending ellipsis if needed.
-fn truncate_text(text: &str, max_chars: usize) -> String {
-    if text.chars().count() > max_chars {
-        let truncated: String = text.chars().take(max_chars).collect();
-        format!("{truncated}…")
-    } else {
-        text.to_string()
-    }
-}
-
-/// Format a parenthesized progress count: ` (N/M)`.
-fn format_progress_count(completed: usize, total: usize, p: &ThemePalette, color: bool) -> String {
-    let open = colorize(" (", &p.separator, color);
-    let counts = colorize(&format!("{completed}/{total}"), &p.secondary, color);
-    let close = colorize(")", &p.separator, color);
-    format!("{open}{counts}{close}")
-}
-
-/// Format todo display lines, capped by `config.max_todo_lines`.
-fn format_todo_lines(todo: &TodoSummary, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
-    let mode = config.glyph_mode;
-    let color = config.color_enabled;
-
-    // All done: celebration line
-    if todo.all_done {
-        let check = colorize("✓", &p.completed_check, color);
-        let text = colorize(" All todos complete", &p.completed_check, color);
-        let progress = format_progress_count(todo.completed, todo.total, p, color);
-        return vec![format!("{check}{text}{progress}")];
-    }
-
-    // Task API path with in-progress items
-    if todo.is_task_api && !todo.in_progress_items.is_empty() {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-
-        let total_active = todo.in_progress_items.len();
-        let mut lines = Vec::new();
-
-        for (idx, item) in todo
-            .in_progress_items
-            .iter()
-            .take(config.max_todo_lines)
-            .enumerate()
-        {
-            let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
-
-            let text_str = colorize(
-                &truncate_text(&item.text, ACTIVITY_TEXT_MAX_CHARS),
-                p.todo_teal(),
-                color,
-            );
-
-            // Elapsed time
-            let elapsed_part = item
-                .started_at
-                .map(|start_ms| {
-                    let secs = now_ms.saturating_sub(start_ms) / 1000;
-                    let open = colorize(" (", &p.separator, color);
-                    let time = colorize(&format_agent_elapsed(secs), &p.structural, color);
-                    let close = colorize(")", &p.separator, color);
-                    format!("{open}{time}{close}")
-                })
-                .unwrap_or_default();
-
-            if idx == 0 {
-                // First line: includes progress indicator (completed/total)
-                let open = colorize(" (", &p.separator, color);
-                let progress = colorize(
-                    &format!("{}/{}", todo.completed, todo.total),
-                    &p.secondary,
-                    color,
-                );
-                let shown = total_active.min(config.max_todo_lines);
-                let overflow_part = if total_active > shown {
-                    colorize(&format!(", {} active", total_active), &p.secondary, color)
-                } else {
-                    String::new()
-                };
-                let close = colorize(")", &p.separator, color);
-                lines.push(format!(
-                    "{prefix}{text_str}{open}{progress}{overflow_part}{close}{elapsed_part}"
-                ));
-            } else {
-                // Subsequent lines: just task text + elapsed
-                lines.push(format!("{prefix}{text_str}{elapsed_part}"));
-            }
-        }
-
-        return lines;
-    }
-
-    // Task API path with pending only (no in-progress items)
-    if todo.is_task_api {
-        let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
-        let label = colorize(&format!("{} tasks", todo.total), p.todo_teal(), color);
-        let progress = format_progress_count(todo.completed, todo.total, p, color);
-        return vec![format!("{prefix}{label}{progress}")];
-    }
-
-    // Legacy fallback (TodoWrite path)
-    let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
-    let text = colorize(&todo.text, p.todo_teal(), color);
-    vec![format!("{prefix}{text}")]
-}
-
-/// Format a single agent line.
-fn format_agent_line(agent: &AgentSummary, config: &RenderConfig, p: &ThemePalette) -> String {
-    let mode = config.glyph_mode;
-    let color = config.color_enabled;
-    let completed = agent.is_completed();
-
-    // Prefix: running vs completed
-    let prefix = if completed {
-        match mode {
-            crate::config::GlyphMode::Icon => {
-                colorize(&format!("{} ", ICON_AGENT_DONE), &p.completed_check, color)
-            }
-            crate::config::GlyphMode::Ascii => colorize("A:", &p.completed_check, color),
-        }
-    } else {
-        colorize(&glyph(mode, ICON_AGENT, "A:"), p.agent_purple(), color)
-    };
-
-    // Truncate description: first line only, max ACTIVITY_TEXT_MAX_CHARS visible chars
-    let first_line = agent.description.lines().next().unwrap_or("");
-    let desc_truncated = truncate_text(first_line, ACTIVITY_TEXT_MAX_CHARS);
-
-    // Elapsed time
-    let elapsed_str = if completed {
-        match (agent.started_at, agent.completed_at) {
-            (Some(start), Some(end)) => {
-                let secs = end.saturating_sub(start) / 1000;
-                format_agent_elapsed(secs)
-            }
-            _ => String::new(),
-        }
-    } else {
-        agent
-            .started_at
-            .map(|start_ms| {
-                let now_ms = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let secs = now_ms.saturating_sub(start_ms) / 1000;
-                format_agent_elapsed(secs)
-            })
-            .unwrap_or_default()
-    };
-
-    // Model tag: [haiku] in structural color
-    let model_part = agent
-        .model
-        .as_ref()
-        .map(|m| colorize(&format!(" [{m}]"), &p.structural, color))
-        .unwrap_or_default();
-
-    // Done tag for ASCII completed agents
-    let done_tag = if completed && mode == crate::config::GlyphMode::Ascii {
-        colorize(" [done]", &p.structural, color)
-    } else {
-        String::new()
-    };
-
-    let elapsed_part = if elapsed_str.is_empty() {
-        String::new()
-    } else {
-        let open = colorize(" (", &p.separator, color);
-        let time = colorize(&elapsed_str, &p.structural, color);
-        let close = colorize(")", &p.separator, color);
-        format!("{open}{time}{close}")
-    };
-
-    let accent_color = if completed {
-        &p.completed_check
-    } else {
-        p.agent_purple()
-    };
-
-    if let Some(agent_type) = &agent.agent_type {
-        let type_str = colorize(&agent_type.to_string(), accent_color, color);
-        let colon = colorize(": ", accent_color, color);
-        let desc_str = colorize(&desc_truncated, &p.secondary, color);
-        format!("{prefix}{type_str}{model_part}{colon}{desc_str}{done_tag}{elapsed_part}")
-    } else {
-        let desc_str = colorize(&desc_truncated, accent_color, color);
-        format!("{prefix}{desc_str}{model_part}{done_tag}{elapsed_part}")
+fn pane_config_from(config: &RenderConfig) -> PaneConfig {
+    let default_groups = vec![
+        PaneGroup {
+            label: "Identity".to_string(),
+            kinds: vec![LineKind::Identity],
+        },
+        PaneGroup {
+            label: "Config".to_string(),
+            kinds: vec![LineKind::Config],
+        },
+        PaneGroup {
+            label: "Budget".to_string(),
+            kinds: vec![LineKind::Budget],
+        },
+        PaneGroup {
+            label: "Activity".to_string(),
+            kinds: vec![LineKind::Activity],
+        },
+    ];
+    PaneConfig {
+        style: config.pane_style,
+        width_mode: config.pane_width_mode,
+        min_width: config.pane_min_width,
+        max_width: config.pane_max_width,
+        groups: default_groups,
+        glyph_mode: config.glyph_mode,
+        terminal_width: config.terminal_width,
+        cc_margin: config.pane_cc_margin,
     }
 }
 
@@ -326,6 +193,23 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
         let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), &p.stable_blue, color);
         let model_val = colorize(&frame.line1.model, &p.stable_blue, color);
         parts.push(format!("{model_label}{model_val}"));
+    }
+
+    if config.show_effort {
+        if let Some(level) = &frame.line1.effort_level {
+            let effort_color = p.color_for_effort_level(level);
+            let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color);
+            let val = colorize(level, effort_color, color);
+            parts.push(format!("{label}{val}"));
+        }
+    }
+
+    if config.show_thinking && frame.line1.thinking_enabled == Some(true) {
+        // Label-only pill — no value; `enabled: false` or missing → omitted entirely.
+        // Trim before colorizing so the ANSI reset stays tight against the glyph.
+        let raw = glyph(mode, ICON_THINKING, "[T]");
+        let label = colorize(raw.trim_end(), &p.active_purple, color);
+        parts.push(label);
     }
 
     if config.show_agent {
@@ -363,7 +247,7 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     parts.join(&sep)
 }
 
-fn format_line2(
+pub(crate) fn format_line2(
     frame: &RenderFrame,
     config: &RenderConfig,
     separator: &str,
@@ -438,6 +322,17 @@ fn format_line2(
             frame.line2.skills_count,
         ));
     }
+    if config.show_plugins && frame.line2.plugins_count > 0 {
+        // Reuse indicator_mcp tier — plugins are heterogeneous bundles of
+        // MCPs / skills / hooks, and sharing the MCP indicator color keeps
+        // L2 visually grouped without a palette change.
+        parts.push(format_item(
+            ICON_PLUGIN,
+            &p.indicator_mcp,
+            "plugins",
+            frame.line2.plugins_count,
+        ));
+    }
     if config.show_duration {
         let duration_text = format_duration(frame.line2.elapsed_minutes);
         let item = match mode {
@@ -462,7 +357,12 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        parts.push(format_context_segment(&frame.line3, config, p));
+        parts.push(format_context_segment(
+            &frame.line3,
+            config,
+            p,
+            &frame.ctx_history,
+        ));
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -535,36 +435,26 @@ fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalet
     status
 }
 
-fn format_context_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
-    let color = config.color_enabled;
-    let mode = config.glyph_mode;
-
-    match (line3.context_used_percentage, line3.context_window_size) {
-        (Some(used_pct), Some(size)) => {
-            let pct_color = p.color_for_ctx_pct(used_pct);
-
-            let used_tokens = (size as f64 * used_pct as f64 / 100.0) as u64;
-
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), pct_color, color);
-            let pct = colorize(&format!("{}%", used_pct), pct_color, color);
-            let open_paren = colorize(" (", &p.separator, color);
-            let usage = colorize(&format_number(used_tokens), &p.primary, color);
-            let sep = colorize("/", &p.separator, color);
-            let total = colorize(&format_number(size), &p.primary, color);
-            let close_paren = colorize(")", &p.separator, color);
-
-            format!("{label}{pct}{open_paren}{usage}{sep}{total}{close_paren}")
-        }
-        _ => {
-            let label = colorize(&glyph(mode, ICON_CONTEXT, "CTX:"), &p.structural, color);
-            let dash = colorize("--", &p.structural, color);
-            let pct_sign = colorize("%", &p.structural, color);
-            let open_paren = colorize(" (", &p.separator, color);
-            let sep = colorize("/", &p.separator, color);
-            let close_paren = colorize(")", &p.separator, color);
-            format!("{label}{dash}{pct_sign}{open_paren}{dash}{sep}{dash}{close_paren}")
-        }
-    }
+fn format_context_segment(
+    line3: &Line3Metrics,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    history: &[(u8, u64)],
+) -> String {
+    // Dispatches through the visual hub so flat layouts inherit per-segment
+    // composability from `context_visual`. Default for every flat layout is
+    // `text` (legacy `CTX:43% (86.0k/200.0k)` form). Users who set
+    // `context_visual = "gauge"` get a gauge bar inside the same row;
+    // `"text+sparkline"` adds a braille trend after the numbers.
+    frames::shared::render_context_visual(
+        config.effective_context_visual(),
+        line3,
+        history,
+        frames::shared::CTX_BAR_WIDTH,
+        config.glyph_mode,
+        p,
+        config.color_enabled,
+    )
 }
 
 fn format_tokens_segment(
@@ -706,13 +596,7 @@ fn format_quota_period(
 
     match pct {
         Some(pct_val) => {
-            let pct_color = if pct_val >= 85.0 {
-                p.ctx_critical()
-            } else if pct_val >= 50.0 {
-                p.ctx_warn()
-            } else {
-                p.ctx_good()
-            };
+            let pct_color = p.color_for_quota_pct(pct_val);
 
             let pct_str = colorize(&format!("{pct_val:.0}%"), pct_color, color);
             let label_str = colorize(&format!("{label}:"), &p.secondary, color);
@@ -727,11 +611,27 @@ fn format_quota_period(
                 })
                 .unwrap_or_default();
 
+            // Bar precedes the percentage when `quota_visual = "gauge"`
+            // (D2 from the F-revival plan). Empty string when the visual
+            // spec doesn't include `gauge` — caller renders text only.
+            let bar = crate::render::frames::shared::render_quota_visual(
+                config.effective_quota_visual(),
+                pct_val,
+                p,
+                config.glyph_mode,
+                color,
+            );
+            let bar_part = if bar.is_empty() {
+                String::new()
+            } else {
+                format!("{bar} ")
+            };
+
             if pct_val >= 100.0 {
                 let limit_text = colorize("Limit reached", p.ctx_critical(), color);
-                format!("{label_str} {limit_text}{reset_part}")
+                format!("{label_str} {bar_part}{limit_text}{reset_part}")
             } else {
-                format!("{label_str} {pct_str}{reset_part}")
+                format!("{label_str} {bar_part}{pct_str}{reset_part}")
             }
         }
         None => {
@@ -748,6 +648,7 @@ fn apply_width_degradation(
     strategies: &[WidthDegradeStrategy],
     compressed_line2: String,
     color_enabled: bool,
+    activity_start: usize,
 ) -> Vec<String> {
     if width == 0 {
         return Vec::new();
@@ -757,6 +658,13 @@ fn apply_width_degradation(
         return lines;
     }
 
+    // "Core" = everything before activity rows (L1 identity, L2 config, L3
+    // budget, optional quota). Quota lives between L3 and the activity start,
+    // so dropping activity lines must truncate to `activity_start`, NOT to a
+    // hardcoded core count — otherwise quota gets dropped together with
+    // activity even though it belongs to the Budget group.
+    let core_end = activity_start;
+
     for strategy in strategies {
         if lines_fit_width(&lines, width) {
             break;
@@ -764,8 +672,8 @@ fn apply_width_degradation(
 
         match strategy {
             WidthDegradeStrategy::DropActivityLinesFirst => {
-                if lines.len() > CORE_LINE_COUNT {
-                    lines.truncate(CORE_LINE_COUNT);
+                if lines.len() > core_end {
+                    lines.truncate(core_end);
                 }
             }
             WidthDegradeStrategy::CompressLine2 => {
@@ -774,7 +682,7 @@ fn apply_width_degradation(
                 }
             }
             WidthDegradeStrategy::CompressCoreLines => {
-                for index in 0..lines.len().min(CORE_LINE_COUNT) {
+                for index in 0..lines.len().min(core_end) {
                     lines[index] = truncate_to_width(&lines[index], width, color_enabled);
                 }
             }

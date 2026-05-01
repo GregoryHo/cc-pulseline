@@ -232,12 +232,21 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         .and_then(Value::as_str)
         .and_then(parse_iso_timestamp);
 
+    // Anthropic API `message.id` for batch detection — only present on
+    // assistant-message envelopes (Path 1). Drives `AgentSummary.message_id`
+    // so multiple Agent tool_uses from one assistant turn group as a batch.
+    let message_id = raw_event
+        .get("message")
+        .and_then(|m| m.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
+
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
     // Or:           { "role": "user", "content": [{...}] }
     if let Some(content_blocks) = extract_content_blocks(raw_event) {
         for block in content_blocks {
-            apply_content_block(state, block, event_ts);
+            apply_content_block(state, block, event_ts, message_id.clone());
         }
         // Defense-in-depth: also check toolUseResult for agent completion signal
         check_tool_use_result_completion(state, raw_event);
@@ -301,7 +310,12 @@ const NOISE_TOOLS: &[&str] = &[
     "ToolSearch",
 ];
 
-fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option<u64>) {
+fn apply_content_block(
+    state: &mut SessionState,
+    block: &Value,
+    event_ts: Option<u64>,
+    message_id: Option<String>,
+) {
     let block_type = match block.get("type").and_then(Value::as_str) {
         Some(t) => t,
         None => return,
@@ -321,7 +335,18 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 .unwrap_or("unknown-id")
                 .to_string();
 
-            // Agent tool → push to pending queue for agent linking
+            // Agent tool → register the sub-agent as ACTIVE immediately,
+            // and also push to the pending queue so a later `agent_progress`
+            // event (when CC ever emits one) can link by id.
+            //
+            // History: this previously only pushed to `pending_tasks` and
+            // waited for an `agent_progress` event to promote the agent to
+            // `active_agents`. CC's Task tool does NOT emit progress events
+            // for sub-agents — only the assistant `tool_use` and eventually
+            // the `tool_result`. Without this immediate `upsert_agent`, the
+            // running agents stay invisible in the statusline until they
+            // finish, at which point `complete_tool_result` promotes them
+            // and immediately moves them to `completed_agents`.
             if name == "Agent" {
                 let input = block.get("input");
                 let description = input
@@ -338,7 +363,15 @@ fn apply_content_block(state: &mut SessionState, block: &Value, event_ts: Option
                 let model = input
                     .and_then(|i| i.get("model").and_then(Value::as_str))
                     .map(ToString::to_string);
-                state.push_pending_task(id, description, agent_type, model, event_ts);
+                state.push_pending_task(
+                    id.clone(),
+                    description.clone(),
+                    agent_type.clone(),
+                    model.clone(),
+                    event_ts,
+                    message_id.clone(),
+                );
+                state.upsert_agent(id, description, agent_type, event_ts, model, message_id);
                 return;
             }
 
@@ -406,6 +439,12 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
     let is_new = !state.active_agents.iter().any(|a| a.id == agent_id);
     if is_new {
         if let Some(pending) = state.link_agent_to_pending_task(&agent_id) {
+            // The `Agent` tool_use already inserted an active agent keyed
+            // by `tool_use_id` (so the running agent shows immediately
+            // even when CC never emits a progress event). Drop that
+            // placeholder before re-keying under the runtime `agent_id`
+            // — otherwise the same logical agent renders twice.
+            state.discard_active_agent(&pending.tool_use_id);
             // Use the Agent tool's description and type instead of agent_progress prompt
             state.upsert_agent(
                 agent_id,
@@ -413,6 +452,7 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
                 pending.agent_type,
                 pending.event_ts,
                 pending.model,
+                pending.message_id,
             );
             return;
         }
@@ -420,6 +460,17 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
 
     // For already-linked agents, skip description overwrite from agent_progress prompt
     if state.is_task_linked_agent(&agent_id) {
+        return;
+    }
+    // The Agent tool_use path already inserted an active agent keyed by
+    // `tool_use_id`. When the runtime `agent_id` from the progress event
+    // happens to equal that `tool_use_id` (e.g. test fixtures or future
+    // CC versions reusing the id), `is_new` is false and the link branch
+    // above is skipped — but the existing entry already has the correct
+    // description from the Agent tool's `input`. Don't fall through to
+    // the standalone path, which would clobber it with the fallback
+    // `"Agent"` literal pulled from the empty progress event.
+    if !is_new {
         return;
     }
 
@@ -443,7 +494,9 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
         .and_then(Value::as_str)
         .map(ToString::to_string);
 
-    state.upsert_agent(agent_id, description, agent_type, event_ts, model);
+    // Standalone agent_progress carries no Anthropic message envelope;
+    // batch detection treats these as `Single`.
+    state.upsert_agent(agent_id, description, agent_type, event_ts, model, None);
 }
 
 // ── Shared task/todo dispatch helpers ─────────────────────────────────
@@ -498,6 +551,7 @@ fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: O
             pending.agent_type,
             pending.event_ts,
             pending.model,
+            pending.message_id,
         );
         state.remove_agent(tool_use_id);
     } else {
@@ -508,101 +562,55 @@ fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: O
 // ── Target extraction (Stage 4) ──────────────────────────────────────
 
 /// Extract a human-readable target from a tool_use block's input field.
+///
+/// Returns the **raw, single-line-sanitized** payload — truncation happens
+/// later in `render::activity::builder` per tool kind (each kind picks an
+/// appropriate `TruncationStrategy` + ideal width via `target_strategy_for`).
+/// This separation lets the renderer make width-aware decisions; previously
+/// every target was pre-truncated to a fixed magic constant here.
 fn extract_target(name: &str, block: &Value) -> Option<String> {
     let input = block.get("input")?;
 
-    match name {
+    let raw = match name {
         "Read" | "Write" | "Edit" | "NotebookEdit" => {
-            let path = input.get("file_path").and_then(Value::as_str)?;
-            Some(truncate_path(path, 30))
+            input.get("file_path").and_then(Value::as_str)
         }
-        "Bash" => {
-            let cmd = input.get("command").and_then(Value::as_str)?;
-            Some(truncate_str(cmd, 30))
-        }
-        "Glob" | "Grep" => {
-            let pattern = input.get("pattern").and_then(Value::as_str)?;
-            Some(truncate_str(pattern, 20))
-        }
-        "WebFetch" => {
-            let url = input.get("url").and_then(Value::as_str)?;
-            Some(truncate_str(url, 30))
-        }
-        "WebSearch" => {
-            let query = input.get("query").and_then(Value::as_str)?;
-            Some(truncate_str(query, 30))
-        }
-        "Skill" => {
-            let skill = input.get("skill").and_then(Value::as_str)?;
-            Some(truncate_str(skill, 20))
-        }
+        // PowerShell (CC 2.1.84 Windows / 2.1.111 Linux & Mac opt-in) is a Bash analog.
+        "Bash" | "PowerShell" => input.get("command").and_then(Value::as_str),
+        // Background script monitor (CC 2.1.98+).
+        "Monitor" => input
+            .get("script_id")
+            .and_then(Value::as_str)
+            .or_else(|| input.get("pattern").and_then(Value::as_str)),
+        // Push notifications (CC 2.1.110 / 2.1.113+).
+        "PushNotification" => input.get("title").and_then(Value::as_str),
+        // Experimental advisor tool (CC 2.1.117+).
+        "Advisor" => input.get("query").and_then(Value::as_str),
+        // MCP discovery (CC 2.1.79+). ToolSearch is in NOISE_TOOLS and never reaches here.
+        "MCPSearch" => input.get("query").and_then(Value::as_str),
+        "Glob" | "Grep" => input.get("pattern").and_then(Value::as_str),
+        "WebFetch" => input.get("url").and_then(Value::as_str),
+        "WebSearch" => input.get("query").and_then(Value::as_str),
+        "Skill" => input.get("skill").and_then(Value::as_str),
         "AskUserQuestion" => input
             .get("questions")
             .and_then(Value::as_array)
             .and_then(|qs| qs.first())
-            .and_then(|q| q.get("question").and_then(Value::as_str))
-            .map(|q| truncate_str(q, 30)),
-        "SendMessage" => input
-            .get("to")
-            .and_then(Value::as_str)
-            .map(|to| truncate_str(to, 20)),
-        "LSP" => input
-            .get("command")
-            .and_then(Value::as_str)
-            .map(|c| truncate_str(c, 20)),
+            .and_then(|q| q.get("question").and_then(Value::as_str)),
+        "SendMessage" => input.get("to").and_then(Value::as_str),
+        "LSP" => input.get("command").and_then(Value::as_str),
         "Agent" => None, // Agent → subagent, not tool
         _ => {
-            // Generic fallback: try file_path → command → pattern
+            // Generic fallback: file_path → command → pattern (whichever exists first)
             input
                 .get("file_path")
                 .and_then(Value::as_str)
-                .map(|p| truncate_path(p, 30))
-                .or_else(|| {
-                    input
-                        .get("command")
-                        .and_then(Value::as_str)
-                        .map(|c| truncate_str(c, 30))
-                })
-                .or_else(|| {
-                    input
-                        .get("pattern")
-                        .and_then(Value::as_str)
-                        .map(|p| truncate_str(p, 20))
-                })
+                .or_else(|| input.get("command").and_then(Value::as_str))
+                .or_else(|| input.get("pattern").and_then(Value::as_str))
         }
-    }
-}
+    }?;
 
-/// Truncate a file path for display: show `.../{filename}` if too long.
-fn truncate_path(path: &str, max_chars: usize) -> String {
-    if path.chars().count() <= max_chars {
-        return path.to_string();
-    }
-
-    // Extract filename from path
-    if let Some(filename) = path.rsplit('/').next() {
-        let prefix = ".../";
-        if filename.chars().count() + prefix.len() <= max_chars {
-            return format!("{prefix}{filename}");
-        }
-        return truncate_str(filename, max_chars);
-    }
-
-    truncate_str(path, max_chars)
-}
-
-/// Truncate a string with ellipsis if too long (char-safe).
-fn truncate_str(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        return s.to_string();
-    }
-    if max_chars <= 3 {
-        let truncated: String = s.chars().take(max_chars).collect();
-        return truncated;
-    }
-    let truncated: String = s.chars().take(max_chars - 3).collect();
-    format!("{truncated}...")
+    Some(crate::render::fmt::sanitize_single_line(raw).into_owned())
 }
 
 // ── Flat format fallback (Path 3) ────────────────────────────────────
@@ -695,7 +703,8 @@ fn handle_task_event(state: &mut SessionState, event: &Value, event_ts: Option<u
     if is_terminal_status(&status) {
         state.remove_agent(&id);
     } else {
-        state.upsert_agent(id, summary, None, event_ts, None);
+        // Path-3 flat fallback has no message envelope.
+        state.upsert_agent(id, summary, None, event_ts, None, None);
     }
 }
 
@@ -722,7 +731,8 @@ fn handle_task_from_tool_use(
         })
         .unwrap_or_else(|| "Agent".to_string());
 
-    state.upsert_agent(id, summary, None, event_ts, None);
+    // Path-3 flat fallback: no message envelope present.
+    state.upsert_agent(id, summary, None, event_ts, None, None);
 }
 
 fn handle_event_by_name(
@@ -774,11 +784,19 @@ fn is_terminal_status(status: &str) -> bool {
     )
 }
 
+/// Upper bound on agents passed to the render layer. The activity-row
+/// builder runs `classify()` (which groups same-`message_id` agents into
+/// one batch row), then caps at `config.max_agent_lines`. Pre-truncating
+/// here would drop members of a batch before classification, e.g.
+/// rendering "×2 parallel" when 3 agents really exist. 50 is generous
+/// and bounded for memory.
+const AGENT_SNAPSHOT_CAP: usize = 50;
+
 fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> TranscriptSnapshot {
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
         completed_counts: state.scored_completed_tools(config.max_completed_tools),
-        agents: state.agents_for_display(config.max_agent_lines),
+        agents: state.agents_for_display(AGENT_SNAPSHOT_CAP),
         todo: state.todo.clone(),
     }
 }
@@ -851,27 +869,32 @@ fn find_nested_string(value: &Value, paths: &[&[&str]]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn truncate_str_ascii() {
-        assert_eq!(truncate_str("hello", 10), "hello");
-        assert_eq!(truncate_str("hello world", 8), "hello...");
+    fn extract_target_strips_newlines_tabs_carriage_returns() {
+        // Regression: a Bash command containing real newlines used to flow
+        // into the statusline unchanged, breaking every pane style's
+        // 1-logical-line-per-row contract. `extract_target` runs
+        // `sanitize_single_line` on every payload before storing.
+        let block = json!({
+            "input": {
+                "command": "python3 -c \"\nimport sys\nfor i in range(10):\n    print(i)\""
+            }
+        });
+        let out = extract_target("Bash", &block).expect("target");
+        assert!(!out.contains('\n'), "no raw newline: {out:?}");
+        assert!(!out.contains('\r'));
+        assert!(!out.contains('\t'));
     }
 
     #[test]
-    fn truncate_str_multibyte_utf8() {
-        // ✓ is 3 bytes (U+2713) — must not panic on byte boundary
-        let s = "✓Read|✓Bash|✓ Read";
-        assert_eq!(truncate_str(s, 5), "✓R...");
-        assert_eq!(truncate_str(s, 3), "✓Re"); // ✓ = 1 char, fits in 3
-        assert_eq!(truncate_str(s, 2), "✓R"); // ≤ max_len, no truncation needed
-    }
-
-    #[test]
-    fn truncate_path_multibyte_utf8() {
-        let path = "/tmp/日本語/ファイル.rs";
-        let result = truncate_path(path, 15);
-        assert!(!result.is_empty());
-        assert!(result.chars().count() <= 15);
+    fn extract_target_preserves_full_payload_for_render_layer_truncation() {
+        // After the activity-width-budget refactor, transcript no longer
+        // pre-truncates targets — render layer chooses per-tool strategy.
+        let cmd = "sed -i '' 's/^name = \".*\"$/name = \"cards\"/' .claude/pulseline.toml";
+        let block = json!({ "input": { "command": cmd } });
+        let out = extract_target("Bash", &block).expect("target");
+        assert_eq!(out, cmd, "expected raw payload, got {out:?}");
     }
 }

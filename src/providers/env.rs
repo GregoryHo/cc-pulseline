@@ -12,6 +12,9 @@ pub struct EnvSnapshot {
     pub mcp_count: u32,
     pub memory_count: u32,
     pub skills_count: u32,
+    /// Count of enabled Claude Code plugins (CC 2.0.12+).
+    #[serde(default)]
+    pub plugins_count: u32,
 }
 
 pub trait EnvCollector {
@@ -37,7 +40,15 @@ impl EnvCollector for FileSystemEnvCollector {
                 .map(PathBuf::from)
         });
 
-        let mcp_count = count_mcp_servers_scoped(root, user_home.as_deref());
+        // Compute enabled plugin install paths once per collection. Sub-counters
+        // (MCP, skills, hooks) operate on the shared slice to avoid re-parsing
+        // `installed_plugins.json` and `settings.json` four times per render.
+        let plugin_paths: Vec<PathBuf> = user_home
+            .as_deref()
+            .map(get_enabled_plugin_paths)
+            .unwrap_or_default();
+
+        let mcp_count = count_mcp_servers_scoped(root, user_home.as_deref(), &plugin_paths);
 
         let rules_count = count_md_files_recursive(&root.join(".claude/rules"))
             + user_home
@@ -50,12 +61,21 @@ impl EnvCollector for FileSystemEnvCollector {
                 .as_ref()
                 .map(|home| count_skill_dirs(&home.join(".claude/skills")))
                 .unwrap_or(0)
-            + user_home
-                .as_ref()
-                .map(|home| count_plugin_skills(home))
-                .unwrap_or(0);
+            + count_plugin_skills(&plugin_paths);
 
         let memory_count = count_memory_files(user_home.as_deref(), cwd);
+
+        // Frontmatter hooks (CC 2.1.0+ for skills, 2.1.43+ for agents).
+        let frontmatter_hooks = count_frontmatter_hooks(&root.join(".claude/skills"))
+            + count_frontmatter_hooks(&root.join(".claude/agents"))
+            + user_home
+                .as_ref()
+                .map(|h| count_frontmatter_hooks(&h.join(".claude/skills")))
+                .unwrap_or(0)
+            + user_home
+                .as_ref()
+                .map(|h| count_frontmatter_hooks(&h.join(".claude/agents")))
+                .unwrap_or(0);
 
         EnvSnapshot {
             claude_md_count: count_claude_md(root, user_home.as_deref()),
@@ -67,12 +87,11 @@ impl EnvCollector for FileSystemEnvCollector {
                     .as_ref()
                     .map(|h| count_hooks_in_json(&h.join(".claude/settings.json")))
                     .unwrap_or(0)
-                + user_home
-                    .as_ref()
-                    .map(|h| count_plugin_hooks(h))
-                    .unwrap_or(0),
+                + count_plugin_hooks(&plugin_paths)
+                + frontmatter_hooks,
             mcp_count,
             skills_count,
+            plugins_count: plugin_paths.len() as u32,
         }
     }
 }
@@ -101,35 +120,39 @@ fn count_claude_md(root: &Path, user_home: Option<&Path>) -> u32 {
     paths.iter().filter(|path| path.is_file()).count() as u32
 }
 
-fn count_md_files_recursive(path: &Path) -> u32 {
-    if !path.exists() {
+/// Recursively visit every `.md` file under `root`, summing the callback's return value.
+/// Shared by count-only and parse-content paths to avoid duplicating the walk loop.
+fn walk_md_files_recursive<F>(root: &Path, mut f: F) -> u32
+where
+    F: FnMut(&Path) -> u32,
+{
+    if !root.exists() {
         return 0;
     }
 
-    let mut count = 0;
-    let mut stack = vec![PathBuf::from(path)];
+    let mut total = 0u32;
+    let mut stack = vec![PathBuf::from(root)];
 
-    while let Some(current) = stack.pop() {
-        let entries = match fs::read_dir(&current) {
-            Ok(entries) => entries,
+    while let Some(dir) = stack.pop() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
             Err(_) => continue,
         };
-
         for entry in entries.flatten() {
-            let entry_path = entry.path();
-            if entry_path.is_dir() {
-                stack.push(entry_path);
-            } else if entry_path.is_file() {
-                if let Some(ext) = entry_path.extension() {
-                    if ext == "md" {
-                        count += 1;
-                    }
-                }
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                total += f(&path);
             }
         }
     }
 
-    count
+    total
+}
+
+fn count_md_files_recursive(path: &Path) -> u32 {
+    walk_md_files_recursive(path, |_| 1)
 }
 
 /// Read and parse a JSON file, returning None on any error.
@@ -177,7 +200,15 @@ fn get_disabled_mcp_servers(path: &Path, key: &str) -> HashSet<String> {
 }
 
 /// Count MCP servers across user and project scopes with dedup + disabled filtering.
-fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
+///
+/// `plugin_paths` is the pre-computed list of enabled plugin install roots
+/// (from `get_enabled_plugin_paths`), passed in so the scoped dedup sees
+/// plugin-provided servers without re-parsing the plugin manifests.
+fn count_mcp_servers_scoped(
+    root: &Path,
+    user_home: Option<&Path>,
+    plugin_paths: &[PathBuf],
+) -> u32 {
     let mut user_set = HashSet::new();
     let mut project_set = HashSet::new();
 
@@ -188,14 +219,28 @@ fn count_mcp_servers_scoped(root: &Path, user_home: Option<&Path>) -> u32 {
             user_set.insert(name);
         }
 
-        // ~/.claude.json → mcpServers + disabledMcpServers (single read)
+        // ~/.claude.json → mcpServers + disabledMcpServers. Capture the
+        // disabled set first; apply removal AFTER plugin servers are merged
+        // so a plugin can't silently re-enable a name the user disabled.
+        let mut user_disabled: HashSet<String> = HashSet::new();
         if let Some(claude_json) = read_json_file(&home.join(".claude.json")) {
             for name in mcp_server_names_from(&claude_json) {
                 user_set.insert(name);
             }
-            for name in disabled_servers_from(&claude_json, "disabledMcpServers") {
-                user_set.remove(&name);
+            user_disabled = disabled_servers_from(&claude_json, "disabledMcpServers");
+        }
+
+        // Plugin-provided MCP servers (CC 2.0.12+). Each enabled plugin may
+        // ship a `.mcp.json` at its install root. Servers are unioned into
+        // user scope so they dedup against user-configured servers.
+        for plugin_path in plugin_paths {
+            for name in get_mcp_server_names(&plugin_path.join(".mcp.json")) {
+                user_set.insert(name);
             }
+        }
+
+        for name in user_disabled {
+            user_set.remove(&name);
         }
     }
 
@@ -314,19 +359,19 @@ fn get_enabled_plugin_paths(user_home: &Path) -> Vec<PathBuf> {
     paths
 }
 
-/// Count skills from enabled plugins by reading installed_plugins.json + settings.json.
-fn count_plugin_skills(user_home: &Path) -> u32 {
-    get_enabled_plugin_paths(user_home)
+/// Count skills bundled with the given enabled-plugin install paths.
+fn count_plugin_skills(plugin_paths: &[PathBuf]) -> u32 {
+    plugin_paths
         .iter()
         .map(|path| count_skill_dirs(&path.join("skills")))
         .sum()
 }
 
-/// Count hook handlers from enabled plugins.
+/// Count hook handlers from the given enabled-plugin install paths.
 ///
 /// Each plugin may have `hooks/hooks.json` or `hooks/hook.json` (singular fallback).
-fn count_plugin_hooks(user_home: &Path) -> u32 {
-    get_enabled_plugin_paths(user_home)
+fn count_plugin_hooks(plugin_paths: &[PathBuf]) -> u32 {
+    plugin_paths
         .iter()
         .map(|path| {
             let hooks_file = path.join("hooks/hooks.json");
@@ -386,6 +431,79 @@ fn count_skill_dirs(skills_root: &Path) -> u32 {
         .flatten()
         .filter(|entry| entry.path().is_dir())
         .count() as u32
+}
+
+/// Count hooks declared in YAML frontmatter of `.md` files under a directory.
+///
+/// Handles CC 2.1.0+ skill `hooks:` frontmatter and CC 2.1.43+ agent `hooks:`
+/// frontmatter. Walks recursively via the shared `walk_md_files_recursive` helper,
+/// parsing only the frontmatter block of each file.
+///
+/// Intentionally simple — matches the statusline semantic of "are there hooks here
+/// and roughly how many?" without pulling in a YAML crate.
+fn count_frontmatter_hooks(root: &Path) -> u32 {
+    walk_md_files_recursive(root, count_hooks_in_frontmatter)
+}
+
+/// Parse a single `.md` file's YAML frontmatter and count list items under `hooks:`.
+fn count_hooks_in_frontmatter(path: &Path) -> u32 {
+    let text = match fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(_) => return 0,
+    };
+
+    let mut lines = text.lines();
+
+    // First non-empty line must be `---` for frontmatter to be present.
+    let mut opened = false;
+    for line in lines.by_ref() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        opened = line.trim() == "---";
+        break;
+    }
+    if !opened {
+        return 0;
+    }
+
+    // Collect lines up to the closing `---`. If no closer is found, treat
+    // the file as malformed and bail — otherwise body content (which can
+    // contain bullet lines) gets misread as frontmatter.
+    let mut fm_lines: Vec<&str> = Vec::new();
+    let mut closed = false;
+    for line in lines {
+        if line.trim() == "---" {
+            closed = true;
+            break;
+        }
+        fm_lines.push(line);
+    }
+    if !closed {
+        return 0;
+    }
+
+    // Find the `hooks:` key (must be at column 0 — a top-level frontmatter key).
+    let mut in_hooks = false;
+    let mut count = 0u32;
+    for line in fm_lines {
+        // A non-indented key terminates the previous key's block.
+        let is_top_level_key = !line.starts_with([' ', '\t']) && line.contains(':');
+        if is_top_level_key {
+            in_hooks = line.trim_start().starts_with("hooks:");
+            continue;
+        }
+        if in_hooks {
+            // Count indented list items. We count only the outermost list items
+            // to roughly match "handlers" rather than nested properties.
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("- ") || trimmed == "-" {
+                count += 1;
+            }
+        }
+    }
+
+    count
 }
 
 #[cfg(test)]
@@ -517,7 +635,7 @@ mod tests {
         .unwrap();
 
         // user_mcp=1 (user-extra disabled), project=1 (proj-disabled removed) → total 2
-        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 2);
+        assert_eq!(count_mcp_servers_scoped(&root, Some(&home), &[]), 2);
     }
 
     #[test]
@@ -541,7 +659,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_mcp_servers_scoped(&root, Some(&home)), 1);
+        assert_eq!(count_mcp_servers_scoped(&root, Some(&home), &[]), 1);
     }
 
     #[test]
@@ -575,14 +693,16 @@ mod tests {
         .unwrap();
 
         // plugin-a has 2 skill dirs, plugin-b disabled → total 2
-        assert_eq!(count_plugin_skills(&home), 2);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_skills(&paths), 2);
     }
 
     #[test]
     fn plugin_skills_missing_files() {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().join("nonexistent_home");
-        assert_eq!(count_plugin_skills(&home), 0);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_skills(&paths), 0);
     }
 
     #[test]
@@ -690,7 +810,8 @@ mod tests {
         .unwrap();
 
         // Only plugin-a is enabled → 2 handlers
-        assert_eq!(count_plugin_hooks(&home), 2);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 2);
     }
 
     #[test]
@@ -721,7 +842,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_plugin_hooks(&home), 1);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 1);
     }
 
     #[test]
@@ -747,7 +869,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(count_plugin_hooks(&home), 0);
+        let paths = get_enabled_plugin_paths(&home);
+        assert_eq!(count_plugin_hooks(&paths), 0);
     }
 
     // ── Memory file counting tests ──────────────────────────────────
@@ -819,5 +942,55 @@ mod tests {
     #[test]
     fn memory_count_no_home() {
         assert_eq!(count_memory_files(None, "/some/project"), 0);
+    }
+
+    #[test]
+    fn mcp_disabled_filter_applies_to_plugin_servers() {
+        // A plugin's .mcp.json defines a server name listed in the user's
+        // `disabledMcpServers`. The disabled filter must apply uniformly —
+        // the plugin source must not silently re-enable it.
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("project");
+        let home = tmp.path().join("home");
+        let plugin_path = tmp.path().join("cache/plugin-x");
+
+        fs::create_dir_all(root.join(".claude")).unwrap();
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::create_dir_all(&plugin_path).unwrap();
+
+        // User disables "shared" via ~/.claude.json
+        fs::write(
+            home.join(".claude.json"),
+            r#"{"disabledMcpServers":["shared"]}"#,
+        )
+        .unwrap();
+
+        // Plugin re-declares "shared" + adds "extra"
+        fs::write(
+            plugin_path.join(".mcp.json"),
+            r#"{"mcpServers":{"shared":{},"extra":{}}}"#,
+        )
+        .unwrap();
+
+        // "shared" must be filtered out → only "extra" counts → total 1
+        assert_eq!(
+            count_mcp_servers_scoped(&root, Some(&home), &[plugin_path]),
+            1
+        );
+    }
+
+    #[test]
+    fn frontmatter_unterminated_returns_zero_hooks() {
+        // A skill/agent file with an opening `---` and no closer — the body
+        // must NOT be treated as frontmatter, otherwise body bullets get
+        // miscounted as hooks.
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("malformed.md");
+        fs::write(
+            &path,
+            "---\nname: foo\nhooks:\n  - first\n\nBody content with bullets:\n- item one\n- item two\n",
+        )
+        .unwrap();
+        assert_eq!(count_hooks_in_frontmatter(&path), 0);
     }
 }

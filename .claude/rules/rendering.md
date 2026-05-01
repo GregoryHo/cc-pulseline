@@ -52,3 +52,33 @@ When `terminal_width` is set and content exceeds it:
 4. Wire into the appropriate line's format function in `layout.rs`
 5. Test with `color_enabled: true` AND `color_enabled: false`
 6. Verify width degradation still works
+
+## Adding a Widget Variant via Visual Spec
+
+When adding a new widget *variant* for the context or quota segment, wire it through the dispatch hub — never call `widgets::*::render` directly from a layout, or that widget choice can't reach other layouts.
+
+1. Add the renderer in `widgets/foo.rs` with the canonical signature `fn render(data, …, mode: GlyphMode, palette: &ThemePalette, color_enabled: bool) -> String`. Return `""` from incompatible modes (e.g. icon-only widget under `Ascii`) so the dispatch hub drops the cell cleanly.
+2. Match its name in the relevant dispatch hub in `render/frames/shared.rs`:
+   - context: `render_context_visual` (`gauge`, `sparkline`, `text`, …)
+   - quota: `render_quota_visual` (`gauge`, `text`, …)
+3. Document the new widget name in `docs/layouts.md` "Recognized widgets per segment" table.
+4. Decide layout defaults: if a layout should ship the new widget out of the box, edit `frames::default_visuals_for(LayoutStyle)`.
+5. Test the new widget across every layout via `tests/display_axes.rs`. The `ascii_mode_emits_no_unicode_block_chars_across_every_layout` catch-net will fail if the new widget leaks Unicode block glyphs under Ascii.
+
+> Cost and tools have **no `*_visual` config** — the dispatch hubs
+> were deleted in the cluster cleanup and the dead fields were
+> removed afterward. Adding a widget variant for these segments
+> requires resurrecting both the hub and the config field (Config
+> Layer Pattern, 7 places). The `quota_visual` hub is the worked
+> example for how that revival looks (it was restored when the
+> F-style gauge bar landed).
+
+## Adding a New Widget-Bearing Segment
+
+If introducing a brand-new segment with widget composition:
+
+1. Add the `*_visual: String` field per the Config Layer Pattern (7 places).
+2. Add the per-layout default in `SegmentVisualDefaults` and `default_visuals_for` in `frames/mod.rs`.
+3. Add an `effective_*_visual()` helper on `RenderConfig` mirroring `effective_context_visual()`.
+4. Add a new dispatch hub `render_<segment>_visual` in `frames/shared.rs`.
+5. Refactor every layout that renders the segment to call the hub instead of widgets directly.

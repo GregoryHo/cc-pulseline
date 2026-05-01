@@ -34,8 +34,8 @@ fn smoke_cli_startup_with_fixture() {
     let lines: Vec<&str> = stdout.lines().collect();
     assert!(lines.len() >= 3, "expected at least 3 lines of output");
     assert!(
-        lines[0].contains("Opus 4.6"),
-        "line 1 should include model name"
+        stdout.contains("Opus 4.6"),
+        "output should include model name somewhere"
     );
 }
 

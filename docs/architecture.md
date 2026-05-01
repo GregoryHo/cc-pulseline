@@ -110,10 +110,11 @@ Persists `SessionState` across process invocations:
 
 - Glyph mode (Nerd Font icons vs ASCII)
 - Color enable/disable
-- Line caps (`max_tool_lines`, `max_agent_lines`, `tools_per_line`)
+- Line caps (`max_tool_lines`, `max_agent_lines`, `max_completed_lines`)
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
+- Per-segment visual specs (`context_visual`, `quota_visual`, `agents_visual`) — see `docs/layouts.md`
 
 Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pulseline.toml` (project override).
 
@@ -129,10 +130,22 @@ Formats the `RenderFrame` into output lines:
 - **L4b**: Running/recent tools with targets (volatile)
 - **L5+**: Activity (agents, todos -- only when active)
 
+Single rendering pipeline: every layout flows through this assembly and is decorated by `apply_pane()`. The lone exception is `Ledger`, which owns its full pipeline because the TAG-column rhythm doesn't compose cleanly via `apply_pane`.
+
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
 1. Drop activity lines
 2. Compress L2 separators
 3. Truncate core lines
+
+### `render/pane.rs` + `render/frames/` -- Layouts
+
+`pane.rs::LayoutStyle` enumerates the 6 layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
+
+### `render/widgets/` -- Atomic Widgets
+
+`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======...:--:--` in Ascii) and `sparkline` (braille, icon-only). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
+
+See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
 ## Transcript Three-Path Dispatcher
 
@@ -195,7 +208,7 @@ Backward compatibility with older transcript formats and test fixtures:
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:30.0k/40.0k | $3.50 ($3.50/h)`
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)`
-- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, wraps at `tools_per_line`)
+- **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, capped by `max_completed_lines` rows)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)
 - **L5+**: `A:Explore [haiku]: Investigate logic (2m)`
 

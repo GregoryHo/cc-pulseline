@@ -242,7 +242,10 @@ fn print_config(project_root: Option<&str>) {
     println!("enabled = {}", config.segments.tools.enabled);
     println!("max_lines = {}", config.segments.tools.max_lines);
     println!("max_completed = {}", config.segments.tools.max_completed);
-    println!("tools_per_line = {}", config.segments.tools.tools_per_line);
+    println!(
+        "max_completed_lines = {}",
+        config.segments.tools.max_completed_lines
+    );
     println!();
     println!("[segments.agents]");
     println!("enabled = {}", config.segments.agents.enabled);
@@ -760,6 +763,27 @@ fn print_palette_map(theme_arg: Option<&str>) {
             (code(&p.cost_low_rate), "cost_low_rate", &p.cost_low_rate),
             (code(&p.cost_med_rate), "cost_med_rate", &p.cost_med_rate),
             (code(&p.cost_high_rate), "cost_high_rate", &p.cost_high_rate),
+        ],
+        color_on,
+    );
+    print_field_section(
+        "Strata",
+        &[
+            (code(&p.strata_state), "strata_state", &p.strata_state),
+            (
+                code(&p.strata_activity),
+                "strata_activity",
+                &p.strata_activity,
+            ),
+        ],
+        color_on,
+    );
+    print_field_section(
+        "Aurora",
+        &[
+            (code(&p.aurora_low), "aurora_low", &p.aurora_low),
+            (code(&p.aurora_mid), "aurora_mid", &p.aurora_mid),
+            (code(&p.aurora_high), "aurora_high", &p.aurora_high),
         ],
         color_on,
     );

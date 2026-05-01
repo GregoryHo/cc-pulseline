@@ -16,6 +16,8 @@ pub const ICON_CONTEXT: &str = "\u{f49b}";
 pub const ICON_TOOL: &str = "\u{f0ad}";
 pub const ICON_AGENT: &str = "\u{f19bb}";
 pub const ICON_AGENT_DONE: &str = "✓";
+/// Heterogeneous parallel-group prefix. NF: `‖` (math "parallel"), ASCII: `||`.
+pub const ICON_GROUP_PARALLEL: (&str, &str) = ("\u{2016}", "||");
 pub const ICON_TODO: &str = "\u{f0c8}";
 pub const ICON_QUOTA: &str = "\u{f080}"; // nf-fa-bar_chart (usage/quota)
 pub const ICON_SPEED: &str = "\u{f0e4}"; // nf-fa-tachometer (output speed)
@@ -24,6 +26,23 @@ pub const ICON_SPEED: &str = "\u{f0e4}"; // nf-fa-tachometer (output speed)
 pub const ICON_TOKEN_INPUT: &str = "\u{f093}";
 pub const ICON_TOKEN_OUTPUT: &str = "\u{f019}";
 pub const ICON_TOKEN_CACHE_CREATE: &str = "\u{f0c7}";
+
+// Effort / thinking indicators (CC 2.1.119+)
+pub const ICON_EFFORT: &str = "\u{f0ccd}"; // 󰳍 nf-md-speedometer
+pub const ICON_THINKING: &str = "\u{f0335}"; // 󰌵 nf-md-lightbulb-on
+
+// Plugins (CC 2.0.12+)
+pub const ICON_PLUGIN: &str = "\u{f0431}"; // 󰐱 nf-md-puzzle
+
+// Box-drawing characters used by every framed layout (Sections, Console,
+// Ledger). One source of truth so frame edges stay consistent across
+// layouts and tests can assert against the constants.
+pub const FRAME_TL: char = '\u{256D}'; // ╭
+pub const FRAME_TR: char = '\u{256E}'; // ╮
+pub const FRAME_BL: char = '\u{2570}'; // ╰
+pub const FRAME_BR: char = '\u{256F}'; // ╯
+pub const FRAME_H: char = '\u{2500}'; // ─
+pub const FRAME_V: char = '\u{2502}'; // │
 
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
     match mode {
