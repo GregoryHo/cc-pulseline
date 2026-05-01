@@ -17,8 +17,6 @@ fn base_config(style: LayoutStyle) -> PaneConfig {
                 label: "Identity".into(),
                 kinds: vec![LineKind::Identity],
             },
-            // Mirrors the production label in `pane_config_from`: ENV (was "Config"
-            // before alignment with the ledger TAG vocabulary).
             PaneGroup {
                 label: "ENV".into(),
                 kinds: vec![LineKind::Config],

@@ -679,7 +679,7 @@ fn print_palette_map(theme_arg: Option<&str>) {
         color_on,
     );
 
-    // ── Field Reference: all 34 fields by category ──
+    // ── Field Reference ──
 
     println!(
         "{}\n",
@@ -801,10 +801,6 @@ fn print_palette_map(theme_arg: Option<&str>) {
         ],
         color_on,
     );
-    // Heads & Tag — layout-specific roles introduced for L1 HEAD pills
-    // (AG: agent identity, [T] thinking) and the ledger TAG column.
-    // Decoupled from the tier they fall back to so theme authors can
-    // tune them independently.
     print_field_section(
         "Heads & Tag",
         &[

@@ -96,12 +96,7 @@ fn agent_hidden_when_toggle_off() {
 
 #[test]
 fn agent_pill_uses_head_agent_color_distinct_from_model() {
-    // Regression test for the head_agent palette field (commit b of the
-    // HEAD-pills cleanup). Before the rewire, AG: borrowed `stable_blue`
-    // — same as `M:` — making the two pills indistinguishable on L1.
-    // The rewire routes AG: through `head_agent` (default fallback:
-    // active_purple). If a future change collapses head_agent back onto
-    // stable_blue, this test fails.
+    // Guards against AG: collapsing back onto `stable_blue` (the M: color).
     let payload = make_payload_with_agent("code-reviewer");
     let frame = RenderFrame::from_payload(&payload);
     let config = RenderConfig {
@@ -112,9 +107,7 @@ fn agent_pill_uses_head_agent_color_distinct_from_model() {
     let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
     let l1 = &lines[0];
 
-    // Default theme (tokyo-night dark): stable_blue=111, head_agent=183.
-    // Both pills carry an ANSI prefix `\x1b[38;5;<code>m` directly before
-    // their label glyph.
+    // tokyo-night dark: stable_blue=111, head_agent=183.
     let m_idx = l1.find("M:").expect("M: pill present");
     let ag_idx = l1.find("AG:").expect("AG: pill present");
     let m_prefix = &l1[..m_idx];
@@ -131,9 +124,8 @@ fn agent_pill_uses_head_agent_color_distinct_from_model() {
 
 #[test]
 fn console_title_agent_uses_head_agent_color() {
-    // identity_headline (used by Console / Ledger to hoist Identity into
-    // the frame title) had its own copy of the agent color path. This
-    // test guards that path from re-borrowing `stable_blue`.
+    // Console / Ledger hoist Identity into the frame title via a separate
+    // formatter (`identity_headline`); guard that path too.
     use cc_pulseline::config::GlyphMode;
     use cc_pulseline::render::pane::{LayoutStyle, PaneWidth};
 
@@ -149,9 +141,6 @@ fn console_title_agent_uses_head_agent_color() {
     };
     let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
     let title = &lines[0];
-
-    // tokyo-night: stable_blue=111, head_agent=183. Title must NOT contain
-    // a stable_blue ANSI prefix immediately before the agent name.
     let agent_idx = title.find("design-advisor").expect("agent name in title");
     let prefix = &title[..agent_idx];
     assert!(

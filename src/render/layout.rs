@@ -157,9 +157,6 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
             label: "Identity".to_string(),
             kinds: vec![LineKind::Identity],
         },
-        // ENV (was "Config") — aligns with the ledger TAG vocabulary
-        // ("ENV / CTX / TOK / COST / ...") and the underlying `EnvCollector`
-        // provider. Avoids confusion with `--print config` and pulseline.toml.
         PaneGroup {
             label: "ENV".to_string(),
             kinds: vec![LineKind::Config],

@@ -48,13 +48,9 @@ pub struct ThemePalette {
     pub aurora_low: String,
     pub aurora_mid: String,
     pub aurora_high: String,
-    // Layout-specific roles introduced by HEAD additions (effort/thinking/agent
-    // pills on L1) and the ledger TAG column. Each gets its own palette slot
-    // so theme authors can re-tune the role without disturbing the tier the
-    // role inherited from. Fallbacks in `build_palette`:
-    //   tag_label     → secondary
-    //   head_agent    → active_purple   (matches L5+ A:Explore agent rows)
-    //   head_thinking → active_amber    (distinct from head_agent's purple)
+    // Decoupled from active_purple / active_amber / secondary so theme
+    // authors can tune the L1 AG: pill, [T] pill, and ledger TAG column
+    // without dragging the inherited tier along. Fallbacks in `build_palette`.
     pub tag_label: String,
     pub head_agent: String,
     pub head_thinking: String,
@@ -224,18 +220,11 @@ struct PresetColors {
     aurora_mid: Option<u8>,
     #[serde(default)]
     aurora_high: Option<u8>,
-    /// Ledger TAG column color (ENV / CTX / TOK / COST / TOOL / AGENT / TODO).
-    /// Falls back to `secondary` so the role can be tuned without dragging
-    /// L1 secondary text along with it.
+    /// Optional in JSON; fallbacks in `build_palette`.
     #[serde(default)]
     tag_label: Option<u8>,
-    /// L1 `AG:agent-name` color. Falls back to `active_purple` so it visually
-    /// rhymes with L5+ `A:Explore` agent rows (same concept, same color).
     #[serde(default)]
     head_agent: Option<u8>,
-    /// L1 `[T]` thinking pill color. Falls back to `active_amber` to keep it
-    /// distinct from `head_agent`'s purple (head_agent and head_thinking must
-    /// not collide on L1).
     #[serde(default)]
     head_thinking: Option<u8>,
 }
@@ -448,10 +437,8 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         aurora_low: ansi256(preset.aurora_low.unwrap_or(preset.completed_check)),
         aurora_mid: ansi256(preset.aurora_mid.unwrap_or(preset.active_cyan)),
         aurora_high: ansi256(preset.aurora_high.unwrap_or(preset.active_coral)),
-        // Custom themes may omit HEAD/TAG fields → fall back to nearest tier:
-        //   tag_label     → secondary       (ledger TAG defaults to L1 secondary)
-        //   head_agent    → active_purple   (L1 AG: matches L5 A: rows)
-        //   head_thinking → active_amber    (distinct from agent purple)
+        // head_agent → active_purple keeps L1 AG: visually paired with L5 A: rows.
+        // head_thinking → active_amber must stay distinct from head_agent's purple.
         tag_label: ansi256(preset.tag_label.unwrap_or(preset.secondary)),
         head_agent: ansi256(preset.head_agent.unwrap_or(preset.active_purple)),
         head_thinking: ansi256(preset.head_thinking.unwrap_or(preset.active_amber)),
@@ -986,38 +973,35 @@ mod tests {
 
     // ── HEAD pills + ledger TAG palette fields ──
 
+    /// ANSI 256 cells within `MIN_ANSI_PERCEPTUAL_GAP` of each other are in
+    /// the same color family (e.g. 109/110 in Sky Blue) and read as the same
+    /// hue on most terminals.
+    const MIN_ANSI_PERCEPTUAL_GAP: u8 = 2;
+
+    fn for_each_builtin_palette(mut f: impl FnMut(&str, Option<&str>, ThemePalette)) {
+        for (name, _) in BUILTIN_THEMES {
+            for variant in [Some("dark"), Some("light")] {
+                f(
+                    name,
+                    variant,
+                    resolve_palette(name, variant, &ColorsConfig::default()),
+                );
+            }
+        }
+    }
+
     #[test]
     fn tokyo_night_authors_head_and_tag_fields_at_documented_fallbacks() {
         let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
-        // tokyo-night.json explicitly authors these fields at the same values
-        // build_palette would fall back to (secondary 146, active_purple 183,
-        // active_amber 178). The explicit authoring documents intent — tokyo
-        // night is the reference theme and these are deliberately the
-        // canonical values for the role.
-        assert!(
-            p.tag_label.contains("146"),
-            "tag_label fallback to secondary"
-        );
-        assert!(
-            p.head_agent.contains("183"),
-            "head_agent fallback to active_purple"
-        );
-        assert!(
-            p.head_thinking.contains("178"),
-            "head_thinking fallback to active_amber"
-        );
+        assert!(p.tag_label.contains("146"));
+        assert!(p.head_agent.contains("183"));
+        assert!(p.head_thinking.contains("178"));
     }
 
     #[test]
     fn head_agent_and_head_thinking_distinct_in_default_palette() {
-        // head_agent borrows active_purple; head_thinking borrows active_amber.
-        // If a future change collapses them onto the same fallback, L1 will
-        // collide visually — fail loudly here so it's caught early.
         let p = ThemePalette::default();
-        assert_ne!(
-            p.head_agent, p.head_thinking,
-            "head_agent and head_thinking must render with distinct colors"
-        );
+        assert_ne!(p.head_agent, p.head_thinking);
     }
 
     #[test]
@@ -1037,48 +1021,29 @@ mod tests {
 
     #[test]
     fn every_builtin_theme_keeps_head_agent_distinct_from_head_thinking() {
-        // L1 collision regression: AG: pill and [T] pill must not share a
-        // color in any built-in theme, in either variant. If they collapsed,
-        // the two pills would visually merge on a busy L1.
-        for (name, _) in BUILTIN_THEMES {
-            for variant in [Some("dark"), Some("light")] {
-                let p = resolve_palette(name, variant, &ColorsConfig::default());
-                assert_ne!(
-                    p.head_agent, p.head_thinking,
-                    "theme {name} ({variant:?}) collapses head_agent and head_thinking onto the same color"
-                );
-            }
-        }
+        for_each_builtin_palette(|name, variant, p| {
+            assert_ne!(
+                p.head_agent, p.head_thinking,
+                "theme {name} ({variant:?}) collapses head_agent and head_thinking"
+            );
+        });
     }
 
     #[test]
     fn every_builtin_theme_keeps_head_agent_perceptually_apart_from_stable_blue() {
-        // L1 collision regression for the ORIGINAL S2 problem: M: pill (model
-        // identity, `stable_blue`) and AG: pill (`head_agent`) must not land
-        // on the same ANSI cell. ANSI 256 neighbours like 109/110 are within
-        // the same color family — perceptually indistinguishable on most
-        // terminals — so we additionally require that the two values aren't
-        // adjacent integers either.
-        for (name, _) in BUILTIN_THEMES {
-            for variant in [Some("dark"), Some("light")] {
-                let p = resolve_palette(name, variant, &ColorsConfig::default());
-                let stable = extract_ansi_code(&p.stable_blue).unwrap_or(0);
-                let head = extract_ansi_code(&p.head_agent).unwrap_or(0);
-                assert!(
-                    stable.abs_diff(head) > 1,
-                    "theme {name} ({variant:?}) has stable_blue={stable} \
-                     and head_agent={head} — too close to disambiguate \
-                     M: from AG: on L1"
-                );
-            }
-        }
+        for_each_builtin_palette(|name, variant, p| {
+            let stable = extract_ansi_code(&p.stable_blue).unwrap_or(0);
+            let head = extract_ansi_code(&p.head_agent).unwrap_or(0);
+            assert!(
+                stable.abs_diff(head) >= MIN_ANSI_PERCEPTUAL_GAP,
+                "theme {name} ({variant:?}) has stable_blue={stable} \
+                 and head_agent={head} — too close to disambiguate M: from AG: on L1"
+            );
+        });
     }
 
     #[test]
     fn tag_label_decouples_from_secondary_when_overridden() {
-        // Sanity for the role separation rationale: overriding tag_label must
-        // not move secondary, and overriding secondary must not move tag_label
-        // once it has its own value.
         let mut p = ThemePalette::default();
         let overrides = ColorsConfig {
             tag_label: Some(60),
