@@ -357,7 +357,7 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    cp src/themes/echo-sub-zero.json ~/.claude/pulseline/themes/my-theme.json
    ```
 
-2. Edit `palette_mapping` — these are the 31 ANSI 256-color codes that control rendering:
+2. Edit `palette_mapping` — these are the 34 ANSI 256-color codes that control rendering:
 
    | Field | Purpose |
    |-------|---------|
@@ -392,6 +392,9 @@ Drop a JSON file in `~/.claude/pulseline/themes/` and set `theme` to its filenam
    | `aurora_low` | Sparkline fill at low CTX-consumption velocity (calm / idle, < 1%/min) |
    | `aurora_mid` | Sparkline fill at mid velocity (active, 1–5%/min) |
    | `aurora_high` | Sparkline fill at high velocity (hot, ≥ 5%/min) |
+   | `tag_label` | Ledger TAG column (ENV / CTX / TOK / COST / TOOL / AGENT / TODO). Falls back to `secondary`. |
+   | `head_agent` | L1 `AG:agent-name` pill (CC `--agent`). Falls back to `active_purple` so it matches L5+ `A:Explore` rows. |
+   | `head_thinking` | L1 `[T]` thinking pill (CC `thinking.enabled`). Falls back to `active_amber` to stay distinct from `head_agent`. |
 
    The strata pair must satisfy `\|state − activity\| ≥ 3` on the ansi256
    scale; the `theme_strata_contrast` test fails CI otherwise. The aurora
@@ -410,6 +413,8 @@ How each `palette_mapping` field connects to the rendered statusline:
  ─────────────────────                         ──────────────────────────────────────────
                                                L1: Identity
  stable_blue ─────────────────────────────────→ M:Opus 4.6
+ head_agent ──────────────────────────────────→ AG:greg-bot (when --agent active; default = active_purple)
+ head_thinking ───────────────────────────────→ [T] (when thinking.enabled; default = active_amber)
  emphasis_secondary ──────────────────────────→ S:explanatory | CC:2.1.80 | P:~/myapp
  stable_green ────────────────────────────────→ G:main (clean branch)
  alert_orange ────────────────────────────────→ G:main* (dirty asterisk)
@@ -464,7 +469,7 @@ theme.json
 ├── "author"               (string, optional)
 ├── "description"          (string, optional)
 │
-├── "palette_mapping"      ★ REQUIRED — the 31 ANSI color codes that control rendering
+├── "palette_mapping"      ★ REQUIRED — the 34 ANSI color codes that control rendering
 │   ├── emphasis_primary        (u8) ─── brightest text: token values, counts
 │   ├── emphasis_secondary      (u8) ─── supporting: style, version, project, targets
 │   ├── emphasis_structural     (u8) ─── labels, icons, metadata text
@@ -495,7 +500,10 @@ theme.json
 │   ├── strata_activity         (u8) ─── chrome on `|` for activity rows
 │   ├── aurora_low              (u8) ─── sparkline fill at low CTX velocity (<1%/min)
 │   ├── aurora_mid              (u8) ─── sparkline fill at mid CTX velocity (1–5%/min)
-│   └── aurora_high             (u8) ─── sparkline fill at high CTX velocity (≥5%/min)
+│   ├── aurora_high             (u8) ─── sparkline fill at high CTX velocity (≥5%/min)
+│   ├── tag_label               (u8, optional) ─── ledger TAG column (defaults to secondary)
+│   ├── head_agent              (u8, optional) ─── L1 AG: pill (defaults to active_purple)
+│   └── head_thinking           (u8, optional) ─── L1 [T] pill (defaults to active_amber)
 │
 ├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
 │   ├── primary            (u8)
@@ -506,7 +514,10 @@ theme.json
 │   ├── strata_activity    (u8, optional — falls back to dark variant if absent)
 │   ├── aurora_low         (u8, optional — falls back to dark variant if absent)
 │   ├── aurora_mid         (u8, optional — falls back to dark variant if absent)
-│   └── aurora_high        (u8, optional — falls back to dark variant if absent)
+│   ├── aurora_high        (u8, optional — falls back to dark variant if absent)
+│   ├── tag_label          (u8, optional — falls back to dark variant if absent)
+│   ├── head_agent         (u8, optional — falls back to dark variant if absent)
+│   └── head_thinking      (u8, optional — falls back to dark variant if absent)
 │
 ├── "colors"               (optional — design documentation, not consumed by code)
 ├── "element_mapping"      (optional — documents which UI element uses which color)

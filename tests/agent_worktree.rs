@@ -94,6 +94,41 @@ fn agent_hidden_when_toggle_off() {
     );
 }
 
+#[test]
+fn agent_pill_uses_head_agent_color_distinct_from_model() {
+    // Regression test for the head_agent palette field (commit b of the
+    // HEAD-pills cleanup). Before the rewire, AG: borrowed `stable_blue`
+    // — same as `M:` — making the two pills indistinguishable on L1.
+    // The rewire routes AG: through `head_agent` (default fallback:
+    // active_purple). If a future change collapses head_agent back onto
+    // stable_blue, this test fails.
+    let payload = make_payload_with_agent("code-reviewer");
+    let frame = RenderFrame::from_payload(&payload);
+    let config = RenderConfig {
+        show_agent: true,
+        color_enabled: true,
+        ..Default::default()
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
+    let l1 = &lines[0];
+
+    // Default theme (tokyo-night dark): stable_blue=111, head_agent=183.
+    // Both pills carry an ANSI prefix `\x1b[38;5;<code>m` directly before
+    // their label glyph.
+    let m_idx = l1.find("M:").expect("M: pill present");
+    let ag_idx = l1.find("AG:").expect("AG: pill present");
+    let m_prefix = &l1[..m_idx];
+    let ag_prefix = &l1[..ag_idx];
+    assert!(
+        m_prefix.ends_with("\x1b[38;5;111m"),
+        "M: should be stable_blue (111); got prefix: {m_prefix:?}"
+    );
+    assert!(
+        ag_prefix.ends_with("\x1b[38;5;183m"),
+        "AG: should be head_agent (default 183, active_purple); got prefix: {ag_prefix:?}"
+    );
+}
+
 // ── Worktree tests ───────────────────────────────────────────────────
 
 #[test]

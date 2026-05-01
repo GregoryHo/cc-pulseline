@@ -17,8 +17,10 @@ fn base_config(style: LayoutStyle) -> PaneConfig {
                 label: "Identity".into(),
                 kinds: vec![LineKind::Identity],
             },
+            // Mirrors the production label in `pane_config_from`: ENV (was "Config"
+            // before alignment with the ledger TAG vocabulary).
             PaneGroup {
-                label: "Config".into(),
+                label: "ENV".into(),
                 kinds: vec![LineKind::Config],
             },
             PaneGroup {
@@ -60,7 +62,7 @@ fn grid_adds_label_column_with_divider_and_aligned_content() {
         out[0]
     );
     assert!(
-        out[1].starts_with("Config    │"),
+        out[1].starts_with("ENV       │"),
         "second row aligns label to same width; got: {:?}",
         out[1]
     );
@@ -176,7 +178,7 @@ fn sections_wraps_once_with_separator_between_every_group() {
     assert!(out[0].starts_with('╭'));
     assert!(out[1].starts_with("│ Identity"));
     assert!(out[2].starts_with('├'));
-    assert!(out[3].starts_with("│ Config"));
+    assert!(out[3].starts_with("│ ENV"));
     assert!(out[4].starts_with('├'));
     assert!(out[5].starts_with("│ Budget"));
     assert!(out[6].starts_with('├'));
