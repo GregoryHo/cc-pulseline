@@ -63,7 +63,11 @@
 
     "aurora_low":          109,
     "aurora_mid":          66,
-    "aurora_high":         130
+    "aurora_high":         130,
+
+    "tag_label":           240,
+    "head_agent":          66,
+    "head_thinking":       130
   },
 
   "light_emphasis": {
@@ -75,7 +79,8 @@
     "strata_activity": 245,
     "aurora_low": 109,
     "aurora_mid": 66,
-    "aurora_high": 130
+    "aurora_high": 130,
+    "tag_label": 241
   },
 
   "usage_logic": {

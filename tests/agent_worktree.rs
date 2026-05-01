@@ -129,6 +129,37 @@ fn agent_pill_uses_head_agent_color_distinct_from_model() {
     );
 }
 
+#[test]
+fn console_title_agent_uses_head_agent_color() {
+    // identity_headline (used by Console / Ledger to hoist Identity into
+    // the frame title) had its own copy of the agent color path. This
+    // test guards that path from re-borrowing `stable_blue`.
+    use cc_pulseline::config::GlyphMode;
+    use cc_pulseline::render::pane::{LayoutStyle, PaneWidth};
+
+    let payload = make_payload_with_agent("design-advisor");
+    let frame = RenderFrame::from_payload(&payload);
+    let config = RenderConfig {
+        show_agent: true,
+        color_enabled: true,
+        glyph_mode: GlyphMode::Ascii,
+        pane_style: LayoutStyle::Console,
+        pane_width_mode: PaneWidth::Auto,
+        ..Default::default()
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
+    let title = &lines[0];
+
+    // tokyo-night: stable_blue=111, head_agent=183. Title must NOT contain
+    // a stable_blue ANSI prefix immediately before the agent name.
+    let agent_idx = title.find("design-advisor").expect("agent name in title");
+    let prefix = &title[..agent_idx];
+    assert!(
+        prefix.ends_with("\x1b[38;5;183m"),
+        "console title agent name should be head_agent (183); got prefix: {prefix:?}"
+    );
+}
+
 // ── Worktree tests ───────────────────────────────────────────────────
 
 #[test]

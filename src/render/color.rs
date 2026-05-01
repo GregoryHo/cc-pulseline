@@ -987,11 +987,13 @@ mod tests {
     // ── HEAD pills + ledger TAG palette fields ──
 
     #[test]
-    fn head_and_tag_fields_fall_back_to_existing_tiers_in_tokyo_night() {
+    fn tokyo_night_authors_head_and_tag_fields_at_documented_fallbacks() {
         let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
-        // tokyo-night.json has no tag_label/head_agent/head_thinking yet, so
-        // build_palette must hand them back from the documented fallbacks:
-        // secondary (146), active_purple (183), active_amber (178).
+        // tokyo-night.json explicitly authors these fields at the same values
+        // build_palette would fall back to (secondary 146, active_purple 183,
+        // active_amber 178). The explicit authoring documents intent — tokyo
+        // night is the reference theme and these are deliberately the
+        // canonical values for the role.
         assert!(
             p.tag_label.contains("146"),
             "tag_label fallback to secondary"
@@ -1031,6 +1033,22 @@ mod tests {
         assert!(p.tag_label.contains("99"));
         assert!(p.head_agent.contains("100"));
         assert!(p.head_thinking.contains("101"));
+    }
+
+    #[test]
+    fn every_builtin_theme_keeps_head_agent_distinct_from_head_thinking() {
+        // L1 collision regression: AG: pill and [T] pill must not share a
+        // color in any built-in theme, in either variant. If they collapsed,
+        // the two pills would visually merge on a busy L1.
+        for (name, _) in BUILTIN_THEMES {
+            for variant in [Some("dark"), Some("light")] {
+                let p = resolve_palette(name, variant, &ColorsConfig::default());
+                assert_ne!(
+                    p.head_agent, p.head_thinking,
+                    "theme {name} ({variant:?}) collapses head_agent and head_thinking onto the same color"
+                );
+            }
+        }
     }
 
     #[test]
