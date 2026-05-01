@@ -256,7 +256,7 @@ fn framed_tag_row(tag: &str, body: &str, ctx: &LedgerCtx) -> String {
         " ".repeat(TAG_COL_WIDTH)
     } else {
         let padded = format!("{tag:<width$}", tag = tag, width = TAG_WIDTH);
-        let coloured = colorize(&padded, &ctx.p.secondary, ctx.color);
+        let coloured = colorize(&padded, &ctx.p.tag_label, ctx.color);
         format!(
             "{}{}{}",
             " ".repeat(TAG_INDENT),

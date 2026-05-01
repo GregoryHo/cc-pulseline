@@ -219,12 +219,12 @@ pub fn identity_headline(
     if config.show_thinking && line1.thinking_enabled == Some(true) {
         // Label-only pill — no value; absent / `enabled: false` → omitted.
         let raw = glyph(config.glyph_mode, ICON_THINKING, "[T]");
-        parts.push(colorize(raw.trim_end(), &p.active_purple, color));
+        parts.push(colorize(raw.trim_end(), &p.head_thinking, color));
     }
 
     if config.show_agent {
         if let Some(name) = &line1.agent_name {
-            parts.push(colorize(name, &p.stable_blue, color));
+            parts.push(colorize(name, &p.head_agent, color));
         }
     }
 

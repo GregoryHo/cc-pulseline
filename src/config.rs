@@ -184,6 +184,12 @@ pub struct ColorsConfig {
     pub aurora_mid: Option<u8>,
     #[serde(default)]
     pub aurora_high: Option<u8>,
+    #[serde(default)]
+    pub tag_label: Option<u8>,
+    #[serde(default)]
+    pub head_agent: Option<u8>,
+    #[serde(default)]
+    pub head_thinking: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -728,6 +734,9 @@ pub fn merge_configs(
         merge_color!(aurora_low);
         merge_color!(aurora_mid);
         merge_color!(aurora_high);
+        merge_color!(tag_label);
+        merge_color!(head_agent);
+        merge_color!(head_thinking);
     }
 
     // Segment overrides

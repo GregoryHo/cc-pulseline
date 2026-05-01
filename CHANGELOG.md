@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-05-01
+
+Decouple the L1 HEAD pills (`AG:` agent, `[T]` thinking) and the ledger
+TAG column from the inherited palette tiers they were borrowing colors
+from. Themers can now tune each role independently, and the M:/AG:
+collision on L1 is fixed in every built-in theme.
+
+### Added
+
+- **`tag_label` / `head_agent` / `head_thinking` palette fields** — Three
+  new optional `ThemePalette` slots for layout-specific roles. Each
+  falls back to the prior tier when absent from theme JSON
+  (`secondary` / `active_purple` / `active_amber`), so existing custom
+  themes keep working unchanged. Override via `[colors]` TOML section
+  or per-theme JSON. Same pattern as `strata_*` and `aurora_*`.
+- **"Heads & Tag" section in `--palette-map`** — Runtime palette anatomy
+  printer lists the new fields alongside the existing tier sections.
+  L1 anatomy preview also gains `AG:greg-bot` and `[T]` rows.
+
+### Changed
+
+- **L1 `AG:` pill rewired to `head_agent`** — Was `stable_blue`,
+  visually colliding with the `M:` model pill. Default fallback puts
+  AG: on `active_purple` so it matches L5+ `A:Explore` agent rows.
+- **L1 `[T]` thinking pill rewired to `head_thinking`** — Was
+  `active_purple` (collided with the agent purple). Default fallback
+  is `active_amber`.
+- **Ledger TAG column rewired to `tag_label`** — Was `secondary`,
+  dragging L1 secondary text along with any TAG tuning.
+- **Macro 4-group label `Config` → `ENV`** in zones / grid / sections /
+  console layouts. Aligns with the ledger TAG vocabulary
+  (`ENV / CTX / TOK / COST / ...`) and the underlying `EnvCollector`
+  provider. No config schema change; only the rendered group label.
+- **Per-theme intentional values for all 10 built-in themes.** Each
+  theme authors `tag_label / head_agent / head_thinking` designed
+  for that theme's palette story. Mono-accent themes preserve their
+  contract on the activity tier; `head_agent` on L1 diverges where
+  needed for visual disambiguation (e.g. echo-sub-zero picks
+  `active_coral` for AG: rather than colliding with `stable_blue`).
+
+### Fixed
+
+- **`identity_headline` (Console / Ledger frame title) AG / [T] colors.**
+  The title-hoist formatter had its own duplicate copy of the AG / [T]
+  color path that wasn't picked up by the L1 rewire on first pass. It
+  now reads the same `head_agent` / `head_thinking` fields as the flat
+  L1 formatter.
+
 ## [1.1.0] - 2026-04-30
 
 > **⚠ Breaking changes** are clearly marked below. The `[pane]` → `[layout]`
@@ -295,6 +343,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.6...v1.1.0
 [1.0.6]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.4...v1.0.5

@@ -158,7 +158,7 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
             kinds: vec![LineKind::Identity],
         },
         PaneGroup {
-            label: "Config".to_string(),
+            label: "ENV".to_string(),
             kinds: vec![LineKind::Config],
         },
         PaneGroup {
@@ -208,14 +208,14 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
         // Label-only pill — no value; `enabled: false` or missing → omitted entirely.
         // Trim before colorizing so the ANSI reset stays tight against the glyph.
         let raw = glyph(mode, ICON_THINKING, "[T]");
-        let label = colorize(raw.trim_end(), &p.active_purple, color);
+        let label = colorize(raw.trim_end(), &p.head_thinking, color);
         parts.push(label);
     }
 
     if config.show_agent {
         if let Some(agent_name) = &frame.line1.agent_name {
-            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), &p.stable_blue, color);
-            let val = colorize(agent_name, &p.stable_blue, color);
+            let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), &p.head_agent, color);
+            let val = colorize(agent_name, &p.head_agent, color);
             parts.push(format!("{label}{val}"));
         }
     }

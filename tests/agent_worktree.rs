@@ -94,6 +94,61 @@ fn agent_hidden_when_toggle_off() {
     );
 }
 
+#[test]
+fn agent_pill_uses_head_agent_color_distinct_from_model() {
+    // Guards against AG: collapsing back onto `stable_blue` (the M: color).
+    let payload = make_payload_with_agent("code-reviewer");
+    let frame = RenderFrame::from_payload(&payload);
+    let config = RenderConfig {
+        show_agent: true,
+        color_enabled: true,
+        ..Default::default()
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
+    let l1 = &lines[0];
+
+    // tokyo-night dark: stable_blue=111, head_agent=183.
+    let m_idx = l1.find("M:").expect("M: pill present");
+    let ag_idx = l1.find("AG:").expect("AG: pill present");
+    let m_prefix = &l1[..m_idx];
+    let ag_prefix = &l1[..ag_idx];
+    assert!(
+        m_prefix.ends_with("\x1b[38;5;111m"),
+        "M: should be stable_blue (111); got prefix: {m_prefix:?}"
+    );
+    assert!(
+        ag_prefix.ends_with("\x1b[38;5;183m"),
+        "AG: should be head_agent (default 183, active_purple); got prefix: {ag_prefix:?}"
+    );
+}
+
+#[test]
+fn console_title_agent_uses_head_agent_color() {
+    // Console / Ledger hoist Identity into the frame title via a separate
+    // formatter (`identity_headline`); guard that path too.
+    use cc_pulseline::config::GlyphMode;
+    use cc_pulseline::render::pane::{LayoutStyle, PaneWidth};
+
+    let payload = make_payload_with_agent("design-advisor");
+    let frame = RenderFrame::from_payload(&payload);
+    let config = RenderConfig {
+        show_agent: true,
+        color_enabled: true,
+        glyph_mode: GlyphMode::Ascii,
+        pane_style: LayoutStyle::Console,
+        pane_width_mode: PaneWidth::Auto,
+        ..Default::default()
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
+    let title = &lines[0];
+    let agent_idx = title.find("design-advisor").expect("agent name in title");
+    let prefix = &title[..agent_idx];
+    assert!(
+        prefix.ends_with("\x1b[38;5;183m"),
+        "console title agent name should be head_agent (183); got prefix: {prefix:?}"
+    );
+}
+
 // ── Worktree tests ───────────────────────────────────────────────────
 
 #[test]

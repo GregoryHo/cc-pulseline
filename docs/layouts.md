@@ -95,7 +95,7 @@ estate above all else.
 ### `zones` — single labelled rule between state and activity
 
 Inserts one horizontal rule (`─── activity ───`) between the **state**
-rows (Identity / Config / Budget) and the **activity** rows (Tools /
+rows (Identity / ENV / Budget) and the **activity** rows (Tools /
 Agents / Todos). Echoes Claude Code's own input-box rules so the
 statusline reads as a continuation of CC chrome.
 
@@ -122,7 +122,7 @@ lines up.
 
 ```
 Identity  │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline
-Config    │ 1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs
+ENV       │ 1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs
 Budget    │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
 Activity  │ T:Read main.rs | T:Bash cargo test
           │ A:Explore [haiku]: Investigate logic (2m)
@@ -158,7 +158,7 @@ into the top frame border:
 
 ```
 ╭─ Opus 4.7 · medium · ~/cc-pulseline · feat/x* ──────────────────────────╮
-│ Config   │ 󰈙 2 CLAUDE.md | 󰱇 10 rules | 󰧜 4 memories | 󱭧 36 hooks       │
+│ ENV      │ 󰈙 2 CLAUDE.md | 󰱇 10 rules | 󰧜 4 memories | 󱭧 36 hooks       │
 ├──────────┼─────────────────────────────────────────────────────────────┤
 │ Budget   │ CTX:43% (86.0k/200.0k) | TOK I:1 O:8 C:5.7k/114.5k | $4.56  │
 ├──────────┼─────────────────────────────────────────────────────────────┤

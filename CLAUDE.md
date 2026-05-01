@@ -71,7 +71,7 @@ stdin JSON → StdinPayload (deserialize)
   - `pane.rs` — `LayoutStyle` enum (6 variants: `None`/`Zones`/`Grid`/`Sections`/`Console`/`Ledger`) + `PaneConfig` chrome wrapper. `apply_pane()` decorates the assembled lines with frame chrome.
   - `frames/` — Per-layout `render()` fns: `zones`, `grid`, `sections`, `console`, `ledger`. `console` is a thin shim that calls `sections::render_with_options` with the Identity row hoisted into the top frame title. `frames/shared.rs` holds the box-drawing glyphs, label/content padding, identity headline, config row, and the per-segment dispatch hubs (`render_context_visual` and `render_quota_visual` — each maps a `+`-joined visual spec onto `widgets::gauge::render` / `widgets::sparkline::render` / inline text cells). `frames/mod.rs::default_visuals_for(LayoutStyle)` is the per-layout `*_visual` defaults table.
   - `widgets/` — Atomic widget renderers: `gauge` (bracketless marks-on-track — `▰` filled / `─` empty / `·` threshold marks in Icon mode, `=` / `-` / `:` in Ascii) and `sparkline` (braille, icon-only — caller picks the fill color). Both take `(data, …, marks, mode, palette, color)` shape; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly. `gauge`'s `width` is the visible cell count (no frame); caller supplies threshold marks (CTX → `ThemePalette::ctx_marks()` = `[55, 70]`; quota → `[50, 85]`).
-  - `color.rs` — `ThemePalette` struct (31 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
+  - `color.rs` — `ThemePalette` struct (34 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
@@ -126,7 +126,7 @@ Test fixtures live in `tests/fixtures/` as `.json` (stdin payloads) and `.jsonl`
 
 ### Color System
 
-The project uses a `ThemePalette` struct with 31 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
+The project uses a `ThemePalette` struct with 34 ANSI 256-color fields, resolved at runtime by `resolve_palette(theme, variant, overrides)`. See `docs/theme-palette.md` for the full specification. Key principles:
 
 - **Built-in themes** — JSON files in `src/themes/` embedded via `include_str!()`. tokyo-night is the default; the directory is the source of truth for the full set.
 - **Custom themes** — JSON files in `~/.claude/pulseline/themes/` loaded at runtime with per-process caching

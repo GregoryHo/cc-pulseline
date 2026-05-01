@@ -460,8 +460,10 @@ fn print_palette_map(theme_arg: Option<&str>) {
     // L1: Identity
     println!("  L1: Identity");
     println!(
-        "  {} {sep} {} {sep} {} {sep} {}{} {}",
+        "  {} {sep} {} {sep} {} {sep} {} {sep} {} {sep} {}{} {}",
         c("M:Opus 4.6", &p.stable_blue),
+        c("AG:greg-bot", &p.head_agent),
+        c("[T]", &p.head_thinking),
         c("S:explanatory", &p.secondary),
         c("CC:2.1.80", &p.secondary),
         c("G:main", p.git_green()),
@@ -475,6 +477,18 @@ fn print_palette_map(theme_arg: Option<&str>) {
                 "stable_blue",
                 &p.stable_blue,
                 code(&p.stable_blue),
+            ),
+            (
+                "AG:greg-bot",
+                "head_agent",
+                &p.head_agent,
+                code(&p.head_agent),
+            ),
+            (
+                "[T]",
+                "head_thinking",
+                &p.head_thinking,
+                code(&p.head_thinking),
             ),
             ("|", "emphasis_separator", &p.separator, code(&p.separator)),
             (
@@ -665,7 +679,7 @@ fn print_palette_map(theme_arg: Option<&str>) {
         color_on,
     );
 
-    // ── Field Reference: all 26 fields by category ──
+    // ── Field Reference ──
 
     println!(
         "{}\n",
@@ -784,6 +798,15 @@ fn print_palette_map(theme_arg: Option<&str>) {
             (code(&p.aurora_low), "aurora_low", &p.aurora_low),
             (code(&p.aurora_mid), "aurora_mid", &p.aurora_mid),
             (code(&p.aurora_high), "aurora_high", &p.aurora_high),
+        ],
+        color_on,
+    );
+    print_field_section(
+        "Heads & Tag",
+        &[
+            (code(&p.tag_label), "tag_label", &p.tag_label),
+            (code(&p.head_agent), "head_agent", &p.head_agent),
+            (code(&p.head_thinking), "head_thinking", &p.head_thinking),
         ],
         color_on,
     );

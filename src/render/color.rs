@@ -48,6 +48,12 @@ pub struct ThemePalette {
     pub aurora_low: String,
     pub aurora_mid: String,
     pub aurora_high: String,
+    // Decoupled from active_purple / active_amber / secondary so theme
+    // authors can tune the L1 AG: pill, [T] pill, and ledger TAG column
+    // without dragging the inherited tier along. Fallbacks in `build_palette`.
+    pub tag_label: String,
+    pub head_agent: String,
+    pub head_thinking: String,
 }
 
 /// CTX threshold percentages — fired by `color_for_ctx_pct` and
@@ -214,6 +220,13 @@ struct PresetColors {
     aurora_mid: Option<u8>,
     #[serde(default)]
     aurora_high: Option<u8>,
+    /// Optional in JSON; fallbacks in `build_palette`.
+    #[serde(default)]
+    tag_label: Option<u8>,
+    #[serde(default)]
+    head_agent: Option<u8>,
+    #[serde(default)]
+    head_thinking: Option<u8>,
 }
 
 /// Light variant emphasis overrides (only 4 fields differ from dark, plus
@@ -234,6 +247,12 @@ struct LightEmphasis {
     aurora_mid: Option<u8>,
     #[serde(default)]
     aurora_high: Option<u8>,
+    #[serde(default)]
+    tag_label: Option<u8>,
+    #[serde(default)]
+    head_agent: Option<u8>,
+    #[serde(default)]
+    head_thinking: Option<u8>,
 }
 
 /// Top-level theme JSON file structure.
@@ -267,6 +286,9 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             aurora_low: le.aurora_low.or(dark.aurora_low),
             aurora_mid: le.aurora_mid.or(dark.aurora_mid),
             aurora_high: le.aurora_high.or(dark.aurora_high),
+            tag_label: le.tag_label.or(dark.tag_label),
+            head_agent: le.head_agent.or(dark.head_agent),
+            head_thinking: le.head_thinking.or(dark.head_thinking),
             ..dark
         },
         None => dark,
@@ -415,6 +437,11 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         aurora_low: ansi256(preset.aurora_low.unwrap_or(preset.completed_check)),
         aurora_mid: ansi256(preset.aurora_mid.unwrap_or(preset.active_cyan)),
         aurora_high: ansi256(preset.aurora_high.unwrap_or(preset.active_coral)),
+        // head_agent → active_purple keeps L1 AG: visually paired with L5 A: rows.
+        // head_thinking → active_amber must stay distinct from head_agent's purple.
+        tag_label: ansi256(preset.tag_label.unwrap_or(preset.secondary)),
+        head_agent: ansi256(preset.head_agent.unwrap_or(preset.active_purple)),
+        head_thinking: ansi256(preset.head_thinking.unwrap_or(preset.active_amber)),
     }
 }
 
@@ -458,6 +485,9 @@ pub fn apply_color_overrides(palette: &mut ThemePalette, overrides: &ColorsConfi
     apply!(aurora_low);
     apply!(aurora_mid);
     apply!(aurora_high);
+    apply!(tag_label);
+    apply!(head_agent);
+    apply!(head_thinking);
 }
 
 /// Emit one warning per custom theme name that omits the strata fields.
@@ -939,5 +969,89 @@ mod tests {
     #[test]
     fn ctx_marks_returns_55_70() {
         assert_eq!(ThemePalette::ctx_marks(), [55, 70]);
+    }
+
+    // ── HEAD pills + ledger TAG palette fields ──
+
+    /// ANSI 256 cells within `MIN_ANSI_PERCEPTUAL_GAP` of each other are in
+    /// the same color family (e.g. 109/110 in Sky Blue) and read as the same
+    /// hue on most terminals.
+    const MIN_ANSI_PERCEPTUAL_GAP: u8 = 2;
+
+    fn for_each_builtin_palette(mut f: impl FnMut(&str, Option<&str>, ThemePalette)) {
+        for (name, _) in BUILTIN_THEMES {
+            for variant in [Some("dark"), Some("light")] {
+                f(
+                    name,
+                    variant,
+                    resolve_palette(name, variant, &ColorsConfig::default()),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tokyo_night_authors_head_and_tag_fields_at_documented_fallbacks() {
+        let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
+        assert!(p.tag_label.contains("146"));
+        assert!(p.head_agent.contains("183"));
+        assert!(p.head_thinking.contains("178"));
+    }
+
+    #[test]
+    fn head_agent_and_head_thinking_distinct_in_default_palette() {
+        let p = ThemePalette::default();
+        assert_ne!(p.head_agent, p.head_thinking);
+    }
+
+    #[test]
+    fn apply_overrides_patches_head_and_tag_fields() {
+        let mut p = ThemePalette::default();
+        let overrides = ColorsConfig {
+            tag_label: Some(99),
+            head_agent: Some(100),
+            head_thinking: Some(101),
+            ..ColorsConfig::default()
+        };
+        apply_color_overrides(&mut p, &overrides);
+        assert!(p.tag_label.contains("99"));
+        assert!(p.head_agent.contains("100"));
+        assert!(p.head_thinking.contains("101"));
+    }
+
+    #[test]
+    fn every_builtin_theme_keeps_head_agent_distinct_from_head_thinking() {
+        for_each_builtin_palette(|name, variant, p| {
+            assert_ne!(
+                p.head_agent, p.head_thinking,
+                "theme {name} ({variant:?}) collapses head_agent and head_thinking"
+            );
+        });
+    }
+
+    #[test]
+    fn every_builtin_theme_keeps_head_agent_perceptually_apart_from_stable_blue() {
+        for_each_builtin_palette(|name, variant, p| {
+            let stable = extract_ansi_code(&p.stable_blue).unwrap_or(0);
+            let head = extract_ansi_code(&p.head_agent).unwrap_or(0);
+            assert!(
+                stable.abs_diff(head) >= MIN_ANSI_PERCEPTUAL_GAP,
+                "theme {name} ({variant:?}) has stable_blue={stable} \
+                 and head_agent={head} — too close to disambiguate M: from AG: on L1"
+            );
+        });
+    }
+
+    #[test]
+    fn tag_label_decouples_from_secondary_when_overridden() {
+        let mut p = ThemePalette::default();
+        let overrides = ColorsConfig {
+            tag_label: Some(60),
+            secondary: Some(70),
+            ..ColorsConfig::default()
+        };
+        apply_color_overrides(&mut p, &overrides);
+        assert!(p.tag_label.contains("60"));
+        assert!(p.secondary.contains("70"));
     }
 }
