@@ -47,6 +47,9 @@ pub(super) mod test_support {
             aurora_low: "LOW".to_string(),
             aurora_mid: "MID".to_string(),
             aurora_high: "HIGH".to_string(),
+            tag_label: String::new(),
+            head_agent: String::new(),
+            head_thinking: String::new(),
         }
     }
 }

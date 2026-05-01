@@ -48,6 +48,16 @@ pub struct ThemePalette {
     pub aurora_low: String,
     pub aurora_mid: String,
     pub aurora_high: String,
+    // Layout-specific roles introduced by HEAD additions (effort/thinking/agent
+    // pills on L1) and the ledger TAG column. Each gets its own palette slot
+    // so theme authors can re-tune the role without disturbing the tier the
+    // role inherited from. Fallbacks in `build_palette`:
+    //   tag_label     → secondary
+    //   head_agent    → active_purple   (matches L5+ A:Explore agent rows)
+    //   head_thinking → active_amber    (distinct from head_agent's purple)
+    pub tag_label: String,
+    pub head_agent: String,
+    pub head_thinking: String,
 }
 
 /// CTX threshold percentages — fired by `color_for_ctx_pct` and
@@ -214,6 +224,20 @@ struct PresetColors {
     aurora_mid: Option<u8>,
     #[serde(default)]
     aurora_high: Option<u8>,
+    /// Ledger TAG column color (ENV / CTX / TOK / COST / TOOL / AGENT / TODO).
+    /// Falls back to `secondary` so the role can be tuned without dragging
+    /// L1 secondary text along with it.
+    #[serde(default)]
+    tag_label: Option<u8>,
+    /// L1 `AG:agent-name` color. Falls back to `active_purple` so it visually
+    /// rhymes with L5+ `A:Explore` agent rows (same concept, same color).
+    #[serde(default)]
+    head_agent: Option<u8>,
+    /// L1 `[T]` thinking pill color. Falls back to `active_amber` to keep it
+    /// distinct from `head_agent`'s purple (head_agent and head_thinking must
+    /// not collide on L1).
+    #[serde(default)]
+    head_thinking: Option<u8>,
 }
 
 /// Light variant emphasis overrides (only 4 fields differ from dark, plus
@@ -234,6 +258,12 @@ struct LightEmphasis {
     aurora_mid: Option<u8>,
     #[serde(default)]
     aurora_high: Option<u8>,
+    #[serde(default)]
+    tag_label: Option<u8>,
+    #[serde(default)]
+    head_agent: Option<u8>,
+    #[serde(default)]
+    head_thinking: Option<u8>,
 }
 
 /// Top-level theme JSON file structure.
@@ -267,6 +297,9 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             aurora_low: le.aurora_low.or(dark.aurora_low),
             aurora_mid: le.aurora_mid.or(dark.aurora_mid),
             aurora_high: le.aurora_high.or(dark.aurora_high),
+            tag_label: le.tag_label.or(dark.tag_label),
+            head_agent: le.head_agent.or(dark.head_agent),
+            head_thinking: le.head_thinking.or(dark.head_thinking),
             ..dark
         },
         None => dark,
@@ -415,6 +448,13 @@ fn build_palette(preset: &PresetColors) -> ThemePalette {
         aurora_low: ansi256(preset.aurora_low.unwrap_or(preset.completed_check)),
         aurora_mid: ansi256(preset.aurora_mid.unwrap_or(preset.active_cyan)),
         aurora_high: ansi256(preset.aurora_high.unwrap_or(preset.active_coral)),
+        // Custom themes may omit HEAD/TAG fields → fall back to nearest tier:
+        //   tag_label     → secondary       (ledger TAG defaults to L1 secondary)
+        //   head_agent    → active_purple   (L1 AG: matches L5 A: rows)
+        //   head_thinking → active_amber    (distinct from agent purple)
+        tag_label: ansi256(preset.tag_label.unwrap_or(preset.secondary)),
+        head_agent: ansi256(preset.head_agent.unwrap_or(preset.active_purple)),
+        head_thinking: ansi256(preset.head_thinking.unwrap_or(preset.active_amber)),
     }
 }
 
@@ -458,6 +498,9 @@ pub fn apply_color_overrides(palette: &mut ThemePalette, overrides: &ColorsConfi
     apply!(aurora_low);
     apply!(aurora_mid);
     apply!(aurora_high);
+    apply!(tag_label);
+    apply!(head_agent);
+    apply!(head_thinking);
 }
 
 /// Emit one warning per custom theme name that omits the strata fields.
@@ -939,5 +982,70 @@ mod tests {
     #[test]
     fn ctx_marks_returns_55_70() {
         assert_eq!(ThemePalette::ctx_marks(), [55, 70]);
+    }
+
+    // ── HEAD pills + ledger TAG palette fields ──
+
+    #[test]
+    fn head_and_tag_fields_fall_back_to_existing_tiers_in_tokyo_night() {
+        let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
+        // tokyo-night.json has no tag_label/head_agent/head_thinking yet, so
+        // build_palette must hand them back from the documented fallbacks:
+        // secondary (146), active_purple (183), active_amber (178).
+        assert!(
+            p.tag_label.contains("146"),
+            "tag_label fallback to secondary"
+        );
+        assert!(
+            p.head_agent.contains("183"),
+            "head_agent fallback to active_purple"
+        );
+        assert!(
+            p.head_thinking.contains("178"),
+            "head_thinking fallback to active_amber"
+        );
+    }
+
+    #[test]
+    fn head_agent_and_head_thinking_distinct_in_default_palette() {
+        // head_agent borrows active_purple; head_thinking borrows active_amber.
+        // If a future change collapses them onto the same fallback, L1 will
+        // collide visually — fail loudly here so it's caught early.
+        let p = ThemePalette::default();
+        assert_ne!(
+            p.head_agent, p.head_thinking,
+            "head_agent and head_thinking must render with distinct colors"
+        );
+    }
+
+    #[test]
+    fn apply_overrides_patches_head_and_tag_fields() {
+        let mut p = ThemePalette::default();
+        let overrides = ColorsConfig {
+            tag_label: Some(99),
+            head_agent: Some(100),
+            head_thinking: Some(101),
+            ..ColorsConfig::default()
+        };
+        apply_color_overrides(&mut p, &overrides);
+        assert!(p.tag_label.contains("99"));
+        assert!(p.head_agent.contains("100"));
+        assert!(p.head_thinking.contains("101"));
+    }
+
+    #[test]
+    fn tag_label_decouples_from_secondary_when_overridden() {
+        // Sanity for the role separation rationale: overriding tag_label must
+        // not move secondary, and overriding secondary must not move tag_label
+        // once it has its own value.
+        let mut p = ThemePalette::default();
+        let overrides = ColorsConfig {
+            tag_label: Some(60),
+            secondary: Some(70),
+            ..ColorsConfig::default()
+        };
+        apply_color_overrides(&mut p, &overrides);
+        assert!(p.tag_label.contains("60"));
+        assert!(p.secondary.contains("70"));
     }
 }
