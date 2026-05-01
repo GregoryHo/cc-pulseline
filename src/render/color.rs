@@ -1052,6 +1052,29 @@ mod tests {
     }
 
     #[test]
+    fn every_builtin_theme_keeps_head_agent_perceptually_apart_from_stable_blue() {
+        // L1 collision regression for the ORIGINAL S2 problem: M: pill (model
+        // identity, `stable_blue`) and AG: pill (`head_agent`) must not land
+        // on the same ANSI cell. ANSI 256 neighbours like 109/110 are within
+        // the same color family — perceptually indistinguishable on most
+        // terminals — so we additionally require that the two values aren't
+        // adjacent integers either.
+        for (name, _) in BUILTIN_THEMES {
+            for variant in [Some("dark"), Some("light")] {
+                let p = resolve_palette(name, variant, &ColorsConfig::default());
+                let stable = extract_ansi_code(&p.stable_blue).unwrap_or(0);
+                let head = extract_ansi_code(&p.head_agent).unwrap_or(0);
+                assert!(
+                    stable.abs_diff(head) > 1,
+                    "theme {name} ({variant:?}) has stable_blue={stable} \
+                     and head_agent={head} — too close to disambiguate \
+                     M: from AG: on L1"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn tag_label_decouples_from_secondary_when_overridden() {
         // Sanity for the role separation rationale: overriding tag_label must
         // not move secondary, and overriding secondary must not move tag_label

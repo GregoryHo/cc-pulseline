@@ -458,6 +458,11 @@ How each `palette_mapping` field connects to the rendered statusline:
  active_teal ─────────────────────────────────→ TODO:Fixing auth bug
  completed_check ─────────────────────────────→ ✓ All todos complete
  strata_activity ─────────────────────────────→ | (pipes on activity rows when tonal_strata = true)
+
+                                               Ledger TAG column (ledger layout only)
+ tag_label ───────────────────────────────────→ ENV / CTX / TOK / COST / TOOL / AGENT / TODO
+                                                 (the per-row TAG label that anchors each
+                                                  ledger row's left-hand column)
 ```
 
 ### JSON File Structure
