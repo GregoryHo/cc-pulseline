@@ -16,7 +16,7 @@ use std::ops::Range;
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::format_number;
-use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING};
+use crate::render::icons::{glyph, ICON_EFFORT, ICON_THINKING, ICON_VERSION};
 use crate::render::layout;
 use crate::render::pane::{LineKind, PaneConfig, PaneGroup};
 use crate::render::widgets;
@@ -198,6 +198,15 @@ pub fn identity_headline(
     let color = config.color_enabled;
     let coloured_sep = colorize(separator, &p.structural, color);
     let mut parts: Vec<String> = Vec::new();
+
+    if config.show_version {
+        let raw = format!(
+            "{}{}",
+            glyph(config.glyph_mode, ICON_VERSION, "CC:"),
+            line1.claude_code_version
+        );
+        parts.push(colorize(&raw, &p.secondary, color));
+    }
 
     if config.show_model {
         parts.push(colorize(&line1.model, &p.primary, color));

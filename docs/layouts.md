@@ -184,7 +184,7 @@ ledger. Each metric occupies its own row, prefixed by a 6-char TAG; blank
 rows separate logical groups. Tallest layout.
 
 ```
-╭─ Opus 4.6 · ~/cc-pulseline · feat/status-pane* ↑21 ─────────────────────╮
+╭─ CC:2.1.119 · Opus 4.6 · ~/cc-pulseline · feat/status-pane* ↑21 ────────╮
 │                                                                         │
 │  ENV     󰈙 2 CLAUDE.md   󰱇 10 rules   󰧜 4 memories   󱭧 36 hooks        │
 │                                                                         │

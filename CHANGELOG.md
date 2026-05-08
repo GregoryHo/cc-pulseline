@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-05-07
+
+Render the Claude Code version pill (`CC:`) in the ledger layout's identity
+headline. Other layouts already honored the `show_version` toggle via
+`render::layout::format_line1`; ledger had a parallel render path
+(`identity_headline` in `render/frames/shared.rs`) that was missing the
+branch, so flipping `show_version` was a no-op for ledger users.
+
+### Added
+
+- **`CC:` pill in ledger identity headline** — Wires `show_version`
+  through `identity_headline` so the ledger top-frame title now shows
+  `CC:{version}` before the model name, using the same icon (`ICON_VERSION`)
+  and `secondary` palette tier as the non-ledger layouts.
+
 ## [1.1.1] - 2026-05-01
 
 Decouple the L1 HEAD pills (`AG:` agent, `[T]` thinking) and the ledger
@@ -343,6 +358,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.6...v1.1.0
 [1.0.6]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.5...v1.0.6
