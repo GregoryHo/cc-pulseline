@@ -220,7 +220,33 @@ fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<Strin
 }
 
 fn top_frame(line1: &Line1Metrics, config: &RenderConfig, ctx: &LedgerCtx) -> String {
-    let head = shared::identity_headline(line1, config, ctx.p, " · ");
+    // `╭─ {head} {dashes}─╮` — fixed overhead 3 (`╭─ `) + 1 (sep) + 2 (`─╮`)
+    // = 6 cells. Reserve 1 dash for visual continuity → budget is `inner - 5`.
+    let budget = ctx.inner.saturating_sub(5);
+
+    // Stage B: pill drop.
+    let mut head = shared::identity_headline_bounded(line1, config, ctx.p, " · ", budget);
+
+    // Stage C: path compression, then branch compression. Both reuse the
+    // same segment-aware helper from activity::truncate.
+    if visible_width(&head) > budget {
+        let mut shrunk = line1.clone();
+        let path_budget = (budget / 3).max(12);
+        shrunk.project_path = truncate::compress_path_segments(&line1.project_path, path_budget);
+        head = shared::identity_headline_bounded(&shrunk, config, ctx.p, " · ", budget);
+
+        if visible_width(&head) > budget {
+            let branch_budget = (budget / 4).max(8);
+            shrunk.git_branch = truncate::compress_path_segments(&line1.git_branch, branch_budget);
+            head = shared::identity_headline_bounded(&shrunk, config, ctx.p, " · ", budget);
+        }
+    }
+
+    // Last resort: tail-ellipsis the entire (already ANSI-colored) headline.
+    if visible_width(&head) > budget {
+        head = layout::truncate_to_width(&head, budget, ctx.color);
+    }
+
     let head_w = visible_width(&head);
     let dashes_after = ctx.inner.saturating_sub(head_w + 4);
     let lhs = colorize(

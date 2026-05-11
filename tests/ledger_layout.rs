@@ -378,6 +378,73 @@ fn ledger_sparkline_window_respects_1min_floor() {
     assert!(ctx_row.contains("→"), "delta arrow: {ctx_row:?}");
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Frame width invariants — top border must always equal bottom border
+// across realistic long-path / long-branch combos. Catches the bug where
+// `top_frame` left `head` un-truncated when it exceeded `ctx.inner`,
+// pushing the right `╮` past the terminal width.
+// ─────────────────────────────────────────────────────────────────────
+
+fn make_frame(path: &str, branch: &str) -> RenderFrame {
+    let mut f = frame_basic();
+    f.line1.project_path = path.to_string();
+    f.line1.git_branch = branch.to_string();
+    f
+}
+
+#[test]
+fn ledger_top_border_width_matches_bottom_across_widths() {
+    use cc_pulseline::render::color::visible_width;
+
+    let short_path = "~/cc-pulseline";
+    let short_branch = "main";
+    let long_path = "~/Workspace/Paradise/Frontend/platform-1.0/platform-web";
+    let long_branch = "feature/e2e-traceability-rollout-integration";
+
+    let cases: &[(&str, &str, &str)] = &[
+        ("short_path_short_branch", short_path, short_branch),
+        ("long_path_short_branch", long_path, short_branch),
+        ("short_path_long_branch", short_path, long_branch),
+        ("long_path_long_branch", long_path, long_branch),
+    ];
+    let widths = [100usize, 140, 200, 240];
+
+    for w in widths {
+        for (label, path, branch) in cases {
+            let f = make_frame(path, branch);
+            let lines = render_frame(&f, &cfg(w));
+            let top = lines.first().expect("top frame line");
+            let bottom = lines.last().expect("bottom frame line");
+            assert_eq!(
+                visible_width(top),
+                visible_width(bottom),
+                "width {w}, case {label}\n  top:    {top}\n  bottom: {bottom}",
+            );
+        }
+    }
+}
+
+#[test]
+fn ledger_top_aligns_under_long_path_and_branch_at_100_cols() {
+    use cc_pulseline::render::color::visible_width;
+
+    // Direct repro of the user-reported screenshot conditions.
+    let f = make_frame(
+        "~/Workspace/Paradise/Frontend/platform-1.0/platform-web",
+        "feature/e2e-traceability-rollout-integration",
+    );
+    let lines = render_frame(&f, &cfg(100));
+    let top = lines.first().expect("top frame line");
+    let bottom = lines.last().expect("bottom frame line");
+    assert_eq!(
+        visible_width(top),
+        visible_width(bottom),
+        "headline must self-bound\n  top:    {top}\n  bottom: {bottom}",
+    );
+    // Right edge `╮` must appear — its absence is the original bug signal.
+    assert!(top.contains('╮'), "top frame has right corner: {top}");
+}
+
 #[test]
 fn ledger_all_complete_celebration_line() {
     use cc_pulseline::types::TodoSummary;
