@@ -112,6 +112,53 @@ pub fn keep_middle(raw: &str, max_chars: usize) -> String {
     )
 }
 
+/// Segment-aware path compression for `/`-delimited paths.
+///
+/// Preserves the first and last segments (most informative), replacing
+/// middle segments with a single `…`. Three-stage cascade:
+///   1. Try `{first}/…/{last}`.
+///   2. If too wide, drop the first segment: `…/{last}`.
+///   3. If the leaf alone is too wide, truncate it with `keep_tail`.
+///
+/// Falls back to `keep_tail` for paths with 0 or 1 segments (no
+/// middle to elide). Char-safe — uses `chars()` for width math.
+///
+/// Examples (max_width=24):
+///   `~/Workspace/Paradise/Frontend/platform-1.0/platform-web`
+///     → `~/…/platform-web` (16 chars) when middle elision suffices
+///   `/very/deep/nested/path/extremely_long_filename.rs`
+///     → `…/extremely_long_filena…` when leaf needs truncation too
+pub fn compress_path_segments(path: &str, max_width: usize) -> String {
+    let count = path.chars().count();
+    if count <= max_width {
+        return path.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.len() < 3 {
+        // 0, 1, or 2 segments: no middle to elide. Fall back to keep_tail.
+        return keep_tail(path, max_width);
+    }
+    let first = segments.first().copied().unwrap_or("");
+    let last = segments.last().copied().unwrap_or("");
+    let first_w = first.chars().count();
+    let last_w = last.chars().count();
+    // Stage 1: `{first}/…/{last}` — needs first + 3 (for `/…/`) + last chars.
+    let stage1_w = first_w + 3 + last_w;
+    if stage1_w <= max_width {
+        return format!("{first}/{ELLIPSIS}/{last}");
+    }
+    // Stage 2: `…/{last}` — needs 2 + last chars.
+    let stage2_w = 2 + last_w;
+    if stage2_w <= max_width {
+        return format!("{ELLIPSIS}/{last}");
+    }
+    // Stage 3: leaf alone is too long; truncate it.
+    keep_tail(last, max_width)
+}
+
 /// Truncate at a word boundary: never cut mid-word. If the first word is
 /// itself longer than `max_chars`, falls back to `keep_head` so we still
 /// emit something. Words are space-separated.
@@ -339,6 +386,69 @@ mod tests {
     #[test]
     fn keep_middle_short_returns_intact() {
         assert_eq!(keep_middle("hello", 10), "hello");
+    }
+
+    #[test]
+    fn compress_path_short_returns_intact() {
+        assert_eq!(
+            compress_path_segments("~/repo/file.rs", 30),
+            "~/repo/file.rs"
+        );
+    }
+    #[test]
+    fn compress_path_elides_middle_segments() {
+        // 55 chars in, max=24, segments=5; stage 1: `~` (1) + `/…/` (3) + `platform-web` (12) = 16
+        assert_eq!(
+            compress_path_segments(
+                "~/Workspace/Paradise/Frontend/platform-1.0/platform-web",
+                24
+            ),
+            "~/\u{2026}/platform-web"
+        );
+    }
+    #[test]
+    fn compress_path_drops_first_when_too_long() {
+        // first segment alone (`very-long-org-prefix`) is 20 chars, plus `/…/leaf` (8)
+        // = 28 > 24. Stage 2: `…/leaf` = 6 chars, fits.
+        assert_eq!(
+            compress_path_segments("very-long-org-prefix/mid/leaf", 10),
+            "\u{2026}/leaf"
+        );
+    }
+    #[test]
+    fn compress_path_truncates_leaf_when_alone_too_long() {
+        let result = compress_path_segments("a/b/extremely_long_filename_here.rs", 10);
+        assert!(result.chars().count() <= 10);
+        // Either `.../leaf` (when leaf fits with prefix) or a truncated leaf.
+        assert!(result.contains('\u{2026}') || result.starts_with("..."));
+    }
+    #[test]
+    fn compress_path_single_segment_falls_back_to_keep_tail() {
+        // No `/` separators — delegates to keep_tail, which uses leading ellipsis.
+        let result = compress_path_segments("supercalifragilisticexpialidocious", 10);
+        assert!(result.chars().count() <= 10);
+        assert!(result.starts_with('\u{2026}'));
+    }
+    #[test]
+    fn compress_path_two_segments_falls_back_to_keep_tail() {
+        // 2 segments — keep_tail tries `.../{leaf}`. `~/very-long-leaf` (16) > 10.
+        // keep_tail's path branch tries `.../very-long-leaf` (18) > 10, leaf alone
+        // (14) > 10, falls back to keep_head(leaf, 10) = "very-long…"
+        let result = compress_path_segments("~/very-long-leaf", 10);
+        assert!(result.chars().count() <= 10);
+    }
+    #[test]
+    fn compress_path_branch_with_slashes_works() {
+        // Branches like `feature/e2e-traceability-rollout-integration` have one
+        // `/` — that's 2 segments, falls back to keep_tail.
+        let result = compress_path_segments("feature/e2e-traceability-rollout-integration", 16);
+        assert!(result.chars().count() <= 16);
+    }
+    #[test]
+    fn compress_path_unicode_safe() {
+        // 多段 unicode path
+        let result = compress_path_segments("~/工作區/前端/平台/網頁", 8);
+        assert!(result.chars().count() <= 8);
     }
 
     #[test]
