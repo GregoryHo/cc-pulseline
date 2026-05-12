@@ -285,6 +285,51 @@ pub fn identity_headline(
     parts.join(&coloured_sep)
 }
 
+/// Width-aware identity headline. When the full headline fits in
+/// `max_width` (visible chars), returns `identity_headline` unchanged.
+/// Otherwise drops optional pills in low-signal-first order until the
+/// result fits, returning the final attempt regardless.
+///
+/// **Never auto-drops** `show_model`, `show_project`, `show_git` —
+/// those define identity. Callers are expected to handle further
+/// overflow via path/branch compression and/or tail-ellipsis.
+///
+/// Mirrors `config_row`'s clone-mutate-remeasure pattern: clones
+/// `RenderConfig` once, mutates the clone per DROP_ORDER step, never
+/// clones `Line1Metrics`.
+pub fn identity_headline_bounded(
+    line1: &Line1Metrics,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    separator: &str,
+    max_width: usize,
+) -> String {
+    let head = identity_headline(line1, config, p, separator);
+    if visible_width(&head) <= max_width {
+        return head;
+    }
+
+    const DROP_ORDER: &[fn(&mut RenderConfig)] = &[
+        |c| c.show_version = false,
+        |c| c.show_git_stats = false,
+        |c| c.show_worktree = false,
+        |c| c.show_effort = false,
+        |c| c.show_agent = false,
+        |c| c.show_thinking = false,
+    ];
+
+    let mut shrunk = config.clone();
+    let mut last = head;
+    for drop in DROP_ORDER {
+        drop(&mut shrunk);
+        last = identity_headline(line1, &shrunk, p, separator);
+        if visible_width(&last) <= max_width {
+            return last;
+        }
+    }
+    last
+}
+
 /// Compact L2 config row, width-aware. Delegates to `format_line2` in
 /// `layout.rs` so the icons, counts, and toggles stay in lockstep across
 /// layouts. When the assembled row exceeds `max_width`, segments are
@@ -561,5 +606,121 @@ mod tests {
     fn config_row_enabled_false_when_everything_off() {
         // Sanity guard for the predicate's negative case.
         assert!(!config_row_enabled(&cfg_all_off()));
+    }
+
+    fn line1_with_all_optional_pills() -> Line1Metrics {
+        Line1Metrics {
+            model: "Opus 4.7".to_string(),
+            claude_code_version: "2.1.138".to_string(),
+            project_path: "~/repo".to_string(),
+            git_branch: "main".to_string(),
+            git_dirty: true,
+            git_modified: 3,
+            git_added: 2,
+            git_untracked: 1,
+            agent_name: Some("greg-bot".to_string()),
+            in_worktree: true,
+            effort_level: Some("high".to_string()),
+            thinking_enabled: Some(true),
+            ..Line1Metrics::default()
+        }
+    }
+
+    fn cfg_identity_all_on() -> RenderConfig {
+        RenderConfig {
+            color_enabled: false,
+            show_model: true,
+            show_version: true,
+            show_effort: true,
+            show_thinking: true,
+            show_agent: true,
+            show_project: true,
+            show_git: true,
+            show_git_stats: true,
+            show_worktree: true,
+            ..RenderConfig::default()
+        }
+    }
+
+    #[test]
+    fn bounded_returns_unchanged_when_fits() {
+        let line1 = line1_with_all_optional_pills();
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        let full = identity_headline(&line1, &cfg, &palette, " · ");
+        let bounded = identity_headline_bounded(&line1, &cfg, &palette, " · ", 1000);
+        assert_eq!(bounded, full);
+    }
+
+    #[test]
+    fn bounded_drops_version_first() {
+        let line1 = line1_with_all_optional_pills();
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        let full = identity_headline(&line1, &cfg, &palette, " · ");
+        // Budget just below full → exactly one drop should occur (version).
+        let budget = visible_width(&full) - 1;
+        let bounded = identity_headline_bounded(&line1, &cfg, &palette, " · ", budget);
+        assert!(
+            !bounded.contains("CC:"),
+            "show_version should drop first; got {bounded:?}"
+        );
+        // Other optional pills survive.
+        assert!(bounded.contains("Opus 4.7"));
+        assert!(bounded.contains("high"));
+        assert!(bounded.contains("greg-bot"));
+    }
+
+    #[test]
+    fn bounded_drops_thinking_last_among_optionals() {
+        let line1 = line1_with_all_optional_pills();
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        // Tight budget that forces every optional pill to drop. After all
+        // DROP_ORDER iterations the result must NOT include the thinking
+        // pill (it's last in DROP_ORDER, dropped last).
+        let bounded = identity_headline_bounded(&line1, &cfg, &palette, " · ", 20);
+        assert!(
+            !bounded.contains("[T]"),
+            "thinking should drop after all others; got {bounded:?}"
+        );
+    }
+
+    #[test]
+    fn bounded_never_drops_model_or_project_or_git() {
+        let line1 = line1_with_all_optional_pills();
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        // Impossibly tight budget — even after all DROP_ORDER fires,
+        // model/project/git are still present (no auto-drop for these).
+        let bounded = identity_headline_bounded(&line1, &cfg, &palette, " · ", 1);
+        assert!(bounded.contains("Opus 4.7"));
+        assert!(bounded.contains("~/repo"));
+        assert!(bounded.contains("main"));
+    }
+
+    #[test]
+    fn bounded_drops_git_stats_without_dropping_branch() {
+        let line1 = line1_with_all_optional_pills();
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        // Pin budget to "version off, but everything else on" minus 1, so the
+        // bounded loop is forced to drop the NEXT item after version. Per
+        // DROP_ORDER that's git_stats. Branch + dirty marker must survive.
+        let mut cfg_no_version = cfg.clone();
+        cfg_no_version.show_version = false;
+        let no_version_w =
+            visible_width(&identity_headline(&line1, &cfg_no_version, &palette, " · "));
+        let budget = no_version_w - 1;
+        let bounded = identity_headline_bounded(&line1, &cfg, &palette, " · ", budget);
+        assert!(bounded.contains("main"), "branch survived; got {bounded:?}");
+        assert!(
+            bounded.contains('*'),
+            "dirty marker survives; got {bounded:?}"
+        );
+        assert!(
+            !bounded.contains("!3"),
+            "git_stats dropped; got {bounded:?}"
+        );
     }
 }

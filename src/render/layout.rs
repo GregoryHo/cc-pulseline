@@ -699,7 +699,7 @@ fn lines_fit_width(lines: &[String], width: usize) -> bool {
     lines.iter().all(|line| visible_width(line) <= width)
 }
 
-fn truncate_to_width(line: &str, width: usize, color_enabled: bool) -> String {
+pub fn truncate_to_width(line: &str, width: usize, color_enabled: bool) -> String {
     if visible_width(line) <= width {
         return line.to_string();
     }

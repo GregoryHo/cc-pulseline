@@ -88,11 +88,15 @@ struct LedgerCtx<'a> {
 
 pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
     // Ledger needs a known terminal width — its rows are fixed-width
-    // framed. Fall back to console (content-sized) when width detection
-    // fails or the terminal is too narrow for the TAG-column rhythm.
-    let Some(width) = config.terminal_width.map(|w| w.min(config.pane_max_width)) else {
-        return fallback_to_sections(frame, config);
-    };
+    // framed. When detection fails (statusline hook context with no
+    // accessible /dev/tty), assume `pane_max_width` rather than falling
+    // back — falling back loses the user's chosen ledger layout for what
+    // is the common-case invocation context. Only when the terminal is
+    // *known* to be narrower than the TAG-column rhythm does Console win.
+    let width = config
+        .terminal_width
+        .map(|w| w.min(config.pane_max_width))
+        .unwrap_or(config.pane_max_width);
     if width < 90 {
         return fallback_to_sections(frame, config);
     }
@@ -219,9 +223,52 @@ fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<Strin
     layout::render_frame(frame, &shrunk)
 }
 
+/// `╭─ {head} {dashes}─╮` — fixed overhead = 3 (`╭─ `) + 1 (sep) + 2 (`─╮`)
+/// = 6 cells. Reserving 1 dash for visual continuity leaves headline
+/// budget = `ctx.inner - 5`.
+const HEADLINE_FRAME_OVERHEAD: usize = 5;
+
+/// Fraction of headline budget allocated to path / branch when stage C
+/// compression kicks in. Generous enough that a compressed `~/…/leaf`
+/// always fits, but tight enough to leave room for model + pills.
+/// Floors guarantee a useful leaf even at narrow terminals.
+const PATH_BUDGET_DIVISOR: usize = 3;
+const PATH_BUDGET_FLOOR: usize = 12;
+const BRANCH_BUDGET_DIVISOR: usize = 4;
+const BRANCH_BUDGET_FLOOR: usize = 8;
+
 fn top_frame(line1: &Line1Metrics, config: &RenderConfig, ctx: &LedgerCtx) -> String {
-    let head = shared::identity_headline(line1, config, ctx.p, " · ");
-    let head_w = visible_width(&head);
+    let budget = ctx.inner.saturating_sub(HEADLINE_FRAME_OVERHEAD);
+
+    let mut head = shared::identity_headline_bounded(line1, config, ctx.p, " · ", budget);
+    let mut head_w = visible_width(&head);
+
+    if head_w > budget {
+        let mut compressed = line1.clone();
+        let path_budget = (budget / PATH_BUDGET_DIVISOR).max(PATH_BUDGET_FLOOR);
+        compressed.project_path =
+            truncate::compress_path_segments(&line1.project_path, path_budget);
+        head = shared::identity_headline_bounded(&compressed, config, ctx.p, " · ", budget);
+        head_w = visible_width(&head);
+
+        // Branch compression stacks on top of the path compression above —
+        // do NOT reset `compressed` here.
+        if head_w > budget {
+            let branch_budget = (budget / BRANCH_BUDGET_DIVISOR).max(BRANCH_BUDGET_FLOOR);
+            compressed.git_branch =
+                truncate::compress_path_segments(&line1.git_branch, branch_budget);
+            head = shared::identity_headline_bounded(&compressed, config, ctx.p, " · ", budget);
+            head_w = visible_width(&head);
+        }
+    }
+
+    // Safety net: tail-ellipsis the ANSI-colored headline when even
+    // both path AND branch compression couldn't bring it under budget.
+    if head_w > budget {
+        head = layout::truncate_to_width(&head, budget, ctx.color);
+        head_w = visible_width(&head);
+    }
+
     let dashes_after = ctx.inner.saturating_sub(head_w + 4);
     let lhs = colorize(
         &format!("{}{} ", ctx.g.tl, ctx.g.h),

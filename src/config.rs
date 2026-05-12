@@ -1294,10 +1294,12 @@ fn parse_pane_width_mode(value: &str, fixed_width: Option<usize>) -> PaneWidth {
 fn resolve_terminal_width(columns_env: Option<&str>, ioctl_probe: Option<u16>) -> Option<usize> {
     if let Some(raw) = columns_env {
         if let Ok(w) = raw.parse::<usize>() {
-            return Some(w);
+            if w > 0 {
+                return Some(w);
+            }
         }
     }
-    ioctl_probe.map(|w| w as usize)
+    ioctl_probe.map(|w| w as usize).filter(|w| *w > 0)
 }
 
 /// Two-stage ioctl probe: first try the inherited stdio fds via
@@ -1447,5 +1449,22 @@ mod terminal_width_tests {
     fn returns_none_when_both_sources_fail() {
         assert_eq!(resolve_terminal_width(None, None), None);
         assert_eq!(resolve_terminal_width(Some("bogus"), None), None);
+    }
+
+    #[test]
+    fn columns_env_zero_falls_through_to_ioctl() {
+        // Background shells / statusline hook contexts can inherit `COLUMNS=0`;
+        // treat it as "unknown" so ioctl probe gets a chance.
+        assert_eq!(resolve_terminal_width(Some("0"), Some(160)), Some(160));
+    }
+
+    #[test]
+    fn columns_env_zero_with_no_ioctl_yields_none() {
+        assert_eq!(resolve_terminal_width(Some("0"), None), None);
+    }
+
+    #[test]
+    fn ioctl_zero_treated_as_none() {
+        assert_eq!(resolve_terminal_width(None, Some(0)), None);
     }
 }

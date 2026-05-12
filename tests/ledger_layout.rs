@@ -378,6 +378,136 @@ fn ledger_sparkline_window_respects_1min_floor() {
     assert!(ctx_row.contains("→"), "delta arrow: {ctx_row:?}");
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Frame width invariants — top border must always equal bottom border
+// across realistic long-path / long-branch combos. Catches the bug where
+// `top_frame` left `head` un-truncated when it exceeded `ctx.inner`,
+// pushing the right `╮` past the terminal width.
+// ─────────────────────────────────────────────────────────────────────
+
+fn make_frame(path: &str, branch: &str) -> RenderFrame {
+    let mut f = frame_basic();
+    f.line1.project_path = path.to_string();
+    f.line1.git_branch = branch.to_string();
+    f
+}
+
+#[test]
+fn ledger_top_border_width_matches_bottom_across_widths() {
+    use cc_pulseline::render::color::visible_width;
+
+    let short_path = "~/cc-pulseline";
+    let short_branch = "main";
+    let long_path = "~/Workspace/Paradise/Frontend/platform-1.0/platform-web";
+    let long_branch = "feature/e2e-traceability-rollout-integration";
+
+    let cases: &[(&str, &str, &str)] = &[
+        ("short_path_short_branch", short_path, short_branch),
+        ("long_path_short_branch", long_path, short_branch),
+        ("short_path_long_branch", short_path, long_branch),
+        ("long_path_long_branch", long_path, long_branch),
+    ];
+    let widths = [100usize, 140, 200, 240];
+
+    for w in widths {
+        for (label, path, branch) in cases {
+            let f = make_frame(path, branch);
+            let lines = render_frame(&f, &cfg(w));
+            let top = lines.first().expect("top frame line");
+            let bottom = lines.last().expect("bottom frame line");
+            assert_eq!(
+                visible_width(top),
+                visible_width(bottom),
+                "width {w}, case {label}\n  top:    {top}\n  bottom: {bottom}",
+            );
+        }
+    }
+}
+
+#[test]
+fn ledger_top_aligns_under_long_path_and_branch_at_100_cols() {
+    use cc_pulseline::render::color::visible_width;
+
+    // Direct repro of the user-reported screenshot conditions.
+    let f = make_frame(
+        "~/Workspace/Paradise/Frontend/platform-1.0/platform-web",
+        "feature/e2e-traceability-rollout-integration",
+    );
+    let lines = render_frame(&f, &cfg(100));
+    let top = lines.first().expect("top frame line");
+    let bottom = lines.last().expect("bottom frame line");
+    assert_eq!(
+        visible_width(top),
+        visible_width(bottom),
+        "headline must self-bound\n  top:    {top}\n  bottom: {bottom}",
+    );
+    // Right edge `╮` must appear — its absence is the original bug signal.
+    assert!(top.contains('╮'), "top frame has right corner: {top}");
+}
+
+#[test]
+fn ledger_renders_at_pane_max_width_when_terminal_width_unknown() {
+    // Reproduces the statusline-hook context where `/dev/tty` is
+    // unreachable and `COLUMNS` is unset or `"0"` → `terminal_width: None`.
+    // Pre-fix: ledger fell back to Console (sections), surfacing internal
+    // `├─┼─┤` row separators and a `│ TAG │ body │` cell border, which
+    // doesn't match the user's chosen ledger layout.
+    let mut c = cfg(140);
+    c.terminal_width = None;
+    let f = frame_basic();
+    let lines = render_frame(&f, &c);
+    let blob = lines.join("\n");
+
+    assert!(
+        !blob.contains('├') && !blob.contains('┼') && !blob.contains('┤'),
+        "ledger should not render Console sections separators (├ ┼ ┤) when width is unknown\n{blob}"
+    );
+    let top = lines.first().expect("top frame line");
+    assert!(
+        top.starts_with('╭'),
+        "top frame line must start with ╭: {top}"
+    );
+    assert!(top.contains('╮'), "top frame line must end with ╮: {top}");
+}
+
+#[test]
+fn ledger_unknown_width_honors_pane_max_width_and_aligns_borders() {
+    use cc_pulseline::render::color::visible_width;
+
+    // Pin two invariants for the `terminal_width: None` code path:
+    //   (1) top width == bottom width (frame geometry)
+    //   (2) frame width tracks `pane_max_width` (width sourcing — proves
+    //       we didn't accidentally regress to a hardcoded default or to
+    //       ignoring the user's max_width override).
+    // The exact delta between `pane_max_width` and the rendered frame
+    // width is governed by FRAME_INNER_PAD (private to ledger.rs); we
+    // assert a loose bound rather than the exact number so the test
+    // survives constant tuning.
+    let f = frame_basic();
+    for max_w in [100usize, 120, 140, 180] {
+        let mut c = cfg(140);
+        c.terminal_width = None;
+        c.pane_max_width = max_w;
+        let lines = render_frame(&f, &c);
+        let top = lines.first().expect("top frame line");
+        let bottom = lines.last().expect("bottom frame line");
+        let top_w = visible_width(top);
+        let bot_w = visible_width(bottom);
+
+        assert_eq!(
+            top_w, bot_w,
+            "borders must align at pane_max_width={max_w}\n  top: {top}\n  bot: {bottom}"
+        );
+        // Loose: frame width is within 10 cells of pane_max_width (private
+        // FRAME_INNER_PAD = 5 currently yields top_w == pane_max_width - 3).
+        let lower = max_w.saturating_sub(10);
+        assert!(
+            (lower..=max_w).contains(&top_w),
+            "frame width {top_w} should track pane_max_width={max_w} (within 10)\n  top: {top}"
+        );
+    }
+}
+
 #[test]
 fn ledger_all_complete_celebration_line() {
     use cc_pulseline::types::TodoSummary;
