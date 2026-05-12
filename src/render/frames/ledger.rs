@@ -88,11 +88,15 @@ struct LedgerCtx<'a> {
 
 pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> Vec<String> {
     // Ledger needs a known terminal width — its rows are fixed-width
-    // framed. Fall back to console (content-sized) when width detection
-    // fails or the terminal is too narrow for the TAG-column rhythm.
-    let Some(width) = config.terminal_width.map(|w| w.min(config.pane_max_width)) else {
-        return fallback_to_sections(frame, config);
-    };
+    // framed. When detection fails (statusline hook context with no
+    // accessible /dev/tty), assume `pane_max_width` rather than falling
+    // back — falling back loses the user's chosen ledger layout for what
+    // is the common-case invocation context. Only when the terminal is
+    // *known* to be narrower than the TAG-column rhythm does Console win.
+    let width = config
+        .terminal_width
+        .map(|w| w.min(config.pane_max_width))
+        .unwrap_or(config.pane_max_width);
     if width < 90 {
         return fallback_to_sections(frame, config);
     }

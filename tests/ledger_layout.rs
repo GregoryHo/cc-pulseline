@@ -446,6 +446,31 @@ fn ledger_top_aligns_under_long_path_and_branch_at_100_cols() {
 }
 
 #[test]
+fn ledger_renders_at_pane_max_width_when_terminal_width_unknown() {
+    // Reproduces the statusline-hook context where `/dev/tty` is
+    // unreachable and `COLUMNS` is unset or `"0"` → `terminal_width: None`.
+    // Pre-fix: ledger fell back to Console (sections), surfacing internal
+    // `├─┼─┤` row separators and a `│ TAG │ body │` cell border, which
+    // doesn't match the user's chosen ledger layout.
+    let mut c = cfg(140);
+    c.terminal_width = None;
+    let f = frame_basic();
+    let lines = render_frame(&f, &c);
+    let blob = lines.join("\n");
+
+    assert!(
+        !blob.contains('├') && !blob.contains('┼') && !blob.contains('┤'),
+        "ledger should not render Console sections separators (├ ┼ ┤) when width is unknown\n{blob}"
+    );
+    let top = lines.first().expect("top frame line");
+    assert!(
+        top.starts_with('╭'),
+        "top frame line must start with ╭: {top}"
+    );
+    assert!(top.contains('╮'), "top frame line must end with ╮: {top}");
+}
+
+#[test]
 fn ledger_all_complete_celebration_line() {
     use cc_pulseline::types::TodoSummary;
     let mut f = frame_basic();
