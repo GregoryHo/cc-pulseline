@@ -471,6 +471,44 @@ fn ledger_renders_at_pane_max_width_when_terminal_width_unknown() {
 }
 
 #[test]
+fn ledger_unknown_width_honors_pane_max_width_and_aligns_borders() {
+    use cc_pulseline::render::color::visible_width;
+
+    // Pin two invariants for the `terminal_width: None` code path:
+    //   (1) top width == bottom width (frame geometry)
+    //   (2) frame width tracks `pane_max_width` (width sourcing — proves
+    //       we didn't accidentally regress to a hardcoded default or to
+    //       ignoring the user's max_width override).
+    // The exact delta between `pane_max_width` and the rendered frame
+    // width is governed by FRAME_INNER_PAD (private to ledger.rs); we
+    // assert a loose bound rather than the exact number so the test
+    // survives constant tuning.
+    let f = frame_basic();
+    for max_w in [100usize, 120, 140, 180] {
+        let mut c = cfg(140);
+        c.terminal_width = None;
+        c.pane_max_width = max_w;
+        let lines = render_frame(&f, &c);
+        let top = lines.first().expect("top frame line");
+        let bottom = lines.last().expect("bottom frame line");
+        let top_w = visible_width(top);
+        let bot_w = visible_width(bottom);
+
+        assert_eq!(
+            top_w, bot_w,
+            "borders must align at pane_max_width={max_w}\n  top: {top}\n  bot: {bottom}"
+        );
+        // Loose: frame width is within 10 cells of pane_max_width (private
+        // FRAME_INNER_PAD = 5 currently yields top_w == pane_max_width - 3).
+        let lower = max_w.saturating_sub(10);
+        assert!(
+            (lower..=max_w).contains(&top_w),
+            "frame width {top_w} should track pane_max_width={max_w} (within 10)\n  top: {top}"
+        );
+    }
+}
+
+#[test]
 fn ledger_all_complete_celebration_line() {
     use cc_pulseline::types::TodoSummary;
     let mut f = frame_basic();
