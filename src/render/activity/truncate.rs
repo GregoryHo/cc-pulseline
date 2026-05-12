@@ -145,17 +145,12 @@ pub fn compress_path_segments(path: &str, max_width: usize) -> String {
     let last = segments.last().copied().unwrap_or("");
     let first_w = first.chars().count();
     let last_w = last.chars().count();
-    // Stage 1: `{first}/…/{last}` — needs first + 3 (for `/…/`) + last chars.
-    let stage1_w = first_w + 3 + last_w;
-    if stage1_w <= max_width {
+    if first_w + 3 + last_w <= max_width {
         return format!("{first}/{ELLIPSIS}/{last}");
     }
-    // Stage 2: `…/{last}` — needs 2 + last chars.
-    let stage2_w = 2 + last_w;
-    if stage2_w <= max_width {
+    if 2 + last_w <= max_width {
         return format!("{ELLIPSIS}/{last}");
     }
-    // Stage 3: leaf alone is too long; truncate it.
     keep_tail(last, max_width)
 }
 

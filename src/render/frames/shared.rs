@@ -627,20 +627,19 @@ mod tests {
     }
 
     fn cfg_identity_all_on() -> RenderConfig {
-        let mut c = RenderConfig {
+        RenderConfig {
             color_enabled: false,
+            show_model: true,
+            show_version: true,
+            show_effort: true,
+            show_thinking: true,
+            show_agent: true,
+            show_project: true,
+            show_git: true,
+            show_git_stats: true,
+            show_worktree: true,
             ..RenderConfig::default()
-        };
-        c.show_model = true;
-        c.show_version = true;
-        c.show_effort = true;
-        c.show_thinking = true;
-        c.show_agent = true;
-        c.show_project = true;
-        c.show_git = true;
-        c.show_git_stats = true;
-        c.show_worktree = true;
-        c
+        }
     }
 
     #[test]
