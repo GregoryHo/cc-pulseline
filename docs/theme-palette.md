@@ -145,7 +145,7 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) -- replaced by emphasis tiers and rate-based cost coloring.
 
-## Tier Summary (8 types, 31 unique fields)
+## Tier Summary (8 types, 34 unique fields)
 
 | Tier | Colors | Purpose | Status |
 |------|--------|---------|--------|

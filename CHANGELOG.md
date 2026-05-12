@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-05-12
+
+Patch release fixing two ledger-rendering bugs exposed by the v1.1.2 `CC:`
+pill addition: a top-frame border misalignment under long path/branch, and
+a silent fallback from ledger to Console layout when terminal-width
+detection fails (the common case in the Claude Code statusline hook
+context).
+
+### Fixed
+
+- **Ledger top-frame border misalignment** — When the identity headline
+  exceeded the inner frame width, the trailing-dashes math used
+  `saturating_sub`, which kept the right corner `╮` visually but did not
+  truncate the headline itself; the result was a `╮` pushed past the body
+  rows. `top_frame` now caps the headline via `identity_headline_bounded`
+  (drops optional pills in `version → git_stats → worktree → effort →
+  agent → thinking` order), then compresses `project_path` and
+  `git_branch` with segment-aware ellipsis (`{first}/…/{last}` →
+  `…/{last}` → `keep_tail`), with `truncate_to_width` as a final safety
+  net.
+- **Ledger silently downgrading to Console layout** — When
+  `terminal_width` detection failed (statusline hook context with no
+  accessible `/dev/tty` and `COLUMNS=0` or unset), ledger fell back to
+  Console (sections-style with `├─┼─┤` row separators and `│ TAG │ body │`
+  cell borders) — but the hook context is the common-case invocation, so
+  users were losing their chosen `ledger` layout silently. The renderer
+  now assumes `pane_max_width` (default 140) when detection fails; only
+  an *observed* width below 90 still triggers Console fallback.
+- **`resolve_terminal_width` accepts `COLUMNS="0"` as a valid width** —
+  Both the env-var branch and the ioctl branch now reject 0, falling
+  through cleanly so the function returns `None` when no usable width
+  exists.
+
+### Internal
+
+- **`compress_path_segments`** (`render/activity/truncate.rs`) — New
+  helper that retains the leaf segment and progressively drops the
+  middle (`{first}/…/{last}` → `…/{last}` → `keep_tail`). Char-safe; used
+  by ledger's `top_frame` overflow cascade for both project paths and
+  branch names containing `/`.
+- **`identity_headline_bounded`** (`render/frames/shared.rs`) — Width-aware
+  wrapper around `identity_headline` that progressively turns off
+  optional pills until the rendered width fits. Mirrors `config_row`'s
+  clone-mutate-remeasure pattern; never mutates `Line1Metrics`.
+- **Doc-rot fix**: `docs/theme-palette.md` Tier Summary header updated
+  from "31 unique fields" to "34 unique fields" to match the current
+  `ThemePalette` struct (drift from 1.1.1's `tag_label` / `head_agent` /
+  `head_thinking` additions).
+
 ## [1.1.2] - 2026-05-07
 
 Render the Claude Code version pill (`CC:`) in the ledger layout's identity
@@ -358,6 +407,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.0.6...v1.1.0
