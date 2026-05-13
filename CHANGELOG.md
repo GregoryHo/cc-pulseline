@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-05-13
+
+Patch release fixing a regression introduced by v1.1.3's ledger headline
+overflow cascade: the `CC:` version pill (and other optional pills) was
+being dropped before `project_path` / `git_branch` were compressed, so a
+long project path could hide `CC:` even when the user had `show_version =
+true`. The cascade is now inverted — data is compressed first, pills drop
+only as the last resort before tail-ellipsis truncation.
+
+### Fixed
+
+- **Ledger headline dropping `CC:` version pill (and other optional
+  pills) before compressing long path/branch** — `top_frame`'s overflow
+  cascade was ordered `bounded(drops pills) → compress path → compress
+  branch → tail`. With a long `project_path` (e.g. 57+ chars) the
+  `identity_headline_bounded` call at stage 1 already dropped `version`
+  via `DROP_ORDER`, so subsequent compression stages saw a pill-less
+  headline and the user lost `CC:` even at wide terminals. The cascade
+  is now reordered to `full → compress path → compress branch → bounded
+  (drops pills) → tail`: pill drop only fires after both data
+  compressions failed to fit.
+
+### Internal
+
+- Regression test `ledger_preserves_show_version_when_path_is_long`
+  (`tests/ledger_layout.rs`) — Pins the new behavior using the
+  platform-web case (57-char path, 33-char branch) across widths 120
+  through 240; asserts `top.contains("2.1.138")` (the CC: pill version
+  string) at every width.
+
 ## [1.1.3] - 2026-05-12
 
 Patch release fixing two ledger-rendering bugs exposed by the v1.1.2 `CC:`
@@ -407,6 +437,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.0...v1.1.1
