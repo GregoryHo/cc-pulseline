@@ -240,30 +240,43 @@ const BRANCH_BUDGET_FLOOR: usize = 8;
 fn top_frame(line1: &Line1Metrics, config: &RenderConfig, ctx: &LedgerCtx) -> String {
     let budget = ctx.inner.saturating_sub(HEADLINE_FRAME_OVERHEAD);
 
-    let mut head = shared::identity_headline_bounded(line1, config, ctx.p, " · ", budget);
+    // Cascade prefers data compression (ellipsis on path/branch — visibly
+    // recoverable) before pill drop (toggle off — entire segment vanishes).
+    // A user who explicitly enabled `show_version` shouldn't lose the CC:
+    // pill just because their project path is long; long paths should turn
+    // into `~/…/leaf` first.
+
+    // Stage 1: full headline, no compression, no pill drop.
+    let mut head = shared::identity_headline(line1, config, ctx.p, " · ");
     let mut head_w = visible_width(&head);
 
     if head_w > budget {
+        // Stage 2: compress project_path.
         let mut compressed = line1.clone();
         let path_budget = (budget / PATH_BUDGET_DIVISOR).max(PATH_BUDGET_FLOOR);
         compressed.project_path =
             truncate::compress_path_segments(&line1.project_path, path_budget);
-        head = shared::identity_headline_bounded(&compressed, config, ctx.p, " · ", budget);
+        head = shared::identity_headline(&compressed, config, ctx.p, " · ");
         head_w = visible_width(&head);
 
-        // Branch compression stacks on top of the path compression above —
-        // do NOT reset `compressed` here.
         if head_w > budget {
+            // Stage 3: compress git_branch (stacks on the path compression).
             let branch_budget = (budget / BRANCH_BUDGET_DIVISOR).max(BRANCH_BUDGET_FLOOR);
             compressed.git_branch =
                 truncate::compress_path_segments(&line1.git_branch, branch_budget);
-            head = shared::identity_headline_bounded(&compressed, config, ctx.p, " · ", budget);
+            head = shared::identity_headline(&compressed, config, ctx.p, " · ");
             head_w = visible_width(&head);
+
+            if head_w > budget {
+                // Stage 4: drop pills via DROP_ORDER on the already-compressed line1.
+                head = shared::identity_headline_bounded(&compressed, config, ctx.p, " · ", budget);
+                head_w = visible_width(&head);
+            }
         }
     }
 
-    // Safety net: tail-ellipsis the ANSI-colored headline when even
-    // both path AND branch compression couldn't bring it under budget.
+    // Safety net: tail-ellipsis the ANSI-colored headline when even pill
+    // drop on top of full data compression couldn't bring it under budget.
     if head_w > budget {
         head = layout::truncate_to_width(&head, budget, ctx.color);
         head_w = visible_width(&head);
