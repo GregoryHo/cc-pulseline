@@ -171,7 +171,7 @@ Recognized widgets: `gauge`, `sparkline`, `text` for context; `gauge`, `text` fo
 ## CLI Usage
 
 ```
-cc-pulseline 1.1.3 - High-performance Claude Code statusline
+cc-pulseline 1.1.4 - High-performance Claude Code statusline
 
 USAGE:
     cc-pulseline [OPTIONS]

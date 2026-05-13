@@ -446,6 +446,35 @@ fn ledger_top_aligns_under_long_path_and_branch_at_100_cols() {
 }
 
 #[test]
+fn ledger_preserves_show_version_when_path_is_long() {
+    // Regression test for v1.1.3 → v1.1.4 cascade reorder: a user who
+    // explicitly enables `show_version = true` should not lose the CC:
+    // pill just because their project path is long. The cascade must
+    // compress path/branch (visibly recoverable as `~/…/leaf`) before
+    // dropping any pill (toggle off — entire segment vanishes).
+    //
+    // Repro case: platform-web — path 57 chars, branch 40 chars,
+    // `show_version` + `show_git_stats` both on. At pane_max_width=140
+    // the full headline overflows by ~20 chars. Pre-fix DROP_ORDER
+    // killed the CC: pill first; post-fix the path compresses to
+    // `~/…/platform-web` and the pill survives.
+    let mut f = make_frame(
+        "~/Workspace/Paradise/Frontend/platform-1.0/platform-web",
+        "feature/e2e-traceability-graph-viz",
+    );
+    f.line1.claude_code_version = "2.1.138".to_string();
+
+    for w in [120usize, 140, 160, 200, 240] {
+        let lines = render_frame(&f, &cfg(w));
+        let top = lines.first().expect("top frame line");
+        assert!(
+            top.contains("2.1.138"),
+            "CC: pill must survive path overflow at width={w}\n  top: {top}"
+        );
+    }
+}
+
+#[test]
 fn ledger_renders_at_pane_max_width_when_terminal_width_unknown() {
     // Reproduces the statusline-hook context where `/dev/tty` is
     // unreachable and `COLUMNS` is unset or `"0"` → `terminal_width: None`.
