@@ -225,3 +225,111 @@ fn handles_large_transcript_and_stays_within_render_budget() {
         p95
     );
 }
+
+#[test]
+fn sub_agent_tailing_stays_within_render_budget() {
+    // Parent + 3 active sub-agents (each with their own ~800-event
+    // transcript). Verifies the worst-case `1 + N` file-IO per tick
+    // (where N = active sub-agents) still fits inside the 50ms p95
+    // budget at MAX_SUBAGENT_TAILS-class fanout.
+    let workspace = TempDir::new().expect("temp workspace");
+    let parent = workspace.path().join("parent.jsonl");
+
+    // Three Agent dispatches + their async_launched tool_results.
+    let agents = [
+        ("aaaaaaaaaaaaaaaaa", "toolu_perf_a"),
+        ("bbbbbbbbbbbbbbbbb", "toolu_perf_b"),
+        ("ccccccccccccccccc", "toolu_perf_c"),
+    ];
+    for (agent_id, tuid) in agents {
+        let dispatch = json!({
+            "type": "assistant",
+            "timestamp": "2026-05-16T10:00:00.000Z",
+            "message": {
+                "id": format!("msg_{tuid}"),
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "id": tuid,
+                    "name": "Agent",
+                    "input": {"description": "perf", "subagent_type": "general-purpose", "prompt": "x"}
+                }]
+            }
+        });
+        append_line(&parent, &dispatch.to_string());
+        let launched = json!({
+            "type": "user",
+            "timestamp": "2026-05-16T10:00:01.000Z",
+            "message": {
+                "role": "user",
+                "content": [{
+                    "tool_use_id": tuid,
+                    "type": "tool_result",
+                    "content": [{"type": "text", "text": "Async agent launched successfully."}]
+                }]
+            },
+            "toolUseResult": {"isAsync": true, "status": "async_launched", "agentId": agent_id}
+        });
+        append_line(&parent, &launched.to_string());
+    }
+
+    // Each sub-agent's transcript: ~800 lines of TaskCreate + a few updates.
+    let parent_stem = parent.file_stem().unwrap().to_str().unwrap();
+    let subagents_dir = parent.parent().unwrap().join(parent_stem).join("subagents");
+    fs::create_dir_all(&subagents_dir).expect("subagents dir");
+    for (agent_id, _) in agents {
+        let sub_path = subagents_dir.join(format!("agent-{agent_id}.jsonl"));
+        for i in 0..800 {
+            let event = json!({
+                "type": "assistant",
+                "isSidechain": true,
+                "agentId": agent_id,
+                "timestamp": "2026-05-16T10:00:02.000Z",
+                "message": {
+                    "id": format!("msg_{agent_id}_{i}"),
+                    "role": "assistant",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": format!("toolu_{agent_id}_{i}"),
+                        "name": "TaskCreate",
+                        "input": {"subject": format!("Step{i}"), "activeForm": format!("Doing Step{i}")}
+                    }]
+                }
+            });
+            append_line(&sub_path, &event.to_string());
+        }
+    }
+
+    let payload = payload_json(&workspace, &parent, "sub-perf");
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        max_tool_lines: 2,
+        max_agent_lines: 3,
+        transcript_window_events: 1000,
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // First tick warms the offsets; subsequent ticks read 0 new bytes per
+    // sub-agent — exactly the steady-state case we're protecting.
+    let _ = runner
+        .run_from_str(&payload, config.clone())
+        .expect("first render");
+
+    let mut durations = Vec::with_capacity(120);
+    for _ in 0..120 {
+        let start = Instant::now();
+        let _ = runner
+            .run_from_str(&payload, config.clone())
+            .expect("render should succeed");
+        durations.push(start.elapsed());
+    }
+    durations.sort();
+    let idx = ((durations.len() as f64) * 0.95).floor() as usize;
+    let p95 = durations[idx.min(durations.len() - 1)];
+    assert!(
+        p95 < Duration::from_millis(50),
+        "p95 with sub-agent tailing {:?} exceeded 50ms budget",
+        p95
+    );
+}

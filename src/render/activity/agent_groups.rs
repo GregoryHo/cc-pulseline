@@ -104,6 +104,7 @@ mod tests {
             model: None,
             completed_at: Some(60_000),
             message_id: msg.map(String::from),
+            agent_id: None,
         }
     }
 

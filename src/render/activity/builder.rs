@@ -656,7 +656,9 @@ fn build_todo_rows(
             &p.secondary,
             color,
         );
-        rows.push(format!("{prefix}{body}{count}"));
+        let agent_suffix =
+            crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.secondary, color);
+        rows.push(format!("{prefix}{body}{count}{agent_suffix}"));
         return rows;
     }
 
@@ -664,7 +666,9 @@ fn build_todo_rows(
     if !todo.text.is_empty() {
         let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
         let text = colorize(&todo.text, p.todo_teal(), color);
-        rows.push(format!("{prefix}{text}"));
+        let agent_suffix =
+            crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.secondary, color);
+        rows.push(format!("{prefix}{text}{agent_suffix}"));
     }
 
     rows
@@ -785,6 +789,7 @@ mod tests {
             model: None,
             completed_at: Some(61_000),
             message_id: msg.map(String::from),
+            agent_id: None,
         }
     }
 
@@ -1307,6 +1312,7 @@ mod tests {
                 in_progress_items: vec![],
                 all_done: true,
                 is_task_api: true,
+                sub_agent_count: None,
             }),
             ..Default::default()
         };

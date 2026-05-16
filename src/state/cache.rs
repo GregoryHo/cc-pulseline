@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     providers::{EnvSnapshot, GitSnapshot},
+    state::SubAgentTranscriptState,
     types::{AgentSummary, Line3Metrics, PendingTask, TaskItem, TodoSummary, ToolSummary},
 };
 
@@ -56,6 +57,9 @@ pub struct SessionCache {
     // Sparkline source — last N `(pct, epoch_ms)` samples.
     #[serde(default)]
     pub ctx_history: VecDeque<(u8, u64)>,
+    // Per-sub-agent tail offsets + task state.
+    #[serde(default)]
+    pub sub_agents: HashMap<String, SubAgentTranscriptState>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

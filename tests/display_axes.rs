@@ -39,6 +39,7 @@ fn frame_with_agent_and_quota() -> RenderFrame {
         model: None,
         completed_at: None,
         message_id: None,
+        agent_id: None,
     });
     f.quota = QuotaMetrics {
         five_hour_pct: Some(75.0),
@@ -350,6 +351,7 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: Some("m1".to_string()),
+        agent_id: None,
     });
     f.agents.push(AgentSummary {
         id: "p2".to_string(),
@@ -359,6 +361,7 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: Some("m1".to_string()),
+        agent_id: None,
     });
     f.agents.push(AgentSummary {
         id: "s1".to_string(),
@@ -368,6 +371,7 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         model: None,
         completed_at: None,
         message_id: Some("m2".to_string()),
+        agent_id: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.max_agent_lines = 3;
@@ -495,6 +499,7 @@ fn console_agents_wrap_to_multiple_rows_when_overflowing_one() {
             model: None,
             completed_at: None,
             message_id: Some(format!("m{i}")),
+            agent_id: None,
         });
     }
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
@@ -538,6 +543,7 @@ fn console_agents_visual_name_only_drops_description_and_model() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: None,
+        agent_id: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.agents_visual = "name".to_string();
@@ -566,6 +572,7 @@ fn console_agents_visual_name_and_model_shows_model_tag_no_description() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: None,
+        agent_id: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.agents_visual = "name+model".to_string();

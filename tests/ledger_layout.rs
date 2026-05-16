@@ -197,6 +197,7 @@ fn ledger_renders_agent_block() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: None,
+        agent_id: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -220,6 +221,7 @@ fn ledger_completed_single_agent_renders_done_check() {
         model: Some("haiku".to_string()),
         completed_at: Some(2000),
         message_id: None,
+        agent_id: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -244,6 +246,7 @@ fn ledger_respects_agents_visual_name_only() {
         model: Some("haiku".to_string()),
         completed_at: None,
         message_id: None,
+        agent_id: None,
     });
     let mut c = cfg(140);
     c.agents_visual = "name".to_string();
@@ -281,7 +284,8 @@ fn ledger_keeps_newest_active_under_cap() {
             started_at: None,
             model: None,
             completed_at: None,
-            message_id: Some(format!("msg_{id}")), // unique → stays Single
+            message_id: Some(format!("msg_{id}")), // unique → stays Single,
+            agent_id: None,
         });
     }
     let mut c = cfg(140);
@@ -549,6 +553,7 @@ fn ledger_all_complete_celebration_line() {
         in_progress_items: Vec::new(),
         all_done: true,
         is_task_api: false,
+        sub_agent_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");

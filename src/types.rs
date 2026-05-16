@@ -281,6 +281,13 @@ pub struct AgentSummary {
     /// cache files or when CC's JSONL schema drifts.
     #[serde(default)]
     pub message_id: Option<String>,
+    /// Runtime agentId from CC's async-agent `toolUseResult.agentId`.
+    /// `Some` once the parent transcript has emitted the async_launched
+    /// tool_result for this agent; keyed against
+    /// `~/.claude/projects/<encoded-cwd>/<parent>/subagents/agent-<id>.jsonl`
+    /// for sub-agent transcript tailing.
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 impl AgentSummary {
@@ -352,6 +359,12 @@ pub struct TodoSummary {
     pub all_done: bool,
     #[serde(default)]
     pub is_task_api: bool,
+    /// When the TODO line is aggregated from background sub-agents
+    /// (Task-tool dispatch), this is the number of contributing agents.
+    /// `None` for the user's own TODO. Renderer surfaces it as
+    /// "(N agents)" so the user knows the source.
+    #[serde(default)]
+    pub sub_agent_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

@@ -710,11 +710,21 @@ fn build_agent_rows(
 
 fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<String> {
     let todo = frame.todo.as_ref()?;
+    let agent_suffix =
+        crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.structural, color);
     if todo.all_done {
         let s = format!("\u{2713} All complete ({}/{})", todo.completed, todo.total);
-        return Some(colorize(&s, &p.completed_check, color));
+        return Some(format!(
+            "{}{}",
+            colorize(&s, &p.completed_check, color),
+            agent_suffix
+        ));
     }
     let done = todo.completed.max(todo.total.saturating_sub(todo.pending));
     let body = format!("{}/{} done · {} pending", done, todo.total, todo.pending);
-    Some(colorize(&body, p.todo_teal(), color))
+    Some(format!(
+        "{}{}",
+        colorize(&body, p.todo_teal(), color),
+        agent_suffix
+    ))
 }
