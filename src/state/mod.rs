@@ -13,8 +13,140 @@ use crate::{
     },
 };
 use cache::{CacheEntry, SessionCache, CACHE_TTL_MS};
+use serde::{Deserialize, Serialize};
 
 const MAX_RECENT_TOOLS_CAP: usize = 10;
+
+/// Maximum number of sub-agent transcripts tailed concurrently. Each adds
+/// one open+seek+read per statusline tick; the cap keeps the worst-case
+/// file-IO bounded under the p95 < 50ms render budget. Drop oldest by
+/// `last_event_ts` on overflow.
+pub const MAX_SUBAGENT_TAILS: usize = 6;
+
+/// Upper bound on `task_items` retained per sub-agent. Pathological agents
+/// doing thousands of TaskCreate calls would otherwise bloat the session
+/// cache file (every entry serializes to disk each tick). On overflow,
+/// drop the lowest-numbered task ids (FIFO oldest-first).
+pub const MAX_SUBAGENT_TASKS: usize = 200;
+
+/// Per-sub-agent transcript state. Each Claude Code agent dispatched via
+/// the Task tool gets its own JSONL transcript at
+/// `<parent_dir>/subagents/agent-<agentId>.jsonl`; this struct holds the
+/// incremental tail state so cc-pulseline can surface TODO progress from
+/// inside the sub-agent. Aggregation happens at snapshot time
+/// (`snapshot_from_state`), not during ingestion — each sub-agent's task
+/// universe stays isolated.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SubAgentTranscriptState {
+    pub offset: u64,
+    #[serde(default)]
+    pub task_items: HashMap<String, TaskItem>,
+    #[serde(default)]
+    pub task_counter: u32,
+    /// Fallback for sub-agents that use the legacy TodoWrite path (not
+    /// TaskCreate/TaskUpdate). Aggregator prefers this when present.
+    #[serde(default)]
+    pub legacy_todo: Option<TodoSummary>,
+    #[serde(default)]
+    pub last_event_ts: Option<u64>,
+}
+
+/// Canonical builder for the Task-API `TodoSummary`. Used by both the
+/// parent session's `rebuild_todo_from_tasks` and each sub-agent's
+/// `derived_todo`; aggregator paths reuse the same fields via direct
+/// construction. Returns `None` when `task_items` is empty so callers
+/// can fall through to other sources (e.g. legacy TodoWrite).
+pub fn build_todo_from_tasks(task_items: &HashMap<String, TaskItem>) -> Option<TodoSummary> {
+    if task_items.is_empty() {
+        return None;
+    }
+    let total = task_items.len();
+    let completed = task_items
+        .values()
+        .filter(|item| item.status == "completed")
+        .count();
+    let pending = total.saturating_sub(completed);
+
+    let mut in_progress_items: Vec<TodoInProgressItem> = task_items
+        .values()
+        .filter(|item| item.status == "in_progress")
+        .map(|item| TodoInProgressItem {
+            text: item
+                .active_form
+                .clone()
+                .unwrap_or_else(|| item.subject.clone()),
+            started_at: item.started_at,
+        })
+        .collect();
+    in_progress_items.sort_by_key(|item| item.started_at.unwrap_or(u64::MAX));
+
+    let all_done = pending == 0 && completed > 0;
+    Some(TodoSummary {
+        text: format!("{completed}/{total} done, {pending} pending"),
+        pending,
+        completed,
+        total,
+        in_progress_items,
+        all_done,
+        is_task_api: true,
+        sub_agent_count: None,
+    })
+}
+
+impl SubAgentTranscriptState {
+    pub fn create_task_item(&mut self, subject: String, active_form: Option<String>) {
+        self.task_counter += 1;
+        let id = self.task_counter.to_string();
+        self.task_items.insert(
+            id,
+            TaskItem {
+                subject,
+                status: "pending".to_string(),
+                active_form,
+                started_at: None,
+            },
+        );
+        // `task_counter` only grows; the oldest still-resident ids are
+        // therefore the smallest numerically. Evict in that order until
+        // the cap is satisfied.
+        while self.task_items.len() > MAX_SUBAGENT_TASKS {
+            let oldest = self
+                .task_items
+                .keys()
+                .filter_map(|k| k.parse::<u32>().ok().map(|n| (n, k.clone())))
+                .min_by_key(|(n, _)| *n)
+                .map(|(_, k)| k);
+            match oldest {
+                Some(k) => {
+                    self.task_items.remove(&k);
+                }
+                None => break,
+            }
+        }
+    }
+
+    /// Mirror of `SessionState::update_task_item` scoped to one sub-agent.
+    pub fn update_task_item(&mut self, task_id: &str, status: &str) {
+        if status == "deleted" {
+            self.task_items.remove(task_id);
+        } else if let Some(item) = self.task_items.get_mut(task_id) {
+            if status == "in_progress" && item.status != "in_progress" {
+                item.started_at = Some(cache::now_epoch_ms());
+            }
+            item.status = status.to_string();
+        }
+    }
+
+    pub fn set_legacy_todo(&mut self, todo: Option<TodoSummary>) {
+        self.legacy_todo = todo;
+    }
+
+    /// Sub-agent TODO from Task API items, falling back to the legacy
+    /// TodoWrite summary when there are no Task items.
+    pub fn derived_todo(&self) -> Option<TodoSummary> {
+        build_todo_from_tasks(&self.task_items).or_else(|| self.legacy_todo.clone())
+    }
+}
 
 /// Maximum number of CTX% samples retained for the ledger sparkline. The
 /// widget draws 12 (6 braille cells × 2 samples each); the surplus lets
@@ -49,6 +181,11 @@ pub struct SessionState {
     /// Timestamps drive the ledger's adaptive 1-minute window + velocity-
     /// based aurora coloring.
     pub ctx_history: VecDeque<(u8, u64)>,
+    /// Per-sub-agent transcript tail state, keyed by runtime `agentId`.
+    /// Populated when the parent transcript surfaces a `toolUseResult` with
+    /// `status == "async_launched"`; pruned when the corresponding agent
+    /// reaches a terminal status. See `MAX_SUBAGENT_TAILS` for the cap.
+    pub sub_agents: HashMap<String, SubAgentTranscriptState>,
 }
 
 impl SessionState {
@@ -72,6 +209,7 @@ impl SessionState {
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
             self.ctx_history.clear();
+            self.sub_agents.clear();
         }
     }
 
@@ -221,10 +359,10 @@ impl SessionState {
         model: Option<String>,
         message_id: Option<String>,
     ) {
-        let (started_at, existing_model, existing_message_id) =
+        let (started_at, existing_model, existing_message_id, existing_agent_id) =
             if let Some(position) = self.active_agents.iter().position(|agent| agent.id == id) {
                 let old = self.active_agents.remove(position);
-                (old.started_at, old.model, old.message_id)
+                (old.started_at, old.model, old.message_id, old.agent_id)
             } else {
                 let ts = started_at.or_else(|| {
                     Some(
@@ -234,7 +372,7 @@ impl SessionState {
                             .as_millis() as u64,
                     )
                 });
-                (ts, None, None)
+                (ts, None, None, None)
             };
         self.active_agents.push(AgentSummary {
             id,
@@ -244,6 +382,7 @@ impl SessionState {
             model: model.or(existing_model),
             completed_at: None,
             message_id: message_id.or(existing_message_id),
+            agent_id: existing_agent_id,
         });
     }
 
@@ -272,6 +411,37 @@ impl SessionState {
     pub fn discard_active_agent(&mut self, id: &str) {
         if let Some(pos) = self.active_agents.iter().position(|a| a.id == id) {
             self.active_agents.remove(pos);
+        }
+    }
+
+    /// Attach a runtime `agentId` (from CC's async-agent `toolUseResult`)
+    /// to the active agent stored under `tool_use_id`. Idempotent.
+    pub fn bind_agent_id(&mut self, tool_use_id: &str, agent_id: &str) {
+        if let Some(agent) = self.active_agents.iter_mut().find(|a| a.id == tool_use_id) {
+            agent.agent_id = Some(agent_id.to_string());
+        }
+    }
+
+    /// Create or refresh the sub-agent transcript-tail entry for
+    /// `agent_id`, evicting the oldest entry by `last_event_ts` if the
+    /// `MAX_SUBAGENT_TAILS` cap is exceeded.
+    pub fn ensure_sub_agent(&mut self, agent_id: String, event_ts: Option<u64>) {
+        let entry = self.sub_agents.entry(agent_id).or_default();
+        if event_ts.is_some() {
+            entry.last_event_ts = event_ts;
+        }
+        while self.sub_agents.len() > MAX_SUBAGENT_TAILS {
+            let oldest = self
+                .sub_agents
+                .iter()
+                .min_by_key(|(_, s)| s.last_event_ts.unwrap_or(0))
+                .map(|(id, _)| id.clone());
+            match oldest {
+                Some(id) => {
+                    self.sub_agents.remove(&id);
+                }
+                None => break,
+            }
         }
     }
 
@@ -360,44 +530,7 @@ impl SessionState {
     }
 
     fn rebuild_todo_from_tasks(&mut self) {
-        if self.task_items.is_empty() {
-            self.todo = None;
-            return;
-        }
-        let total = self.task_items.len();
-        let completed = self
-            .task_items
-            .values()
-            .filter(|item| item.status == "completed")
-            .count();
-        let pending = total.saturating_sub(completed);
-
-        // Collect in-progress items, sorted by started_at (earliest first)
-        let mut in_progress_items: Vec<TodoInProgressItem> = self
-            .task_items
-            .values()
-            .filter(|item| item.status == "in_progress")
-            .map(|item| TodoInProgressItem {
-                text: item
-                    .active_form
-                    .clone()
-                    .unwrap_or_else(|| item.subject.clone()),
-                started_at: item.started_at,
-            })
-            .collect();
-        in_progress_items.sort_by_key(|item| item.started_at.unwrap_or(u64::MAX));
-
-        let all_done = pending == 0 && completed > 0;
-
-        self.todo = Some(TodoSummary {
-            text: format!("{completed}/{total} done, {pending} pending"),
-            pending,
-            completed,
-            total,
-            in_progress_items,
-            all_done,
-            is_task_api: true,
-        });
+        self.todo = build_todo_from_tasks(&self.task_items);
     }
 
     pub fn capped_tools(&self, max_lines: usize) -> Vec<ToolSummary> {
@@ -459,6 +592,7 @@ impl SessionState {
             history.pop_front();
         }
         self.ctx_history = history;
+        self.sub_agents = cache.sub_agents;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -494,6 +628,7 @@ impl SessionState {
             last_output_token_time_ms: self.last_output_token_time_ms,
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
             ctx_history: self.ctx_history.clone(),
+            sub_agents: self.sub_agents.clone(),
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),

@@ -100,6 +100,19 @@ pub fn format_reset_duration(minutes: u64) -> String {
     }
 }
 
+/// "(N agents)" suffix for a TODO row aggregated from background
+/// sub-agents. Empty string for the user's own TODO. Layouts pass their
+/// preferred secondary-tier palette color so the suffix sits visually
+/// below the primary TODO value.
+pub fn sub_agent_suffix(count: Option<usize>, color_spec: &str, color_enabled: bool) -> String {
+    use crate::render::color::colorize;
+    match count {
+        Some(1) => colorize(" (1 agent)", color_spec, color_enabled),
+        Some(n) if n > 1 => colorize(&format!(" ({n} agents)"), color_spec, color_enabled),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

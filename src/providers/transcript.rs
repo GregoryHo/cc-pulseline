@@ -1,7 +1,7 @@
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -87,7 +87,7 @@ use serde_json::Value;
 
 use crate::{
     config::RenderConfig,
-    state::SessionState,
+    state::{SessionState, SubAgentTranscriptState},
     types::{AgentSummary, CompletedToolCount, StdinPayload, TodoSummary, ToolSummary},
 };
 
@@ -173,6 +173,10 @@ impl TranscriptCollector for FileTranscriptCollector {
         state.last_transcript_offset = file_len;
         state.last_transcript_poll = Some(Instant::now());
 
+        // After the parent transcript is up-to-date, tail any sub-agent
+        // transcripts whose `agentId` the parent has already surfaced.
+        tail_sub_agent_transcripts(state, transcript_path, config);
+
         snapshot_from_state(state, config)
     }
 }
@@ -223,6 +227,32 @@ fn read_new_lines(path: &Path, start_offset: u64) -> Result<Vec<String>, String>
         .collect())
 }
 
+/// CC's async-agent dispatch marker emitted on the parent's tool_result
+/// `toolUseResult` envelope. The dispatched agent is still alive — this
+/// is a binding event (agentId is now known), not a completion.
+const STATUS_ASYNC_LAUNCHED: &str = "async_launched";
+
+/// Borrowed view of CC's `toolUseResult` async-agent envelope. Parses
+/// either the dispatch event (`status: "async_launched"`) or a terminal
+/// event (`status` matches `is_terminal_status`). Returns `None` when
+/// the envelope is absent or carries no `agentId`.
+struct AsyncAgentSignal<'a> {
+    agent_id: &'a str,
+    status: &'a str,
+}
+
+impl<'a> AsyncAgentSignal<'a> {
+    fn parse(tur: &'a Value) -> Option<Self> {
+        let agent_id = tur.get("agentId").and_then(Value::as_str)?;
+        let status = tur.get("status").and_then(Value::as_str).unwrap_or("");
+        Some(Self { agent_id, status })
+    }
+
+    fn is_async_launched(&self) -> bool {
+        self.status == STATUS_ASYNC_LAUNCHED
+    }
+}
+
 // ── Three-path event dispatcher ──────────────────────────────────────
 
 fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
@@ -241,12 +271,18 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         .and_then(Value::as_str)
         .map(ToString::to_string);
 
+    // Top-level `toolUseResult` envelope on user-message events. CC stamps
+    // it alongside `tool_result` content blocks with structured metadata
+    // — including `agentId`/`status` for async-agent dispatch — so we can
+    // disambiguate `async_launched` (agent still running) from terminal.
+    let tool_use_result = raw_event.get("toolUseResult");
+
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
     // Or:           { "role": "user", "content": [{...}] }
     if let Some(content_blocks) = extract_content_blocks(raw_event) {
         for block in content_blocks {
-            apply_content_block(state, block, event_ts, message_id.clone());
+            apply_content_block(state, block, event_ts, message_id.clone(), tool_use_result);
         }
         // Defense-in-depth: also check toolUseResult for agent completion signal
         check_tool_use_result_completion(state, raw_event);
@@ -315,6 +351,7 @@ fn apply_content_block(
     block: &Value,
     event_ts: Option<u64>,
     message_id: Option<String>,
+    tool_use_result: Option<&Value>,
 ) {
     let block_type = match block.get("type").and_then(Value::as_str) {
         Some(t) => t,
@@ -402,11 +439,24 @@ fn apply_content_block(
             state.upsert_tool(id, name, target);
         }
         "tool_result" => {
-            if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
-                complete_tool_result(state, id, event_ts);
+            let tool_use_id = block.get("tool_use_id").and_then(Value::as_str);
+            let signal = tool_use_result.and_then(AsyncAgentSignal::parse);
+
+            // Async-agent dispatch (status "async_launched") binds the
+            // runtime agentId to the active AgentSummary so we can tail
+            // `<parent>/subagents/agent-<id>.jsonl`; the agent is still
+            // running, so the normal completion path is skipped. Real
+            // completion arrives later via terminal-status toolUseResult
+            // (see `check_tool_use_result_completion`).
+            match (tool_use_id, signal) {
+                (Some(id), Some(s)) if s.is_async_launched() => {
+                    state.bind_agent_id(id, s.agent_id);
+                    state.ensure_sub_agent(s.agent_id.to_string(), event_ts);
+                }
+                (Some(id), _) => complete_tool_result(state, id, event_ts),
+                (None, _) => {}
             }
 
-            // Check for todo data in result
             if let Some(todo) = extract_todo_summary(block) {
                 state.set_todo(Some(todo));
             }
@@ -432,6 +482,7 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
 
     if is_terminal_status(status) {
         state.remove_agent(&agent_id);
+        state.sub_agents.remove(&agent_id);
         return;
     }
 
@@ -542,6 +593,16 @@ fn dispatch_todo_write(state: &mut SessionState, event: &Value, fallback: Option
 /// Complete a tool_result by resolving agent links: linked agent, pending task, or plain removal.
 fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: Option<u64>) {
     state.remove_tool(tool_use_id, event_ts);
+
+    // If the active agent identified by `tool_use_id` carries a runtime
+    // `agent_id`, the sub-agent transcript tail belongs to this agent —
+    // drop it on completion so we don't keep reading a stale file.
+    let bound_agent_id = state
+        .active_agents
+        .iter()
+        .find(|a| a.id == tool_use_id)
+        .and_then(|a| a.agent_id.clone());
+
     if let Some(linked_agent) = state.resolve_task_agent(tool_use_id) {
         state.remove_agent(&linked_agent);
     } else if let Some(pending) = state.drain_pending_task(tool_use_id) {
@@ -556,6 +617,10 @@ fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: O
         state.remove_agent(tool_use_id);
     } else {
         state.remove_agent(tool_use_id);
+    }
+
+    if let Some(agent_id) = bound_agent_id {
+        state.sub_agents.remove(&agent_id);
     }
 }
 
@@ -767,14 +832,28 @@ fn handle_event_by_name(
 /// content block processed by Path 1, but provides a fallback if the link-based resolution
 /// in `complete_tool_result()` fails (e.g., ID mismatch). `remove_agent()` is idempotent.
 fn check_tool_use_result_completion(state: &mut SessionState, raw_event: &Value) {
-    if let Some(tur) = raw_event.get("toolUseResult") {
-        if let Some(agent_id) = tur.get("agentId").and_then(Value::as_str) {
-            let status = tur.get("status").and_then(Value::as_str).unwrap_or("");
-            if is_terminal_status(status) {
-                state.remove_agent(agent_id);
-            }
-        }
+    let Some(signal) = raw_event
+        .get("toolUseResult")
+        .and_then(AsyncAgentSignal::parse)
+    else {
+        return;
+    };
+    if !is_terminal_status(signal.status) {
+        return;
     }
+    // Active list keys agents by tool_use_id; the runtime agent_id may
+    // differ. Try tool_use_id resolution first, then fall back to the
+    // runtime id (remove_agent is idempotent).
+    let tool_use_id = state
+        .active_agents
+        .iter()
+        .find(|a| a.agent_id.as_deref() == Some(signal.agent_id))
+        .map(|a| a.id.clone());
+    match tool_use_id {
+        Some(id) => state.remove_agent(&id),
+        None => state.remove_agent(signal.agent_id),
+    }
+    state.sub_agents.remove(signal.agent_id);
 }
 
 fn is_terminal_status(status: &str) -> bool {
@@ -797,7 +876,204 @@ fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> Transcrip
         tools: state.capped_tools(config.max_tool_lines),
         completed_counts: state.scored_completed_tools(config.max_completed_tools),
         agents: state.agents_for_display(AGENT_SNAPSHOT_CAP),
-        todo: state.todo.clone(),
+        todo: aggregate_todo(state),
+    }
+}
+
+/// Combine the parent session's `state.todo` with any sub-agents' derived
+/// TODO state into a single displayed `TodoSummary`. Three cases:
+/// - Parent has TODO + sub-agents idle → return parent unchanged.
+/// - Parent has TODO + sub-agents busy → return parent (don't pollute the
+///   user's own todo list; sub-agents are surfaced separately on agent
+///   rows by future work).
+/// - Parent idle + sub-agents busy → aggregate counts across sub-agents
+///   and stamp the text with `(N agents)` so the user knows the source.
+fn aggregate_todo(state: &SessionState) -> Option<TodoSummary> {
+    if state.todo.is_some() {
+        return state.todo.clone();
+    }
+    if state.sub_agents.is_empty() {
+        return None;
+    }
+
+    let summaries: Vec<TodoSummary> = state
+        .sub_agents
+        .values()
+        .filter_map(|sub| sub.derived_todo())
+        .collect();
+    if summaries.is_empty() {
+        return None;
+    }
+
+    let mut total = 0usize;
+    let mut completed = 0usize;
+    let mut in_progress_items: Vec<crate::types::TodoInProgressItem> = Vec::new();
+    let mut all_done = true;
+    for summary in &summaries {
+        total += summary.total;
+        completed += summary.completed;
+        in_progress_items.extend(summary.in_progress_items.iter().cloned());
+        if !summary.all_done {
+            all_done = false;
+        }
+    }
+    let pending = total.saturating_sub(completed);
+    in_progress_items.sort_by_key(|item| item.started_at.unwrap_or(u64::MAX));
+
+    let agents = summaries.len();
+    Some(TodoSummary {
+        text: format!("{completed}/{total} done, {pending} pending"),
+        pending,
+        completed,
+        total,
+        in_progress_items,
+        all_done,
+        is_task_api: summaries.iter().any(|s| s.is_task_api),
+        sub_agent_count: Some(agents),
+    })
+}
+
+/// Path: `<parent_dir>/<parent_basename_without_ext>/subagents/agent-<id>.jsonl`.
+/// Returns `None` if the parent path doesn't end in `.jsonl` — defensive
+/// against unexpected schemas without panicking.
+fn sub_agent_transcript_path(parent_transcript: &Path, agent_id: &str) -> Option<PathBuf> {
+    let stem = parent_transcript.file_stem()?.to_str()?;
+    let parent_dir = parent_transcript.parent()?;
+    Some(
+        parent_dir
+            .join(stem)
+            .join("subagents")
+            .join(format!("agent-{agent_id}.jsonl")),
+    )
+}
+
+/// For every entry in `state.sub_agents`, attempt to tail the
+/// corresponding `agent-<id>.jsonl`. Drops the entry on missing file
+/// (e.g. agent finished and CC pruned its transcript) — keeps the cap
+/// honest and prevents stale state from accumulating across sessions.
+fn tail_sub_agent_transcripts(
+    state: &mut SessionState,
+    parent_transcript_path: &str,
+    config: &RenderConfig,
+) {
+    if state.sub_agents.is_empty() {
+        return;
+    }
+    let parent = Path::new(parent_transcript_path);
+    // Mutating the map during iteration requires owning the keys up-front.
+    let agent_ids: Vec<String> = state.sub_agents.keys().cloned().collect();
+    for agent_id in agent_ids {
+        let Some(sub_path) = sub_agent_transcript_path(parent, &agent_id) else {
+            continue;
+        };
+        // `metadata()` returns Err on ENOENT — handles the "file not
+        // materialized yet" case without a separate exists() probe. GC
+        // for completed agents runs in `check_tool_use_result_completion`
+        // / `handle_agent_progress`, not here.
+        let Ok(file_len) = sub_path.metadata().map(|m| m.len()) else {
+            continue;
+        };
+
+        let sub = state
+            .sub_agents
+            .get_mut(&agent_id)
+            .expect("agent_id was just read from sub_agents map");
+
+        if file_len < sub.offset {
+            // File truncated/rotated — restart from 0 and clear derived
+            // TODO state to match the new history.
+            sub.offset = 0;
+            sub.task_items.clear();
+            sub.task_counter = 0;
+            sub.legacy_todo = None;
+        } else if file_len == sub.offset {
+            // No new bytes since last tick — skip the open+seek+read for
+            // the steady-state case (sub-agent idle between events).
+            continue;
+        }
+
+        if let Ok(new_lines) = read_new_lines(&sub_path, sub.offset) {
+            let mut events: Vec<Value> = new_lines
+                .iter()
+                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .collect();
+
+            if config.transcript_window_events > 0 && events.len() > config.transcript_window_events
+            {
+                let keep_from = events.len() - config.transcript_window_events;
+                events.drain(0..keep_from);
+            }
+
+            for event in events {
+                apply_sub_agent_event(sub, &event);
+            }
+        }
+
+        sub.offset = file_len;
+    }
+}
+
+/// Scoped event dispatcher for a single sub-agent transcript. Mirrors the
+/// parent `apply_transcript_event` shape but only routes
+/// TaskCreate/TaskUpdate/TodoWrite/embedded-todos into the
+/// `SubAgentTranscriptState` — every other tool/agent event is ignored so
+/// the sub-agent's own tool activity does not pollute the parent
+/// statusline's tool/agent rows.
+fn apply_sub_agent_event(sub: &mut SubAgentTranscriptState, raw_event: &Value) {
+    let event_ts = raw_event
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .and_then(parse_iso_timestamp);
+    if event_ts.is_some() {
+        sub.last_event_ts = event_ts;
+    }
+
+    let Some(blocks) = extract_content_blocks(raw_event) else {
+        return;
+    };
+    for block in blocks {
+        let Some(block_type) = block.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        match block_type {
+            "tool_use" => {
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+                match name {
+                    "TaskCreate" => {
+                        let subject = find_string(block, &["subject"])
+                            .or_else(|| find_nested_string(block, &[&["input", "subject"]]));
+                        let active_form = find_string(block, &["activeForm"])
+                            .or_else(|| find_nested_string(block, &[&["input", "activeForm"]]));
+                        if let Some(subject) = subject {
+                            sub.create_task_item(subject, active_form);
+                        }
+                    }
+                    "TaskUpdate" => {
+                        let task_id = find_string(block, &["taskId"])
+                            .or_else(|| find_nested_string(block, &[&["input", "taskId"]]));
+                        if let Some(task_id) = task_id {
+                            let status = find_string(block, &["status"])
+                                .or_else(|| find_nested_string(block, &[&["input", "status"]]))
+                                .unwrap_or_else(|| "pending".to_string());
+                            sub.update_task_item(&task_id, &status);
+                        } else if let Some(todo) = extract_todo_summary(block) {
+                            sub.set_legacy_todo(Some(todo));
+                        }
+                    }
+                    "TodoWrite" => {
+                        let todo = extract_todo_summary(block);
+                        sub.set_legacy_todo(todo);
+                    }
+                    _ => {}
+                }
+            }
+            "tool_result" => {
+                if let Some(todo) = extract_todo_summary(block) {
+                    sub.set_legacy_todo(Some(todo));
+                }
+            }
+            _ => {}
+        }
     }
 }
 

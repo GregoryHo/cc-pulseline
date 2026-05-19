@@ -115,14 +115,22 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
 
     lines.push(top_frame(&frame.line1, config, &ctx));
 
+    // Lazy separator: blank row pushed before each non-empty group after the
+    // first, so no trailing blank can reach `bottom_frame`.
+    let mut groups: Vec<Vec<String>> = Vec::with_capacity(4);
+
+    // G1 ENV
     if shared::config_row_enabled(config) {
         let body = env_row_body(frame, config, p, content_width);
         if !body.is_empty() {
-            lines.push(framed_tag_row("ENV", &body, &ctx));
-            lines.push(blank_row(&ctx));
+            groups.push(vec![framed_tag_row("ENV", &body, &ctx)]);
         }
     }
 
+    // G2 Budget + Quota — CTX/TOK/COST/5h/7d are visually packed (no
+    // blank between Budget and Quota in the legacy output), so we treat
+    // them as a single group.
+    let mut budget_quota: Vec<String> = Vec::with_capacity(5);
     if config.show_context {
         let body = ctx_row_body(
             &frame.line3,
@@ -133,23 +141,21 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
             ctx.color,
         );
         if !body.is_empty() {
-            lines.push(framed_tag_row("CTX", &body, &ctx));
+            budget_quota.push(framed_tag_row("CTX", &body, &ctx));
         }
     }
     if config.show_tokens {
         let body = tok_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
-            lines.push(framed_tag_row("TOK", &body, &ctx));
+            budget_quota.push(framed_tag_row("TOK", &body, &ctx));
         }
     }
     if config.show_cost {
         let body = cost_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
-            lines.push(framed_tag_row("COST", &body, &ctx));
+            budget_quota.push(framed_tag_row("COST", &body, &ctx));
         }
     }
-
-    let mut quota_emitted = false;
     if config.show_quota && frame.quota.has_data() {
         if config.show_quota_five_hour {
             if let Some(body) = quota_row_body(
@@ -159,8 +165,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
                 p,
                 ctx.color,
             ) {
-                lines.push(framed_tag_row("5h", &body, &ctx));
-                quota_emitted = true;
+                budget_quota.push(framed_tag_row("5h", &body, &ctx));
             }
         }
         if config.show_quota_seven_day {
@@ -171,35 +176,49 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
                 p,
                 ctx.color,
             ) {
-                lines.push(framed_tag_row("7d", &body, &ctx));
-                quota_emitted = true;
+                budget_quota.push(framed_tag_row("7d", &body, &ctx));
             }
         }
     }
-    if quota_emitted {
-        lines.push(blank_row(&ctx));
+    if !budget_quota.is_empty() {
+        groups.push(budget_quota);
     }
 
+    // G3 Tools
     let tool_rows = build_tool_rows(frame, config, p, content_width, ctx.color);
     if !tool_rows.is_empty() {
+        let mut tools: Vec<String> = Vec::with_capacity(tool_rows.len());
         for (i, body) in tool_rows.iter().enumerate() {
             let tag = if i == 0 { "TOOL" } else { "" };
-            lines.push(framed_tag_row(tag, body, &ctx));
+            tools.push(framed_tag_row(tag, body, &ctx));
         }
-        lines.push(blank_row(&ctx));
+        groups.push(tools);
     }
 
+    // G4 Actors (AGENT rows + TODO — visually packed)
+    let mut actors: Vec<String> = Vec::new();
     if config.show_agents {
         let agent_rows = build_agent_rows(frame, config, p, content_width);
         for (i, body) in agent_rows.iter().enumerate() {
             let tag = if i == 0 { "AGENT" } else { "" };
-            lines.push(framed_tag_row(tag, body, &ctx));
+            actors.push(framed_tag_row(tag, body, &ctx));
         }
     }
     if config.show_todo {
         if let Some(body) = todo_row_body(frame, p, ctx.color) {
-            lines.push(framed_tag_row("TODO", &body, &ctx));
+            actors.push(framed_tag_row("TODO", &body, &ctx));
         }
+    }
+    if !actors.is_empty() {
+        groups.push(actors);
+    }
+
+    let dense = config.pane_ledger_dense;
+    for (i, group) in groups.into_iter().enumerate() {
+        if i > 0 && !dense {
+            lines.push(blank_row(&ctx));
+        }
+        lines.extend(group);
     }
 
     lines.push(bottom_frame(&ctx));
@@ -710,11 +729,21 @@ fn build_agent_rows(
 
 fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<String> {
     let todo = frame.todo.as_ref()?;
+    let agent_suffix =
+        crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.structural, color);
     if todo.all_done {
         let s = format!("\u{2713} All complete ({}/{})", todo.completed, todo.total);
-        return Some(colorize(&s, &p.completed_check, color));
+        return Some(format!(
+            "{}{}",
+            colorize(&s, &p.completed_check, color),
+            agent_suffix
+        ));
     }
     let done = todo.completed.max(todo.total.saturating_sub(todo.pending));
     let body = format!("{}/{} done · {} pending", done, todo.total, todo.pending);
-    Some(colorize(&body, p.todo_teal(), color))
+    Some(format!(
+        "{}{}",
+        colorize(&body, p.todo_teal(), color),
+        agent_suffix
+    ))
 }

@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-05-19
+
+Feature release on two axes: sub-agent TODO visibility from dispatched
+agent transcripts, and a ledger spacing fix that eliminates trailing
+blank rows above the bottom frame plus a new `ledger_dense` toggle.
+
+### Added
+
+- **Sub-agent TODO tailing** — When the active session dispatches one or
+  more sub-agents (via the `Agent` tool), the TODO row now surfaces
+  in-progress state from the sub-agent's own transcript rather than
+  silently reporting the lead agent's empty list. Counts in TOOL /
+  AGENT / TODO rows aggregate across the lead session and active
+  sub-agents so the statusline reflects the whole tree of work.
+- **`[layout] ledger_dense`** (default `false`) — compact rhythm for
+  the `ledger` layout that drops every inter-group blank row. Useful
+  when statusline vertical room is tight. Group separators in legacy
+  mode (`false`) are now inserted *lazily*, so no trailing blank can
+  reach the bottom frame regardless of which groups are populated.
+
+### Fixed
+
+- **Stray trailing blank above ledger `bottom_frame` when TOOL was the
+  last non-empty group** — the inter-group blank after TOOL was pushed
+  unconditionally whenever any tool rows rendered, even when AGENT /
+  TODO were empty. The render pipeline now builds groups first and
+  inserts separators lazily, so the bottom frame closes flush against
+  the last content row regardless of which groups are present.
+
+### Internal
+
+- Ledger `render()` refactored to a `Vec<Vec<String>>` group pipeline
+  with a single lazy-separator flatten loop, replacing three hardcoded
+  `blank_row()` push points in `src/render/frames/ledger.rs`.
+- 3 new ledger spacing tests:
+  `ledger_no_trailing_blank_when_tools_last`,
+  `ledger_dense_drops_all_inter_group_blanks`,
+  `ledger_dense_false_preserves_legacy_spacing`
+  (`tests/ledger_layout.rs`).
+- New transcript dispatcher for sub-agent events with state-merge
+  helpers in `src/state/mod.rs` and `src/providers/transcript.rs`;
+  covered by `tests/sub_agent_transcripts.rs` and an updated
+  `tests/adaptive_performance.rs`.
+
 ## [1.1.4] - 2026-05-13
 
 Patch release fixing a regression introduced by v1.1.3's ledger headline
@@ -437,6 +481,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.1.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.1...v1.1.2

@@ -200,7 +200,6 @@ rows separate logical groups. Tallest layout.
 │                                                                         │
 │  AGENT   󱦻 Explore   Investigate parser edge case   [haiku]   <1s       │
 │  TODO    0/3 done · 3 pending                                           │
-│                                                                         │
 ╰─────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -223,6 +222,31 @@ delta label remains).
 **Pick when** the statusline pane has plenty of vertical room and you
 want to scan metrics by group rather than density. Below 90 cols falls
 back to `sections`.
+
+#### Spacing: `ledger_dense`
+
+Group separators in ledger are inserted *lazily* — a blank row only
+appears between two non-empty groups. Trailing blanks above the bottom
+frame are not possible regardless of which groups are populated.
+
+`[layout] ledger_dense = true` drops every inter-group blank for a
+compact rhythm, useful when statusline vertical room is tight:
+
+```
+╭─ … ──────────────────────────────────╮
+│  ENV     ...                          │
+│  CTX     ...                          │
+│  TOK     ...                          │
+│  COST    ...                          │
+│  5h      ...                          │
+│  TOOL    ...                          │
+│  AGENT   ...                          │
+│  TODO    ...                          │
+╰───────────────────────────────────────╯
+```
+
+Default is `false` (legacy rhythm: one blank between ENV, Budget+Quota,
+TOOL, and AGENT+TODO groups).
 
 ---
 
