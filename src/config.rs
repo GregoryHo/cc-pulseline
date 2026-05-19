@@ -54,6 +54,9 @@ fn default_layout_cc_margin() -> usize {
 fn default_layout_tonal_strata() -> bool {
     true
 }
+fn default_layout_ledger_dense() -> bool {
+    false
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LayoutSection {
@@ -73,6 +76,9 @@ pub struct LayoutSection {
     /// use `strata_activity`. See `designs/tonal-strata-redesign.md`.
     #[serde(default = "default_layout_tonal_strata")]
     pub tonal_strata: bool,
+    /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
+    #[serde(default = "default_layout_ledger_dense")]
+    pub ledger_dense: bool,
 }
 
 impl Default for LayoutSection {
@@ -85,6 +91,7 @@ impl Default for LayoutSection {
             max_width: default_layout_max_width(),
             cc_margin: default_layout_cc_margin(),
             tonal_strata: default_layout_tonal_strata(),
+            ledger_dense: default_layout_ledger_dense(),
         }
     }
 }
@@ -545,6 +552,11 @@ max_width = 160         # clamp auto-sized frames to this many cols
 # `strata_state`, activity rows (Tools/Agents/Todos) get `strata_activity`.
 # Set to false for a fully flat baseline.
 tonal_strata = true
+
+# Ledger only: drop the blank rows that separate groups (ENV / Budget+Quota
+# / TOOL / AGENT+TODO). The bottom frame always closes flush against the
+# last content row regardless of this setting.
+ledger_dense = false
 "#
 }
 
@@ -567,6 +579,7 @@ pub struct ProjectLayoutOverride {
     pub max_width: Option<usize>,
     pub cc_margin: Option<usize>,
     pub tonal_strata: Option<bool>,
+    pub ledger_dense: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -887,6 +900,9 @@ pub fn merge_configs(
         if let Some(v) = layout.tonal_strata {
             user.layout.tonal_strata = v;
         }
+        if let Some(v) = layout.ledger_dense {
+            user.layout.ledger_dense = v;
+        }
     }
 
     user
@@ -1045,6 +1061,7 @@ pub fn default_project_config_toml() -> &'static str {
 # max_width = 140
 # cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
+# ledger_dense = false      # ledger-only: drop inter-group blank rows
 "#
 }
 
@@ -1139,6 +1156,8 @@ pub struct RenderConfig {
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
     pub pane_tonal_strata: bool,
+    /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
+    pub pane_ledger_dense: bool,
 }
 
 impl RenderConfig {
@@ -1235,6 +1254,7 @@ impl Default for RenderConfig {
             pane_max_width: 140,
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
             pane_tonal_strata: true,
+            pane_ledger_dense: false,
         }
     }
 }
@@ -1419,6 +1439,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_max_width: pulseline.layout.max_width,
         pane_cc_margin: pulseline.layout.cc_margin,
         pane_tonal_strata: pulseline.layout.tonal_strata,
+        pane_ledger_dense: pulseline.layout.ledger_dense,
         ..RenderConfig::default()
     }
 }

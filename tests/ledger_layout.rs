@@ -560,3 +560,122 @@ fn ledger_all_complete_celebration_line() {
     assert!(blob.contains("All complete"), "celebration line: {blob}");
     assert!(blob.contains("3/3"), "count fraction: {blob}");
 }
+
+/// A row consisting only of the frame bars and inner spaces — the visual
+/// signature of `blank_row()` when color is disabled.
+fn is_blank_inner_row(line: &str) -> bool {
+    // Strip the outer frame bars and check the interior is whitespace-only.
+    let stripped = line.trim_start_matches('│').trim_end_matches('│');
+    !stripped.is_empty() && stripped.chars().all(|c| c == ' ')
+}
+
+#[test]
+fn ledger_no_trailing_blank_when_tools_last() {
+    // Invariant: when TOOL is the last non-empty group, no blank row may sit
+    // between it and `bottom_frame`.
+    let mut f = frame_basic();
+    f.tools = vec![ToolSummary {
+        id: "1".to_string(),
+        name: "Read".to_string(),
+        target: Some("src/lib.rs".to_string()),
+    }];
+    f.completed_tools = vec![CompletedToolCount {
+        name: "Read".to_string(),
+        count: 3,
+        last_completed_at: None,
+    }];
+    let mut c = cfg(140);
+    c.show_agents = false;
+    c.show_todo = false;
+    let lines = render_frame(&f, &c);
+
+    assert!(lines.last().unwrap().starts_with('╰'), "bottom frame last");
+    let above_bottom = &lines[lines.len() - 2];
+    assert!(
+        !is_blank_inner_row(above_bottom),
+        "row above bottom frame must NOT be a blank inner row: {above_bottom:?}"
+    );
+    // Sanity check: TOOL group did render.
+    let blob = lines.join("\n");
+    assert!(blob.contains("TOOL"), "TOOL group should render: {blob}");
+}
+
+#[test]
+fn ledger_dense_drops_all_inter_group_blanks() {
+    // dense=true → zero blank rows between groups. Every interior row must
+    // carry a TAG label or content; only the top/bottom frame chrome lines
+    // are exempt.
+    let mut f = frame_basic();
+    f.tools = vec![ToolSummary {
+        id: "1".to_string(),
+        name: "Read".to_string(),
+        target: Some("src/lib.rs".to_string()),
+    }];
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "Dense rhythm check".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: None,
+        model: None,
+        completed_at: None,
+        message_id: None,
+        agent_id: None,
+    });
+    let mut c = cfg(140);
+    c.pane_ledger_dense = true;
+    let lines = render_frame(&f, &c);
+
+    // Skip top + bottom frame lines; the interior must contain no blank rows.
+    for line in &lines[1..lines.len() - 1] {
+        assert!(
+            !is_blank_inner_row(line),
+            "dense ledger must have no blank inner row: {line:?}"
+        );
+    }
+    // Sanity: groups still rendered.
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("ENV") || blob.contains("CTX"),
+        "G1/G2: {blob}"
+    );
+    assert!(blob.contains("TOOL"), "tools group: {blob}");
+    assert!(blob.contains("AGENT"), "actors group: {blob}");
+}
+
+#[test]
+fn ledger_dense_false_preserves_legacy_spacing() {
+    // dense=false (default) reproduces the legacy blank-row positions:
+    // exactly one blank between each pair of present groups, and no
+    // trailing blank above the bottom frame.
+    let mut f = frame_basic();
+    f.tools = vec![ToolSummary {
+        id: "1".to_string(),
+        name: "Read".to_string(),
+        target: Some("src/lib.rs".to_string()),
+    }];
+    f.agents.push(AgentSummary {
+        id: "a1".to_string(),
+        description: "Legacy rhythm check".to_string(),
+        agent_type: Some("Explore".to_string()),
+        started_at: None,
+        model: None,
+        completed_at: None,
+        message_id: None,
+        agent_id: None,
+    });
+    let lines = render_frame(&f, &cfg(140));
+
+    // Groups present: G1 ENV (default-on), G2 Budget (CTX/TOK/COST),
+    // G3 Tools, G4 Actors → 3 inter-group separators.
+    let blank_count = lines.iter().filter(|l| is_blank_inner_row(l)).count();
+    assert_eq!(
+        blank_count, 3,
+        "expected 3 inter-group blank rows in legacy mode, got {blank_count}: {lines:?}"
+    );
+    // No trailing blank above bottom frame.
+    let above_bottom = &lines[lines.len() - 2];
+    assert!(
+        !is_blank_inner_row(above_bottom),
+        "row above bottom frame must NOT be blank: {above_bottom:?}"
+    );
+}
