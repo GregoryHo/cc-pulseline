@@ -42,19 +42,94 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
 
     // Ledger owns its full pipeline; every other layout flows through the
-    // flat-row assembly below and gets decorated by `apply_pane`.
+    // flat-row assembly below and gets decorated by `apply_pane`. The
+    // height-degradation ladder therefore doesn't reach Ledger — its
+    // height lever is `ledger_dense`.
     let palette = &config.palette;
     match config.pane_style {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below
         // and is decorated by `apply_pane`.
         LayoutStyle::None
+        | LayoutStyle::Compact
         | LayoutStyle::Zones
         | LayoutStyle::Grid
         | LayoutStyle::Sections
         | LayoutStyle::Console => {}
     }
 
+    let mut lines = assemble_flat(frame, config, HeightSqueeze::default());
+    if let Some(cap) = config.max_total_lines {
+        let cap = cap.max(1);
+        // Rungs are cumulative: each pass re-assembles the full render
+        // (microseconds — far inside the 50ms budget) with one more group
+        // collapsed, so chrome rows added by `apply_pane` count against
+        // the cap too.
+        let mut squeeze = HeightSqueeze::default();
+        for strategy in &config.height_degrade_order {
+            if lines.len() <= cap {
+                break;
+            }
+            squeeze.enable(*strategy);
+            lines = assemble_flat(frame, config, squeeze);
+        }
+        // Ladder exhausted and still over budget — hard truncate from the
+        // bottom. The cap is a hard contract: the statusline must never
+        // squeeze CC's footer, even at the cost of a cut frame border.
+        if lines.len() > cap {
+            lines.truncate(cap);
+        }
+    }
+    lines
+}
+
+/// Cumulative collapse state for the height-degradation ladder. Each
+/// `HeightDegradeStrategy` rung flips one flag; `assemble_flat` consults
+/// them while assembling.
+#[derive(Debug, Clone, Copy, Default)]
+struct HeightSqueeze {
+    drop_running_tools: bool,
+    collapse_completed_tools: bool,
+    collapse_agents: bool,
+    collapse_todo: bool,
+    merge_activity: bool,
+    merge_quota_into_l3: bool,
+    drop_line2: bool,
+}
+
+impl HeightSqueeze {
+    fn enable(&mut self, strategy: crate::config::HeightDegradeStrategy) {
+        use crate::config::HeightDegradeStrategy as H;
+        match strategy {
+            H::DropRunningTools => self.drop_running_tools = true,
+            H::CollapseCompletedTools => self.collapse_completed_tools = true,
+            H::CollapseAgents => self.collapse_agents = true,
+            H::CollapseTodo => self.collapse_todo = true,
+            H::MergeActivity => self.merge_activity = true,
+            H::MergeQuotaIntoL3 => self.merge_quota_into_l3 = true,
+            H::DropLine2 => self.drop_line2 = true,
+        }
+    }
+
+    /// True when any flag requires an activity-cap override (the cheap
+    /// rungs implemented by tightening `max_*_lines` on a config clone).
+    fn overrides_activity_caps(&self) -> bool {
+        self.drop_running_tools
+            || self.collapse_completed_tools
+            || self.collapse_agents
+            || self.collapse_todo
+    }
+}
+
+/// One full flat-pipeline pass: assemble core + activity rows, apply
+/// width degradation, decorate with pane chrome. Pure function of
+/// `(frame, config, squeeze)` so the height ladder can re-run it with
+/// progressively stronger collapse states.
+fn assemble_flat(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    squeeze: HeightSqueeze,
+) -> Vec<String> {
     let color = config.color_enabled;
     let base_palette = &config.palette;
     let tonal = config.pane_tonal_strata;
@@ -64,9 +139,17 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let p_state = tinted_palette(base_palette, false, tonal);
     let p_activity = tinted_palette(base_palette, true, tonal);
 
+    // Compact is permanently "fully squeezed": it never grows past 2 rows,
+    // so the ladder flags have nothing left to collapse.
+    if matches!(config.pane_style, LayoutStyle::Compact) {
+        return assemble_compact(frame, config, &p_state, &p_activity);
+    }
+
     let mut lines: Vec<String> = Vec::new();
     let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
 
+    // Core rows are pushed only when non-empty — a fully toggled-off
+    // segment must not cost a blank row (vertical footprint discipline).
     let start = lines.len();
     // Console hoists the identity into the top frame title, so it gets a
     // prefix-less ` · `-separated headline (no `M:` / `G:` icon labels —
@@ -77,39 +160,97 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     } else {
         format_line1(frame, config, &p_state)
     };
-    lines.push(identity_str);
-    groups.push((LineKind::Identity, start..lines.len()));
+    if !identity_str.is_empty() {
+        lines.push(identity_str);
+        groups.push((LineKind::Identity, start..lines.len()));
+    }
 
     let start = lines.len();
-    lines.push(format_line2(frame, config, " | ", &p_state));
-    groups.push((LineKind::Config, start..lines.len()));
+    let line2 = if squeeze.drop_line2 {
+        String::new()
+    } else {
+        format_line2(frame, config, " | ", &p_state)
+    };
+    let line2_idx = (!line2.is_empty()).then_some(lines.len());
+    if !line2.is_empty() {
+        lines.push(line2);
+        groups.push((LineKind::Config, start..lines.len()));
+    }
 
     let start = lines.len();
-    lines.push(format_line3(frame, config, &p_state));
-    if config.show_quota {
+    let mut line3 = format_line3(frame, config, &p_state);
+    if config.show_quota && squeeze.merge_quota_into_l3 {
+        // `MergeQuotaIntoL3` rung: quota gives up its row; the threshold-
+        // colored percentages survive as a compact L3 suffix.
+        if let Some(compact) = format_quota_compact(&frame.quota, config, &p_state) {
+            if line3.is_empty() {
+                line3 = compact;
+            } else {
+                let sep = colorize(" | ", &p_state.separator, color);
+                line3 = format!("{line3}{sep}{compact}");
+            }
+        }
+    }
+    if !line3.is_empty() {
+        lines.push(line3);
+    }
+    if config.show_quota && !squeeze.merge_quota_into_l3 {
         if let Some(line) = format_quota_line(&frame.quota, config, &p_state) {
             lines.push(line);
         }
     }
-    groups.push((LineKind::Budget, start..lines.len()));
+    if lines.len() > start {
+        groups.push((LineKind::Budget, start..lines.len()));
+    }
+
+    // The cheap collapse rungs are implemented by tightening the activity
+    // caps on a config clone; `MergeActivity` swaps the whole area for a
+    // single packed row.
+    let eff: Cow<'_, RenderConfig> = if squeeze.overrides_activity_caps() {
+        let mut c = config.clone();
+        if squeeze.drop_running_tools {
+            c.max_tool_lines = 0;
+        }
+        if squeeze.collapse_completed_tools {
+            c.max_completed_lines = 1;
+        }
+        if squeeze.collapse_agents {
+            c.max_agent_lines = 1;
+        }
+        if squeeze.collapse_todo {
+            c.max_todo_lines = 1;
+        }
+        Cow::Owned(c)
+    } else {
+        Cow::Borrowed(config)
+    };
 
     let activity_start = lines.len();
     let activity_width = config.terminal_width.unwrap_or(usize::MAX);
-    lines.extend(crate::render::activity::build_activity_rows(
-        frame,
-        config,
-        &p_activity,
-        activity_width,
-    ));
+    if squeeze.merge_activity {
+        lines.extend(crate::render::activity::build_activity_inline_row(
+            frame,
+            &eff,
+            &p_activity,
+            activity_width,
+        ));
+    } else {
+        lines.extend(crate::render::activity::build_activity_rows(
+            frame,
+            &eff,
+            &p_activity,
+            activity_width,
+        ));
+    }
     if lines.len() > activity_start {
         groups.push((LineKind::Activity, activity_start..lines.len()));
     }
 
     // Deduct the active style's horizontal overhead from the degradation
     // budget so content + decoration together fit the terminal.
-    let pane_active = !matches!(config.pane_style, LayoutStyle::None);
+    let pane_active = !matches!(config.pane_style, LayoutStyle::None | LayoutStyle::Compact);
     let style_overhead = match config.pane_style {
-        LayoutStyle::None | LayoutStyle::Zones => 0,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Zones => 0,
         // Grid consumes `label_width + 2` cols on the left. The default group
         // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
         // + 2 for " │ " = ~12 cols. Budget value for width degradation.
@@ -133,6 +274,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
             compressed_line2,
             color,
             activity_start,
+            line2_idx,
         );
         // `apply_width_degradation` may have truncated `lines`; clamp every
         // group range so downstream renderers (cards/sections) don't push
@@ -148,6 +290,61 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         lines = apply_pane(lines, &groups, &pane_config_from(config));
     }
 
+    lines
+}
+
+/// The `compact` layout: everything on 1–2 rows, no chrome.
+///
+/// Row 1 fuses identity, budget (L3), and compact quota with the standard
+/// ` | ` separator; which identity/budget cells appear is still governed
+/// by the user's `show_*` toggles. Row 2 is the single packed activity
+/// ticker (`build_activity_inline_row`) and is emitted only when there is
+/// activity — idle footprint is exactly 1 row. L2 config counts have no
+/// home here by design (reference data; see `docs/layouts.md`).
+fn assemble_compact(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p_state: &ThemePalette,
+    p_activity: &ThemePalette,
+) -> Vec<String> {
+    let color = config.color_enabled;
+    let sep = colorize(" | ", &p_state.separator, color);
+
+    let mut head_parts: Vec<String> = Vec::new();
+    let identity = format_line1(frame, config, p_state);
+    if !identity.is_empty() {
+        head_parts.push(identity);
+    }
+    let budget = format_line3(frame, config, p_state);
+    if !budget.is_empty() {
+        head_parts.push(budget);
+    }
+    if config.show_quota {
+        if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
+            head_parts.push(quota);
+        }
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    if !head_parts.is_empty() {
+        lines.push(head_parts.join(&sep));
+    }
+
+    let activity_width = config.terminal_width.unwrap_or(usize::MAX);
+    lines.extend(crate::render::activity::build_activity_inline_row(
+        frame,
+        config,
+        p_activity,
+        activity_width,
+    ));
+
+    // Single-pass width fit: no compress/drop ladder needed at 1–2 rows.
+    if let Some(width) = config.terminal_width {
+        lines = lines
+            .into_iter()
+            .map(|line| truncate_to_width(&line, width, color))
+            .collect();
+    }
     lines
 }
 
@@ -353,16 +550,26 @@ pub(crate) fn format_line2(
 fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
     let sep = colorize(" | ", &p.separator, color);
+    let mode = config.glyph_mode;
 
     let mut parts: Vec<String> = Vec::new();
 
     if config.show_context {
-        parts.push(format_context_segment(
-            &frame.line3,
-            config,
-            p,
-            &frame.ctx_history,
-        ));
+        let mut ctx = format_context_segment(&frame.line3, config, p, &frame.ctx_history);
+
+        // 2d: compact boundary marker — ⟳N (icon) / ~N (ascii), structural color.
+        if frame.compact_count > 0 {
+            let marker = format!(" {}{}", glyph(mode, ICON_COMPACT, "~"), frame.compact_count);
+            ctx.push_str(&colorize(&marker, &p.structural, color));
+        }
+
+        // 2e: API-error badge — ⚠API (icon) / !API (ascii), alert_red color.
+        if frame.last_api_error_ms.is_some() {
+            let badge = format!(" {}API", glyph(mode, ICON_API_ERROR, "!"));
+            ctx.push_str(&colorize(&badge, &p.alert_red, color));
+        }
+
+        parts.push(ctx);
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -585,6 +792,40 @@ fn format_quota_line(
     Some(format!("{prefix}{}", parts.join(" ")))
 }
 
+/// Compact quota for the `MergeQuotaIntoL3` height-degradation rung:
+/// `5h:62% 7d:41%` — threshold-colored percentages only. The reset time
+/// is dropped; under height pressure the essential signal is how much
+/// budget remains, not when it refills.
+fn format_quota_compact(
+    quota: &QuotaMetrics,
+    config: &RenderConfig,
+    p: &ThemePalette,
+) -> Option<String> {
+    if !quota.has_data() {
+        return None;
+    }
+    let color = config.color_enabled;
+    let mut parts: Vec<String> = Vec::new();
+    let mut push_window = |label: &str, pct: Option<f64>| {
+        if let Some(pct_val) = pct {
+            let label_str = colorize(&format!("{label}:"), &p.secondary, color);
+            let pct_str = colorize(
+                &format!("{pct_val:.0}%"),
+                p.color_for_quota_pct(pct_val),
+                color,
+            );
+            parts.push(format!("{label_str}{pct_str}"));
+        }
+    };
+    if config.show_quota_five_hour {
+        push_window("5h", quota.five_hour_pct);
+    }
+    if config.show_quota_seven_day {
+        push_window("7d", quota.seven_day_pct);
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 fn format_quota_period(
     label: &str,
     pct: Option<f64>,
@@ -649,6 +890,7 @@ fn apply_width_degradation(
     compressed_line2: String,
     color_enabled: bool,
     activity_start: usize,
+    line2_idx: Option<usize>,
 ) -> Vec<String> {
     if width == 0 {
         return Vec::new();
@@ -677,7 +919,9 @@ fn apply_width_degradation(
                 }
             }
             WidthDegradeStrategy::CompressLine2 => {
-                if let Some(line2) = lines.get_mut(1) {
+                // L2's index is no longer fixed — empty core rows are
+                // skipped during assembly, shifting everything below.
+                if let Some(line2) = line2_idx.and_then(|i| lines.get_mut(i)) {
                     *line2 = compressed_line2.clone();
                 }
             }

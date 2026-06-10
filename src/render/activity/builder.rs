@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::cells::recent_tool::build_recent_tool_cell;
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
-use crate::render::fmt::format_agent_elapsed;
+use crate::render::fmt::{format_agent_elapsed, format_number};
 use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO};
 use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
@@ -39,32 +39,48 @@ pub fn build_activity_rows(
     let sep = colorize(ROW_SEPARATOR, &palette.separator, color);
 
     if config.show_tools {
-        if !frame.completed_tools.is_empty() {
-            let cells: Vec<Cell> = frame
-                .completed_tools
-                .iter()
-                .take(config.max_completed_tools.max(1))
-                .map(|c| build_completed_tool_cell(c, palette, color))
-                .collect();
-            rows.extend(build_completed_tool_rows(
-                &cells,
+        let spec = ToolsVisualSpec::parse(config.effective_tools_visual());
+        if spec.ticker {
+            // `ticker` subsumes `counts`/`targets`: grand total + running
+            // tools fused into ONE row.
+            rows.extend(build_tools_ticker_row(
+                frame,
+                config,
+                palette,
                 available_width,
                 &sep,
-                palette,
-                config,
             ));
-        }
+        } else {
+            if spec.show_counts && !frame.completed_tools.is_empty() {
+                let cells: Vec<Cell> = frame
+                    .completed_tools
+                    .iter()
+                    .take(config.max_completed_tools.max(1))
+                    .map(|c| build_completed_tool_cell(c, config.glyph_mode, palette, color))
+                    .collect();
+                rows.extend(build_completed_tool_rows(
+                    &cells,
+                    available_width,
+                    &sep,
+                    palette,
+                    config,
+                ));
+            }
 
-        if !frame.tools.is_empty() {
-            let cells: Vec<Cell> = frame
-                .tools
-                .iter()
-                .take(config.max_tool_lines.max(1))
-                .map(|t| build_recent_tool_cell(t, config.glyph_mode, palette, color))
-                .collect();
-            let row = pack_with_separator(&cells, available_width, &sep, ROW_SEPARATOR_W, color);
-            if !row.is_empty() {
-                rows.push(row);
+            // `max_tool_lines == 0` hides the running/recent row entirely —
+            // the `DropRunningTools` height-degradation rung uses this.
+            if spec.show_targets && !frame.tools.is_empty() && config.max_tool_lines > 0 {
+                let cells: Vec<Cell> = frame
+                    .tools
+                    .iter()
+                    .take(config.max_tool_lines)
+                    .map(|t| build_recent_tool_cell(t, config.glyph_mode, palette, color))
+                    .collect();
+                let row =
+                    pack_with_separator(&cells, available_width, &sep, ROW_SEPARATOR_W, color);
+                if !row.is_empty() {
+                    rows.push(row);
+                }
             }
         }
     }
@@ -88,10 +104,161 @@ pub fn build_activity_rows(
     rows
 }
 
+/// Single-row fusion of the whole activity area — the `MergeActivity`
+/// rung of the height-degradation ladder. All activity collapses into
+/// ONE packed row; under width pressure the usual Optional-drop rules
+/// apply (completed-tool total and todo counts are Optional, running
+/// tools and active agents Required). Returns `None` when there is no
+/// activity to show.
+pub fn build_activity_inline_row(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+    available_width: usize,
+) -> Option<String> {
+    let color = config.color_enabled;
+    let mode = config.glyph_mode;
+    let sep = colorize(ROW_SEPARATOR, &palette.separator, color);
+    let mut cells: Vec<Cell> = Vec::new();
+
+    if config.show_tools && !frame.completed_tools.is_empty() {
+        cells.push(completed_total_cell(&frame.completed_tools, palette, color));
+    }
+
+    if config.show_tools {
+        if let Some(tool) = frame.tools.first() {
+            cells.push(build_recent_tool_cell(tool, mode, palette, color));
+        }
+    }
+
+    if config.show_agents && !frame.agents.is_empty() {
+        cells.extend(build_agent_cells(&frame.agents, config, palette));
+    }
+
+    if config.show_todo {
+        if let Some(todo) = &frame.todo {
+            if todo.total > 0 {
+                let prefix_raw = glyph(mode, ICON_TODO, "TODO:");
+                let prefix = colorize(&prefix_raw, palette.todo_teal(), color);
+                let counts_raw = format!("{}/{}", todo.completed, todo.total);
+                let counts = colorize(&counts_raw, &palette.secondary, color);
+                let w = visible_width(&prefix_raw) + counts_raw.chars().count();
+                cells.push(Cell::label(
+                    format!("{prefix}{counts}"),
+                    w,
+                    CellPriority::Optional,
+                ));
+            }
+        }
+    }
+
+    if cells.is_empty() {
+        return None;
+    }
+    let row = pack_with_separator(&cells, available_width, &sep, ROW_SEPARATOR_W, color);
+    (!row.is_empty()).then_some(row)
+}
+
+/// Parsed `tools_visual` spec — selects which tool rows render. Unknown
+/// atoms are ignored (forward-compat). `ticker` subsumes the other two.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ToolsVisualSpec {
+    pub show_counts: bool,
+    pub show_targets: bool,
+    pub ticker: bool,
+}
+
+impl ToolsVisualSpec {
+    /// Parse a `+`-joined spec like `"counts+targets"` or `"ticker"`.
+    pub fn parse(spec: &str) -> Self {
+        let mut s = Self::default();
+        for atom in spec.split('+').map(str::trim).filter(|a| !a.is_empty()) {
+            match atom {
+                "counts" => s.show_counts = true,
+                "targets" => s.show_targets = true,
+                "ticker" => s.ticker = true,
+                _ => {}
+            }
+        }
+        s
+    }
+}
+
+/// Parsed `todo_visual` spec. Unknown atoms are ignored (forward-compat).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TodoVisualSpec {
+    pub show_text: bool,
+    pub show_bar: bool,
+}
+
+impl TodoVisualSpec {
+    /// Parse a `+`-joined spec like `"text"` or `"bar+text"`.
+    pub fn parse(spec: &str) -> Self {
+        let mut s = Self::default();
+        for atom in spec.split('+').map(str::trim).filter(|a| !a.is_empty()) {
+            match atom {
+                "text" => s.show_text = true,
+                "bar" => s.show_bar = true,
+                _ => {}
+            }
+        }
+        s
+    }
+}
+
+/// Visible cell count of the todo progress gauge (`bar` atom).
+const TODO_BAR_WIDTH: usize = 5;
+
+/// `✓ {total} tools` grand-total cell — used by the tools `ticker` atom
+/// and the fused inline activity row.
+fn completed_total_cell(
+    completed: &[crate::types::CompletedToolCount],
+    p: &ThemePalette,
+    color: bool,
+) -> Cell {
+    let total: u64 = completed.iter().map(|c| c.count as u64).sum();
+    let check = colorize("\u{2713}", &p.completed_check, color);
+    let noun = if total == 1 { "tool" } else { "tools" };
+    let label = colorize(&format!(" {total} {noun}"), &p.completed_check, color);
+    let w = 1 + 1 + count_digits(total) + 1 + noun.chars().count();
+    Cell::label(format!("{check}{label}"), w, CellPriority::Optional)
+}
+
+/// The tools `ticker` atom: completed grand total + running tools fused
+/// into ONE packed row.
+fn build_tools_ticker_row(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+    available_width: usize,
+    sep: &str,
+) -> Option<String> {
+    let color = config.color_enabled;
+    let mut cells: Vec<Cell> = Vec::new();
+    if !frame.completed_tools.is_empty() {
+        cells.push(completed_total_cell(&frame.completed_tools, palette, color));
+    }
+    if config.max_tool_lines > 0 {
+        cells.extend(
+            frame
+                .tools
+                .iter()
+                .take(config.max_tool_lines)
+                .map(|t| build_recent_tool_cell(t, config.glyph_mode, palette, color)),
+        );
+    }
+    if cells.is_empty() {
+        return None;
+    }
+    let row = pack_with_separator(&cells, available_width, sep, ROW_SEPARATOR_W, color);
+    (!row.is_empty()).then_some(row)
+}
+
 // ── Shared row helpers ────────────────────────────────────────────────
 
-/// `… + N more {label}` summary used by both the completed-tool overflow
-/// and the agent overflow. Picks the singular noun when `count == 1`.
+/// `… + N more {label}` summary row. Only emitted as a last resort when
+/// the row that should carry the inline ` +N` tail rendered empty (ultra
+/// narrow widths) — the normal overflow form is `overflow_tail`.
 fn overflow_summary(
     count: usize,
     singular: &str,
@@ -105,6 +272,19 @@ fn overflow_summary(
         &p.structural,
         color,
     )
+}
+
+/// ` +N` tail appended to the last visible row when items are hidden by a
+/// row cap. Inline fold instead of a dedicated summary row — vertical
+/// footprint discipline (every saved row matters in the statusline area).
+fn overflow_tail(count: usize, p: &ThemePalette, color: bool) -> String {
+    colorize(&format!(" +{count}"), &p.structural, color)
+}
+
+/// Visible width reserved for the worst-case ` +N` tail given the total
+/// item count (hidden can never exceed the total).
+fn overflow_tail_reserve(total: usize) -> usize {
+    2 + count_digits(total as u64)
 }
 
 /// First non-empty line of an agent's description — the canonical short
@@ -162,9 +342,9 @@ fn parens_pinned_tail(content: &str, p: &ThemePalette, color: bool) -> TailFragm
 
 /// Width-adaptive multi-row packer for the completed-tool segment.
 /// `cells` are importance-sorted; greedily fills rows up to
-/// `config.max_completed_lines`, then collapses the remainder into a
-/// `… + N more tools` summary at the BOTTOM — hidden cells are the
-/// least-important, so the summary reads naturally below the visible rows.
+/// `config.max_completed_lines`, then folds the remainder into a ` +N`
+/// tail on the LAST visible row — hidden cells are the least-important,
+/// so the fold reads naturally at the end.
 fn build_completed_tool_rows(
     cells: &[Cell],
     available_width: usize,
@@ -174,7 +354,7 @@ fn build_completed_tool_rows(
 ) -> Vec<String> {
     let color = config.color_enabled;
     let max_rows = config.max_completed_lines.max(1);
-    let (mut rows, shown) = pack_multi_row(
+    let (rows, shown) = pack_multi_row(
         cells,
         available_width,
         sep,
@@ -183,22 +363,56 @@ fn build_completed_tool_rows(
         Some(max_rows),
     );
     let hidden = cells.len().saturating_sub(shown);
-    if hidden > 0 {
-        rows.push(overflow_summary(hidden, "tool", "tools", palette, color));
+    if hidden == 0 {
+        return rows;
+    }
+    // Re-pack with the tail width reserved so the decorated last row still
+    // fits `available_width` (CC wraps over-wide lines, collapsing the
+    // whole multi-line render — width discipline is load-bearing).
+    let reserve = overflow_tail_reserve(cells.len());
+    let (mut rows, shown) = pack_multi_row(
+        cells,
+        available_width.saturating_sub(reserve),
+        sep,
+        ROW_SEPARATOR_W,
+        color,
+        Some(max_rows),
+    );
+    let hidden = cells.len().saturating_sub(shown);
+    match rows.last_mut() {
+        Some(last) => last.push_str(&overflow_tail(hidden, palette, color)),
+        None => rows.push(overflow_summary(hidden, "tool", "tools", palette, color)),
     }
     rows
 }
 
-fn build_completed_tool_cell(c: &CompletedToolCount, p: &ThemePalette, color: bool) -> Cell {
+fn build_completed_tool_cell(
+    c: &CompletedToolCount,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color: bool,
+) -> Cell {
     // `✓ Name ×N` — `×N` reads as "N occurrences", disambiguating this
     // row's frequency-count idiom from L2's existence-count idiom
     // (`36 hooks`). Label-only, dropped from the right under width pressure.
+    // When `failed > 0`, append ` ✘N` (icon) or ` xN` (ascii) in alert_red.
     let check = colorize("\u{2713}", &p.completed_check, color);
     let name = colorize(&c.name, &p.completed_check, color);
     let count = colorize(&format!(" \u{00D7}{}", c.count), &p.secondary, color);
-    let head = format!("{check} {name}{count}");
     // Visible width: ✓ + space + name + " ×" + digits
-    let head_w = 1 + 1 + c.name.chars().count() + 2 + count_digits(c.count as u64);
+    let mut head_w = 1 + 1 + c.name.chars().count() + 2 + count_digits(c.count as u64);
+    let fail_part = if c.failed > 0 {
+        let (fail_glyph, glyph_w) = match mode {
+            GlyphMode::Icon => ("\u{2718}", 1usize),
+            GlyphMode::Ascii => ("x", 1usize),
+        };
+        let raw = format!(" {fail_glyph}{}", c.failed);
+        head_w += 1 + glyph_w + count_digits(c.failed as u64); // space + glyph + digits
+        colorize(&raw, &p.alert_red, color)
+    } else {
+        String::new()
+    };
+    let head = format!("{check} {name}{count}{fail_part}");
     Cell::label(head, head_w, CellPriority::Optional)
 }
 
@@ -304,9 +518,41 @@ fn build_agent_rows(
     let completed_skip = completed.len() - completed_keep;
     let dropped = (active.len() - active_keep) + (completed.len() - completed_keep);
 
-    if dropped > 0 {
-        // Overflow summary sits at the TOP so the rendered rows below it
-        // read as "newest activity, with K older items hidden above".
+    // Hidden groups fold into a ` +N` tail on the LAST visible row instead
+    // of a dedicated summary row — vertical footprint discipline. The tail
+    // row is packed with the tail width reserved so it still fits.
+    let chosen: Vec<&Cell> = active
+        .iter()
+        .skip(active_skip)
+        .chain(completed.iter().skip(completed_skip))
+        .collect();
+    let reserve = if dropped > 0 {
+        overflow_tail_reserve(cells.len())
+    } else {
+        0
+    };
+    let last_idx = chosen.len().saturating_sub(1);
+    for (i, cell) in chosen.iter().enumerate() {
+        let width = if i == last_idx {
+            available.saturating_sub(reserve)
+        } else {
+            available
+        };
+        let mut row = pack_with_separator(
+            std::slice::from_ref(*cell),
+            width,
+            sep,
+            ROW_SEPARATOR_W,
+            config.color_enabled,
+        );
+        if !row.is_empty() {
+            if i == last_idx && dropped > 0 {
+                row.push_str(&overflow_tail(dropped, p, config.color_enabled));
+            }
+            rows.push(row);
+        }
+    }
+    if rows.is_empty() && dropped > 0 {
         rows.push(overflow_summary(
             dropped,
             "agent",
@@ -314,23 +560,6 @@ fn build_agent_rows(
             p,
             config.color_enabled,
         ));
-    }
-
-    let chosen = active
-        .iter()
-        .skip(active_skip)
-        .chain(completed.iter().skip(completed_skip));
-    for cell in chosen {
-        let row = pack_with_separator(
-            std::slice::from_ref(cell),
-            available,
-            sep,
-            ROW_SEPARATOR_W,
-            config.color_enabled,
-        );
-        if !row.is_empty() {
-            rows.push(row);
-        }
     }
 
     rows
@@ -434,9 +663,24 @@ fn build_agent_single_cell(
             width: 7,
         });
     }
-    let elapsed_str = elapsed_for(a);
-    if !elapsed_str.is_empty() {
-        tail.push(parens_pinned_tail(&elapsed_str, p, color));
+
+    // 2f: completed-agent stats tail — (2m · 14 tools · 38k tok)
+    if completed {
+        let stats_tail = agent_stats_tail(a, p, color);
+        if let Some(frag) = stats_tail {
+            tail.push(frag);
+        } else {
+            // No stats — fall back to elapsed time alone
+            let elapsed_str = elapsed_for(a);
+            if !elapsed_str.is_empty() {
+                tail.push(parens_pinned_tail(&elapsed_str, p, color));
+            }
+        }
+    } else {
+        let elapsed_str = elapsed_for(a);
+        if !elapsed_str.is_empty() {
+            tail.push(parens_pinned_tail(&elapsed_str, p, color));
+        }
     }
 
     Cell {
@@ -446,6 +690,43 @@ fn build_agent_single_cell(
         tail,
         priority: CellPriority::Required,
     }
+}
+
+/// Build the `(duration · N tools · Nk tok)` pinned tail for a completed agent.
+/// Returns `None` when no stats fields are set.
+fn agent_stats_tail(a: &AgentSummary, p: &ThemePalette, color: bool) -> Option<TailFragment> {
+    // Need at least one stat field to show the tail.
+    if a.total_duration_ms.is_none() && a.total_tokens.is_none() && a.total_tool_use_count.is_none()
+    {
+        return None;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Some(dur_ms) = a.total_duration_ms {
+        parts.push(format_agent_elapsed(dur_ms / 1000));
+    }
+    if let Some(tool_count) = a.total_tool_use_count {
+        parts.push(format!("{} tools", tool_count));
+    }
+    if let Some(toks) = a.total_tokens {
+        parts.push(format!("{} tok", format_number(toks)));
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let content = parts.join(" \u{00B7} "); // " · "
+    let content_w =
+        parts.iter().map(|s| s.chars().count()).sum::<usize>() + parts.len().saturating_sub(1) * 3; // " · " = 3 chars each
+    let open = colorize(" (", &p.separator, color);
+    let body = colorize(&content, &p.structural, color);
+    let close = colorize(")", &p.separator, color);
+    Some(TailFragment::Pinned {
+        text: format!("{open}{body}{close}"),
+        width: 3 + content_w,
+    })
 }
 
 fn build_agent_homogeneous_cell(
@@ -613,6 +894,30 @@ fn build_todo_rows(
     let mode = config.glyph_mode;
     let mut rows: Vec<String> = Vec::new();
     let sep = colorize(ROW_SEPARATOR, &p.separator, color);
+    let spec = TodoVisualSpec::parse(config.effective_todo_visual());
+
+    // `bar` atom: 5-cell completed/total progress gauge, rendered once
+    // and slotted between the TODO prefix and the textual content. No
+    // threshold marks — todo progress has no warning semantics.
+    let (bar, bar_w) = if spec.show_bar && todo.total > 0 && !todo.all_done {
+        let pct = (todo.completed as u64) * 100 / (todo.total as u64);
+        let g = crate::render::widgets::gauge::render(
+            pct,
+            TODO_BAR_WIDTH,
+            &[],
+            p.todo_teal(),
+            p,
+            mode,
+            color,
+        );
+        if g.is_empty() {
+            (String::new(), 0)
+        } else {
+            (g, TODO_BAR_WIDTH)
+        }
+    } else {
+        (String::new(), 0)
+    };
 
     // All-done celebration line.
     if todo.all_done {
@@ -638,7 +943,8 @@ fn build_todo_rows(
             .iter()
             .take(config.max_todo_lines.max(1))
         {
-            let cell = build_todo_inprogress_cell(item, todo, now_ms, mode, p, color);
+            let cell =
+                build_todo_inprogress_cell(item, todo, now_ms, mode, p, color, &bar, bar_w, spec);
             let row = pack_with_separator(&[cell], available, &sep, ROW_SEPARATOR_W, color);
             if !row.is_empty() {
                 rows.push(row);
@@ -650,7 +956,11 @@ fn build_todo_rows(
     // Pending-only summary (task API, no in-progress items).
     if todo.is_task_api && todo.total > 0 {
         let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
-        let body = colorize(&format!(" {} tasks", todo.total), p.todo_teal(), color);
+        let body = if spec.show_text {
+            colorize(&format!(" {} tasks", todo.total), p.todo_teal(), color)
+        } else {
+            String::new()
+        };
         let count = colorize(
             &format!(" ({}/{})", todo.completed, todo.total),
             &p.secondary,
@@ -658,12 +968,13 @@ fn build_todo_rows(
         );
         let agent_suffix =
             crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.secondary, color);
-        rows.push(format!("{prefix}{body}{count}{agent_suffix}"));
+        rows.push(format!("{prefix}{bar}{body}{count}{agent_suffix}"));
         return rows;
     }
 
-    // Legacy TodoWrite path — single line of raw text.
-    if !todo.text.is_empty() {
+    // Legacy TodoWrite path — single line of raw text. The `bar` atom has
+    // nothing to draw here (no counts), so only `text` applies.
+    if spec.show_text && !todo.text.is_empty() {
         let prefix = colorize(&glyph(mode, ICON_TODO, "TODO:"), p.todo_teal(), color);
         let text = colorize(&todo.text, p.todo_teal(), color);
         let agent_suffix =
@@ -674,6 +985,7 @@ fn build_todo_rows(
     rows
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_todo_inprogress_cell(
     item: &crate::types::TodoInProgressItem,
     todo: &TodoSummary,
@@ -681,13 +993,23 @@ fn build_todo_inprogress_cell(
     mode: GlyphMode,
     p: &ThemePalette,
     color: bool,
+    bar: &str,
+    bar_w: usize,
+    spec: TodoVisualSpec,
 ) -> Cell {
     let prefix_glyph = glyph(mode, ICON_TODO, "TODO:");
     let prefix = colorize(&prefix_glyph, p.todo_teal(), color);
-    let head = prefix.clone();
-    let head_w = visible_width(&prefix_glyph);
+    // `bar` slots between the prefix and the item text (one space after).
+    let (head, head_w) = if bar.is_empty() {
+        (prefix.clone(), visible_width(&prefix_glyph))
+    } else {
+        (
+            format!("{prefix}{bar} "),
+            visible_width(&prefix_glyph) + bar_w + 1,
+        )
+    };
 
-    let body = Some(CellBody {
+    let body = spec.show_text.then(|| CellBody {
         raw: item.text.clone(),
         truncator: TruncationStrategy::Sentence,
         min_width: 12,
@@ -762,7 +1084,7 @@ mod tests {
     use super::*;
     use crate::config::GlyphMode;
     use crate::render::color::resolve_palette;
-    use crate::types::ToolSummary;
+    use crate::types::{TodoInProgressItem, ToolSummary};
 
     fn palette() -> ThemePalette {
         resolve_palette("tokyo-night", Some("dark"), &Default::default())
@@ -790,6 +1112,9 @@ mod tests {
             completed_at: Some(61_000),
             message_id: msg.map(String::from),
             agent_id: None,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         }
     }
 
@@ -808,16 +1133,19 @@ mod tests {
                     name: "Bash".to_string(),
                     count: 163,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Edit".to_string(),
                     count: 95,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Read".to_string(),
                     count: 86,
                     last_completed_at: None,
+                    failed: 0,
                 },
             ],
             ..Default::default()
@@ -852,6 +1180,7 @@ mod tests {
                     name: format!("Tool{i}"),
                     count: 100 + i as u32,
                     last_completed_at: None,
+                    failed: 0,
                 })
                 .collect(),
             ..Default::default()
@@ -883,16 +1212,17 @@ mod tests {
     }
 
     #[test]
-    fn completed_tools_overflow_summary_at_bottom() {
-        // 12 cells at width 50: 2 rows fit ~10 cells, the rest become
-        // `… + N more tools` at the BOTTOM (importance-ordered semantics —
-        // hidden items are the least-important, so they live below).
+    fn completed_tools_overflow_folds_into_last_row_tail() {
+        // 12 cells at width 50: 2 rows fit ~6 cells, the rest fold into a
+        // ` +N` tail on the LAST row — no dedicated summary row (vertical
+        // footprint discipline).
         let frame = RenderFrame {
             completed_tools: (0..12)
                 .map(|i| CompletedToolCount {
                     name: format!("Tool{i:02}"),
                     count: 1000 - i as u32,
                     last_completed_at: None,
+                    failed: 0,
                 })
                 .collect(),
             ..Default::default()
@@ -903,24 +1233,20 @@ mod tests {
             ..cfg()
         };
         let rows = build_activity_rows(&frame, &c, &palette(), 50);
-        // Exactly `max_completed_lines` packed rows + 1 overflow summary line.
+        // Exactly `max_completed_lines` packed rows — overflow is inline.
         assert_eq!(
             rows.len(),
-            c.max_completed_lines + 1,
-            "expected {} rows + summary, got {rows:?}",
+            c.max_completed_lines,
+            "expected {} rows with inline fold, got {rows:?}",
             c.max_completed_lines
         );
         let last = rows.last().unwrap();
         assert!(
-            last.contains("more tool"),
-            "bottom row must be the overflow summary: {last:?}"
-        );
-        assert!(
-            last.starts_with('\u{2026}'),
-            "summary must lead with `…`: {last:?}"
+            last.contains(" +6"),
+            "last row must carry the ` +N` fold tail: {last:?}"
         );
         // Most-important (Tool00) must be in row 0; least-important (Tool11)
-        // must be hidden in the summary.
+        // must be hidden behind the fold.
         assert!(
             rows[0].contains("Tool00"),
             "Tool00 missing from top: {rows:?}"
@@ -940,26 +1266,31 @@ mod tests {
                     name: "Bash".to_string(),
                     count: 251,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Edit".to_string(),
                     count: 193,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Read".to_string(),
                     count: 131,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Write".to_string(),
                     count: 16,
                     last_completed_at: None,
+                    failed: 0,
                 },
                 CompletedToolCount {
                     name: "Skill".to_string(),
                     count: 1,
                     last_completed_at: None,
+                    failed: 0,
                 },
             ],
             ..Default::default()
@@ -1229,9 +1560,10 @@ mod tests {
     }
 
     #[test]
-    fn sequential_overflow_emits_summary_line() {
-        // 5 sequential agents (different message_id), max_agent_lines=2 → expect
-        // 1 overflow summary (at top) + 2 full rows (most recent two).
+    fn sequential_overflow_folds_into_last_row_tail() {
+        // 5 sequential agents (different message_id), max_agent_lines=2 →
+        // expect 2 full rows (most recent two); the 3 hidden fold into a
+        // ` +3` tail on the last row.
         let frame = RenderFrame {
             agents: (0..5)
                 .map(|i| {
@@ -1250,11 +1582,15 @@ mod tests {
             ..cfg()
         };
         let rows = build_activity_rows(&frame, &c, &palette(), 240);
-        assert_eq!(rows.len(), 3, "expected 1 summary + 2 rows, got {rows:?}");
+        assert_eq!(
+            rows.len(),
+            2,
+            "expected 2 rows with inline fold, got {rows:?}"
+        );
         assert!(
-            rows[0].contains("3 more agents"),
-            "summary must come first (older items hidden above): {:?}",
-            rows[0]
+            rows[1].ends_with(" +3"),
+            "last row must carry the ` +3` fold tail: {:?}",
+            rows[1]
         );
     }
 
@@ -1294,11 +1630,8 @@ mod tests {
                 "completed '{done_desc}' should be dropped when active fills the cap: {blob}"
             );
         }
-        // Overflow summary still appears for the 3 hidden completed groups.
-        assert!(
-            blob.contains("3 more agents"),
-            "overflow summary missing: {blob}"
-        );
+        // The 3 hidden completed groups fold into the last row's tail.
+        assert!(blob.contains(" +3"), "inline fold tail missing: {blob}");
     }
 
     #[test]
@@ -1341,5 +1674,150 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(!rows[0].contains("parallel"));
         assert!(!rows[1].contains("parallel"));
+    }
+
+    // ── tools_visual / todo_visual specs ──────────────────────────────
+
+    fn frame_with_tools() -> RenderFrame {
+        RenderFrame {
+            completed_tools: vec![
+                CompletedToolCount {
+                    name: "Bash".to_string(),
+                    count: 12,
+                    last_completed_at: None,
+                    failed: 0,
+                },
+                CompletedToolCount {
+                    name: "Read".to_string(),
+                    count: 8,
+                    last_completed_at: None,
+                    failed: 0,
+                },
+            ],
+            tools: vec![ToolSummary {
+                id: "t1".to_string(),
+                name: "Bash".to_string(),
+                target: Some("cargo test".to_string()),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn tools_ticker_fuses_counts_and_targets_into_one_row() {
+        let c = RenderConfig {
+            tools_visual: "ticker".to_string(),
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame_with_tools(), &c, &palette(), 240);
+        assert_eq!(rows.len(), 1, "ticker must fuse to one row: {rows:?}");
+        assert!(
+            rows[0].contains("20 tools"),
+            "grand total expected: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[0].contains("T:Bash: cargo test"),
+            "running tool expected on same row: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn tools_counts_only_hides_running_row() {
+        let c = RenderConfig {
+            tools_visual: "counts".to_string(),
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame_with_tools(), &c, &palette(), 240);
+        assert_eq!(rows.len(), 1, "counts only → one row: {rows:?}");
+        assert!(
+            !rows[0].contains("cargo test"),
+            "running tool must be hidden: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[0].contains("\u{00D7}12"),
+            "counts row kept: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn todo_bar_renders_ascii_gauge() {
+        let frame = RenderFrame {
+            todo: Some(TodoSummary {
+                text: String::new(),
+                pending: 2,
+                completed: 2,
+                total: 5,
+                in_progress_items: vec![TodoInProgressItem {
+                    text: "fix parser".to_string(),
+                    started_at: None,
+                }],
+                all_done: false,
+                is_task_api: true,
+                sub_agent_count: None,
+            }),
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            todo_visual: "bar+text".to_string(),
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 240);
+        assert_eq!(rows.len(), 1);
+        // 2/5 = 40% on a 5-cell ascii gauge → `==---`.
+        assert!(
+            rows[0].contains("==---"),
+            "ascii gauge expected: {:?}",
+            rows[0]
+        );
+        assert!(
+            rows[0].contains("fix parser"),
+            "text atom kept: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn todo_bar_without_text_keeps_counts() {
+        let frame = RenderFrame {
+            todo: Some(TodoSummary {
+                text: String::new(),
+                pending: 3,
+                completed: 1,
+                total: 4,
+                in_progress_items: vec![],
+                all_done: false,
+                is_task_api: true,
+                sub_agent_count: None,
+            }),
+            ..Default::default()
+        };
+        let c = RenderConfig {
+            todo_visual: "bar".to_string(),
+            ..cfg()
+        };
+        let rows = build_activity_rows(&frame, &c, &palette(), 240);
+        assert_eq!(rows.len(), 1);
+        assert!(
+            rows[0].contains("(1/4)"),
+            "counts survive without text atom: {:?}",
+            rows[0]
+        );
+        assert!(
+            !rows[0].contains("tasks"),
+            "text atom hidden: {:?}",
+            rows[0]
+        );
+    }
+
+    #[test]
+    fn visual_spec_parsers_ignore_unknown_atoms() {
+        let t = ToolsVisualSpec::parse("counts+bogus+targets");
+        assert!(t.show_counts && t.show_targets && !t.ticker);
+        let d = TodoVisualSpec::parse("text+nonsense");
+        assert!(d.show_text && !d.show_bar);
     }
 }
