@@ -163,6 +163,8 @@ pub struct SessionState {
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, (u32, u64)>,
+    /// Error count per tool name (subset of `completed_tool_counts`).
+    pub completed_tool_failures: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
     // Agent linking: Agent tool_use → agent_progress ID linking
     pub pending_tasks: Vec<PendingTask>,
@@ -186,6 +188,12 @@ pub struct SessionState {
     /// `status == "async_launched"`; pruned when the corresponding agent
     /// reaches a terminal status. See `MAX_SUBAGENT_TAILS` for the cap.
     pub sub_agents: HashMap<String, SubAgentTranscriptState>,
+    /// Number of context compaction events (`system/compact_boundary`) seen
+    /// since the transcript started. Displayed as `⟳N` on L3.
+    pub compact_count: u32,
+    /// Timestamp (epoch ms) of the last `system/api_error` event seen.
+    /// Cleared when the transcript changes. Used for the 30s TTL badge.
+    pub last_api_error_ms: Option<u64>,
 }
 
 impl SessionState {
@@ -199,6 +207,7 @@ impl SessionState {
             self.active_agents.clear();
             self.completed_agents.clear();
             self.completed_tool_counts.clear();
+            self.completed_tool_failures.clear();
             self.todo = None;
             self.pending_tasks.clear();
             self.task_agent_links.clear();
@@ -210,6 +219,8 @@ impl SessionState {
             self.output_speed_toks_per_sec = None;
             self.ctx_history.clear();
             self.sub_agents.clear();
+            self.compact_count = 0;
+            self.last_api_error_ms = None;
         }
     }
 
@@ -296,14 +307,18 @@ impl SessionState {
     }
 
     pub fn remove_tool(&mut self, id: &str, event_ts: Option<u64>) {
+        self.remove_tool_with_error(id, event_ts, false);
+    }
+
+    pub fn remove_tool_with_error(&mut self, id: &str, event_ts: Option<u64>, is_error: bool) {
         if let Some(tool) = self.active_tools.iter().find(|t| t.id == id) {
-            self.record_tool_completion(&tool.name.clone(), event_ts);
+            self.record_tool_completion(&tool.name.clone(), event_ts, is_error);
         }
         self.active_tools.retain(|tool| tool.id != id);
         // recent_tools: intentionally NOT touched — tool stays visible until displaced
     }
 
-    pub fn record_tool_completion(&mut self, name: &str, event_ts: Option<u64>) {
+    pub fn record_tool_completion(&mut self, name: &str, event_ts: Option<u64>, is_error: bool) {
         let ts = event_ts.unwrap_or_else(cache::now_epoch_ms);
         let entry = self
             .completed_tool_counts
@@ -311,6 +326,12 @@ impl SessionState {
             .or_insert((0, 0));
         entry.0 += 1;
         entry.1 = ts;
+        if is_error {
+            *self
+                .completed_tool_failures
+                .entry(name.to_string())
+                .or_insert(0) += 1;
+        }
     }
 
     /// Hybrid scoring: count + recency bonus (decays over 2 minutes).
@@ -331,11 +352,13 @@ impl SessionState {
                     0.0
                 };
                 let score = *count as f64 + recency;
+                let failed = self.completed_tool_failures.get(name).copied().unwrap_or(0);
                 (
                     CompletedToolCount {
                         name: name.clone(),
                         count: *count,
                         last_completed_at: Some(*last_at),
+                        failed,
                     },
                     score,
                 )
@@ -383,10 +406,24 @@ impl SessionState {
             completed_at: None,
             message_id: message_id.or(existing_message_id),
             agent_id: existing_agent_id,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         });
     }
 
     pub fn remove_agent(&mut self, id: &str) {
+        self.remove_agent_with_stats(id, None, None, None);
+    }
+
+    /// Move an agent from active to completed, optionally attaching completion stats.
+    pub fn remove_agent_with_stats(
+        &mut self,
+        id: &str,
+        total_duration_ms: Option<u64>,
+        total_tokens: Option<u64>,
+        total_tool_use_count: Option<u64>,
+    ) {
         if let Some(pos) = self.active_agents.iter().position(|a| a.id == id) {
             let mut agent = self.active_agents.remove(pos);
             agent.completed_at = Some(
@@ -395,6 +432,9 @@ impl SessionState {
                     .unwrap_or_default()
                     .as_millis() as u64,
             );
+            agent.total_duration_ms = total_duration_ms;
+            agent.total_tokens = total_tokens;
+            agent.total_tool_use_count = total_tool_use_count;
             self.completed_agents.push(agent);
             // Prune to max 10 completed agents
             if self.completed_agents.len() > 10 {
@@ -577,6 +617,7 @@ impl SessionState {
         self.active_agents = cache.active_agents;
         self.completed_agents = cache.completed_agents;
         self.completed_tool_counts = cache.completed_tool_counts;
+        self.completed_tool_failures = cache.completed_tool_failures;
         self.todo = cache.todo;
         self.pending_tasks = cache.pending_tasks;
         self.task_agent_links = cache.task_agent_links;
@@ -593,6 +634,8 @@ impl SessionState {
         }
         self.ctx_history = history;
         self.sub_agents = cache.sub_agents;
+        self.compact_count = cache.compact_count;
+        self.last_api_error_ms = cache.last_api_error_ms;
 
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
@@ -618,6 +661,7 @@ impl SessionState {
             active_agents: self.active_agents.clone(),
             completed_agents: self.completed_agents.clone(),
             completed_tool_counts: self.completed_tool_counts.clone(),
+            completed_tool_failures: self.completed_tool_failures.clone(),
             todo: self.todo.clone(),
             pending_tasks: self.pending_tasks.clone(),
             task_agent_links: self.task_agent_links.clone(),
@@ -629,6 +673,8 @@ impl SessionState {
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
             ctx_history: self.ctx_history.clone(),
             sub_agents: self.sub_agents.clone(),
+            compact_count: self.compact_count,
+            last_api_error_ms: self.last_api_error_ms,
             env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
                 path: path.clone(),
                 snapshot: snapshot.clone(),

@@ -57,15 +57,15 @@ fn degrades_layout_for_narrow_terminal_widths() {
     let transcript = workspace.path().join("narrow-flow.jsonl");
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"ReadFile"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"ReadFile","input":{}}]}}"#,
     );
     append_line(
         &transcript,
-        r#"{"type":"Agent","task_id":"agent-1","name":"Planner","status":"running"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"agent-1","name":"Agent","input":{"description":"Planner","subagent_type":"general-purpose"}}]}}"#,
     );
     append_line(
         &transcript,
-        r#"{"type":"TodoWrite","todos":[{"content":"a","status":"pending"}]}"#,
+        r#"{"timestamp":"2026-04-27T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"todo-1","name":"TodoWrite","input":{"todos":[{"content":"a","status":"pending"}]}}]}}"#,
     );
 
     let payload = payload_json(&workspace, &transcript, "narrow-layout");
@@ -118,7 +118,7 @@ fn drop_activity_strategy_still_fires_when_compression_alone_cannot_help() {
     let transcript = workspace.path().join("drop-flow.jsonl");
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t1","name":"ReadFile"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"ReadFile","input":{}}]}}"#,
     );
 
     let payload = payload_json(&workspace, &transcript, "drop-test");
@@ -147,36 +147,36 @@ fn write_large_transcript(path: &std::path::Path, iterations: usize) {
     for i in 0..iterations {
         writeln!(
             file,
-            "{{\"type\":\"tool_use\",\"tool_use_id\":\"tool-{i}\",\"name\":\"ReadFile\"}}"
+            "{{\"timestamp\":\"2026-04-27T10:00:00.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"tool_use\",\"id\":\"tool-{i}\",\"name\":\"ReadFile\",\"input\":{{}}}}]}}}}"
         )
         .expect("write tool_use");
 
         if i % 2 == 0 {
             writeln!(
                 file,
-                "{{\"type\":\"tool_result\",\"tool_use_id\":\"tool-{i}\"}}"
+                "{{\"timestamp\":\"2026-04-27T10:00:01.000Z\",\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"tool-{i}\"}}]}}"
             )
             .expect("write tool_result");
         }
 
         writeln!(
             file,
-            "{{\"type\":\"Task\",\"task_id\":\"agent-{i}\",\"name\":\"Agent{i}\",\"status\":\"running\"}}"
+            "{{\"timestamp\":\"2026-04-27T10:00:02.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"tool_use\",\"id\":\"agent-{i}\",\"name\":\"Agent\",\"input\":{{\"description\":\"Agent{i}\",\"subagent_type\":\"general-purpose\"}}}}]}}}}"
         )
-        .expect("write task running");
+        .expect("write agent running");
 
         if i % 3 == 0 {
             writeln!(
                 file,
-                "{{\"type\":\"Task\",\"task_id\":\"agent-{i}\",\"name\":\"Agent{i}\",\"status\":\"completed\"}}"
+                "{{\"timestamp\":\"2026-04-27T10:00:03.000Z\",\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"agent-{i}\"}}],\"toolUseResult\":{{\"agentId\":\"agent-{i}\",\"status\":\"completed\"}}}}"
             )
-            .expect("write task completed");
+            .expect("write agent completed");
         }
     }
 
     writeln!(
         file,
-        "{{\"type\":\"TodoWrite\",\"todos\":[{{\"content\":\"a\",\"status\":\"completed\"}},{{\"content\":\"b\",\"status\":\"pending\"}},{{\"content\":\"c\",\"status\":\"pending\"}}]}}"
+        "{{\"timestamp\":\"2026-04-27T10:00:04.000Z\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"tool_use\",\"id\":\"todo-final\",\"name\":\"TodoWrite\",\"input\":{{\"todos\":[{{\"content\":\"a\",\"status\":\"completed\"}},{{\"content\":\"b\",\"status\":\"pending\"}},{{\"content\":\"c\",\"status\":\"pending\"}}]}}}}]}}}}"
     )
     .expect("write todo summary");
 }

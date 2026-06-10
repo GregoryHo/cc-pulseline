@@ -1,5 +1,1 @@
-{"type":"tool_use","id":"tool-1","name":"Read"}
-{"type":"tool_use","id":"tool-2","name":"Write"}
-{"type":"tool_use","id":"tool-3","name":"Bash"}
-{"type":"tool_use","id":"tool-4","name":"Search"}
-{"type":"tool_use","id":"tool-5","name":"Edit"}
+{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Read","input":{}},{"type":"tool_use","id":"tool-2","name":"Write","input":{}},{"type":"tool_use","id":"tool-3","name":"Bash","input":{}},{"type":"tool_use","id":"tool-4","name":"Search","input":{}},{"type":"tool_use","id":"tool-5","name":"Edit","input":{}}]}}

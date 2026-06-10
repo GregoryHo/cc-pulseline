@@ -173,6 +173,7 @@ fn ledger_renders_tools_with_one_running_per_row() {
         name: "Read".to_string(),
         count: 2,
         last_completed_at: None,
+        failed: 0,
     }];
     let mut c = cfg(140);
     c.max_tool_lines = 4; // raise so both running tools show
@@ -198,6 +199,9 @@ fn ledger_renders_agent_block() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -222,6 +226,9 @@ fn ledger_completed_single_agent_renders_done_check() {
         completed_at: Some(2000),
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -247,6 +254,9 @@ fn ledger_respects_agents_visual_name_only() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut c = cfg(140);
     c.agents_visual = "name".to_string();
@@ -286,6 +296,9 @@ fn ledger_keeps_newest_active_under_cap() {
             completed_at: None,
             message_id: Some(format!("msg_{id}")), // unique → stays Single,
             agent_id: None,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         });
     }
     let mut c = cfg(140);
@@ -583,6 +596,7 @@ fn ledger_no_trailing_blank_when_tools_last() {
         name: "Read".to_string(),
         count: 3,
         last_completed_at: None,
+        failed: 0,
     }];
     let mut c = cfg(140);
     c.show_agents = false;
@@ -620,6 +634,9 @@ fn ledger_dense_drops_all_inter_group_blanks() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut c = cfg(140);
     c.pane_ledger_dense = true;
@@ -662,6 +679,9 @@ fn ledger_dense_false_preserves_legacy_spacing() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
 

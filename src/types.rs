@@ -240,6 +240,9 @@ pub struct CompletedToolCount {
     pub count: u32,
     #[serde(default)]
     pub last_completed_at: Option<u64>,
+    /// Number of times this tool returned an error result (`is_error: true`).
+    #[serde(default)]
+    pub failed: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -288,6 +291,15 @@ pub struct AgentSummary {
     /// for sub-agent transcript tailing.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Total session duration reported in the `toolUseResult` completion envelope (ms).
+    #[serde(default)]
+    pub total_duration_ms: Option<u64>,
+    /// Total token count from the `toolUseResult` completion envelope.
+    #[serde(default)]
+    pub total_tokens: Option<u64>,
+    /// Total tool-use count from the `toolUseResult` completion envelope.
+    #[serde(default)]
+    pub total_tool_use_count: Option<u64>,
 }
 
 impl AgentSummary {
@@ -382,6 +394,10 @@ pub struct RenderFrame {
     /// flat layout opts in to `+sparkline`). Populated by `PulseLineRunner`
     /// from `SessionState.ctx_history`.
     pub ctx_history: Vec<(u8, u64)>,
+    /// Number of `compact_boundary` events seen this session.
+    pub compact_count: u32,
+    /// Epoch-ms of the most recent `api_error` event (if within 30s TTL).
+    pub last_api_error_ms: Option<u64>,
 }
 
 impl RenderFrame {
@@ -474,6 +490,8 @@ impl RenderFrame {
                 })
                 .unwrap_or_default(),
             ctx_history: Vec::new(),
+            compact_count: 0,
+            last_api_error_ms: None,
         }
     }
 }

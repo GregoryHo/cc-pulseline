@@ -187,6 +187,12 @@ fn build_render_frame(
     frame.completed_tools = transcript_snapshot.completed_counts;
     frame.agents = transcript_snapshot.agents;
     frame.todo = transcript_snapshot.todo;
+    frame.compact_count = transcript_snapshot.compact_count;
+    // Apply 30s TTL: only surface the api_error badge if it occurred recently.
+    frame.last_api_error_ms = transcript_snapshot.last_api_error_ms.filter(|&ts| {
+        let now = crate::state::cache::now_epoch_ms();
+        now.saturating_sub(ts) < 30_000
+    });
 
     frame
 }

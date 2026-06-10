@@ -115,11 +115,11 @@ fn tonal_strata_on_uses_strata_activity_for_activity_lines() {
     // Two tool_use events → recent-tools line will join two segments with ` | `.
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t1","name":"Read"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
     );
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t2","name":"Bash"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cargo test"}}]}}"#,
     );
 
     let payload = json!({

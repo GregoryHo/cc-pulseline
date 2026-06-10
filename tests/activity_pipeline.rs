@@ -39,7 +39,7 @@ fn payload_json(
     .to_string()
 }
 
-// ── Existing flat-format tests (Path 3 backward compat) ──────────────
+// ── Core transcript lifecycle tests ──────────────────────────────────
 
 #[test]
 fn tracks_tool_lifecycle_incrementally_from_transcript() {
@@ -177,7 +177,7 @@ fn throttles_transcript_polling_between_renders() {
 
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"Bash"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{}}]}}"#,
     );
 
     let mut runner = PulseLineRunner::default();
@@ -199,7 +199,7 @@ fn throttles_transcript_polling_between_renders() {
 
     append_line(
         &transcript,
-        r#"{"type":"tool_result","tool_use_id":"tool-1"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","content":[{"type":"tool_result","tool_use_id":"tool-1"}]}"#,
     );
 
     let lines = runner
@@ -232,15 +232,15 @@ fn applies_transcript_windowing_to_new_event_batches() {
 
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"ToolA"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"ToolA","input":{}}]}}"#,
     );
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-2","name":"ToolB"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-2","name":"ToolB","input":{}}]}}"#,
     );
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-3","name":"ToolC"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-3","name":"ToolC","input":{}}]}}"#,
     );
 
     let mut runner = PulseLineRunner::default();
@@ -498,7 +498,7 @@ fn config_disables_tools() {
 
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"Bash"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{}}]}}"#,
     );
 
     let mut runner = PulseLineRunner::default();
@@ -533,7 +533,22 @@ fn loads_default_config_when_missing() {
     assert!(render.show_todo, "todo should be enabled by default");
     assert_eq!(render.max_tool_lines, 2);
     assert_eq!(render.max_completed_tools, 4);
-    assert_eq!(render.max_agent_lines, 2);
+    assert_eq!(render.max_agent_lines, 1);
+    assert_eq!(render.max_completed_lines, 1);
+    assert_eq!(render.max_todo_lines, 1);
+    // L2 config counts are opt-in (master toggle defaults off).
+    assert!(!render.show_claude_md, "L2 should be off by default");
+    assert!(!render.show_duration, "L2 should be off by default");
+}
+
+#[test]
+fn config_segment_master_toggle_restores_l2() {
+    use cc_pulseline::config::{build_render_config, PulselineConfig};
+    let config: PulselineConfig =
+        toml::from_str("[segments.config]\nenabled = true\n").expect("toml parses");
+    let render = build_render_config(&config);
+    assert!(render.show_claude_md, "enabled = true restores L2");
+    assert!(render.show_duration, "enabled = true restores L2");
 }
 
 // ── Fixture-based coverage tests ─────────────────────────────────────
@@ -763,51 +778,6 @@ fn handles_terminal_status_variety() {
     assert!(
         joined.contains("Task C") && joined.contains("[done]"),
         "done agent a3 should show as done: got {joined}"
-    );
-}
-
-#[test]
-fn handles_mixed_three_path_transcript() {
-    let workspace = TempDir::new().expect("temp workspace");
-    let transcript = workspace.path().join("mixed-paths.jsonl");
-    let fixture = fs::read_to_string("tests/fixtures/transcript_mixed_three_paths.jsonl")
-        .expect("mixed paths fixture should exist");
-    let events: Vec<&str> = fixture.lines().collect();
-
-    let mut runner = PulseLineRunner::default();
-    let config = RenderConfig {
-        transcript_poll_throttle_ms: 0,
-        max_tool_lines: 3,
-        ..RenderConfig::default()
-    };
-
-    // Append all 5 events at once
-    for event in &events {
-        append_line(&transcript, event);
-    }
-
-    let lines = runner
-        .run_from_str(
-            &payload_json(&workspace, &transcript, "mixed-paths"),
-            config,
-        )
-        .expect("render should succeed");
-    let joined = lines.join("\n");
-
-    // Nested Read completed (tool_result in event 3)
-    assert!(
-        joined.contains("✓ Read"),
-        "nested Read should be completed: got {joined}"
-    );
-    // Agent completed (progress event 4) → shows as done
-    assert!(
-        joined.contains("[done]") && joined.contains("Explore"),
-        "completed agent should show as done: got {joined}"
-    );
-    // Flat Bash still running (no tool_result for it)
-    assert!(
-        joined.contains("T:Bash"),
-        "flat-format Bash should still be running: got {joined}"
     );
 }
 
@@ -1414,7 +1384,7 @@ fn recent_tools_cleared_on_transcript_change() {
     // Add tool to first transcript
     append_line(
         &transcript1,
-        r#"{"type":"tool_use","tool_use_id":"t1","name":"Read"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
     );
     let payload1 = json!({
         "session_id": "session-change",
@@ -1853,5 +1823,348 @@ fn completed_tools_single_line_when_under_per_line() {
         completed_lines.len(),
         1,
         "3 tools at 6 per line should produce 1 completed line: got {completed_lines:?}"
+    );
+}
+
+// ── 2c: Tool failure counts ───────────────────────────────────────────
+
+#[test]
+fn tool_failure_shows_error_badge() {
+    // 2 successful + 1 failed Bash tool_results → row contains ✘1 (icon mode)
+    // and total count ×3.
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("tool-fail.jsonl");
+
+    // tool_use 1 + successful result
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":"echo ok"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"b1","is_error":false}]}"#,
+    );
+    // tool_use 2 + successful result
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"b2","name":"Bash","input":{"command":"echo ok2"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"b2","is_error":false}]}"#,
+    );
+    // tool_use 3 + failed result
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"b3","name":"Bash","input":{"command":"cargo build"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"b3","is_error":true}]}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        max_completed_tools: 4,
+        glyph_mode: cc_pulseline::config::GlyphMode::Icon,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "tool-fail"), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    // total count = 3
+    assert!(
+        joined.contains("\u{00D7}3"),
+        "completed count should be ×3: got {joined}"
+    );
+    // failure badge (icon mode: ✘1)
+    assert!(
+        joined.contains("\u{2718}1"),
+        "failure badge ✘1 should appear: got {joined}"
+    );
+}
+
+#[test]
+fn tool_no_failure_no_badge() {
+    // All successful → no ✘ badge at all.
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("tool-ok.jsonl");
+
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"r1","is_error":false}]}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(&payload_json(&workspace, &transcript, "tool-ok"), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        !joined.contains("\u{2718}"),
+        "no failure badge should appear for successful tools: got {joined}"
+    );
+}
+
+// ── 2d: compact_boundary marker ─────────────────────────────────────
+
+fn payload_with_ctx(
+    workspace: &TempDir,
+    transcript_path: &std::path::Path,
+    session_id: &str,
+) -> String {
+    json!({
+        "session_id": session_id,
+        "cwd": workspace.path(),
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.2.0",
+        "transcript_path": transcript_path,
+        "context_window": {
+            "context_window_size": 200000,
+            "used_percentage": 40,
+            "current_usage": {
+                "input_tokens": 80000,
+                "output_tokens": 1000,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0
+            }
+        },
+        "cost": {
+            "total_cost_usd": 0.50,
+            "total_duration_ms": 30000
+        }
+    })
+    .to_string()
+}
+
+#[test]
+fn compact_boundary_shows_count_marker_on_l3() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("compact.jsonl");
+
+    // Two compact_boundary events
+    append_line(
+        &transcript,
+        r#"{"type":"system","subtype":"compact_boundary"}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"type":"system","subtype":"compact_boundary"}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_with_ctx(&workspace, &transcript, "compact-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("~2"),
+        "compact marker ~2 (ascii) should appear on L3: got {joined}"
+    );
+}
+
+#[test]
+fn compact_boundary_absent_no_marker() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("compact-none.jsonl");
+
+    // A regular tool event — no compact_boundary
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_with_ctx(&workspace, &transcript, "compact-none-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    // No marker should appear (~ is not commonly used in L3 otherwise)
+    assert!(
+        !joined.contains(" ~"),
+        "no compact marker should appear when no compact_boundary events: got {joined}"
+    );
+}
+
+// ── 2e: api_error badge (30s TTL) ───────────────────────────────────
+
+#[test]
+fn api_error_system_event_shows_badge() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("api-error.jsonl");
+
+    // system/api_error event with a recent timestamp (year 9999 = far future → always fresh)
+    // Use epoch_ms that is "now-like" — we inject the actual current time via now_epoch_ms substitute.
+    // Simpler: inject an event WITHOUT a timestamp so code uses wall clock. The badge should appear immediately.
+    append_line(&transcript, r#"{"type":"system","subtype":"api_error"}"#);
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_with_ctx(&workspace, &transcript, "api-error-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("!API"),
+        "api_error badge !API (ascii) should appear on L3 immediately after event: got {joined}"
+    );
+}
+
+#[test]
+fn api_error_absent_no_badge() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("api-error-none.jsonl");
+
+    // No api_error events at all
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_with_ctx(&workspace, &transcript, "api-error-none-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        !joined.contains("!API"),
+        "no api_error badge should appear when no api_error events: got {joined}"
+    );
+}
+
+// ── 2f: completed-agent stats ────────────────────────────────────────
+
+#[test]
+fn completed_agent_shows_stats_tail() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("agent-stats.jsonl");
+
+    // Start an agent via Path 1 (nested tool_use)
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ag1","name":"Agent","input":{"description":"Analyze codebase","subagent_type":"Explore"}}]}}"#,
+    );
+    // Complete it via toolUseResult with stats
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"toolu_ag1"}],"toolUseResult":{"agentId":"agent-abc","status":"completed","totalDurationMs":125000,"totalTokens":38000,"totalToolUseCount":14}}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "agent-stats-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    // Stats tail: (2m · 14 tools · 38k tok)
+    assert!(
+        joined.contains("14 tools"),
+        "completed agent should show tool count stat: got {joined}"
+    );
+    assert!(
+        joined.contains("38.0k tok"),
+        "completed agent should show token count stat: got {joined}"
+    );
+}
+
+#[test]
+fn completed_agent_without_stats_shows_no_tail() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("agent-no-stats.jsonl");
+
+    // Complete without stats in toolUseResult
+    append_line(
+        &transcript,
+        r#"{"message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ag2","name":"Agent","input":{"description":"Quick task","subagent_type":"Explore"}}]}}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"content":[{"type":"tool_result","tool_use_id":"toolu_ag2"}],"toolUseResult":{"agentId":"agent-xyz","status":"completed"}}"#,
+    );
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "agent-no-stats-test"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        !joined.contains(" · "),
+        "no stats tail separator should appear when no stats: got {joined}"
     );
 }
