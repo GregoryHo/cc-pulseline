@@ -78,9 +78,14 @@
     "strata_state": 250,
     "strata_activity": 245,
     "aurora_low": 60,
-    "aurora_mid": 51,
+    "aurora_mid": 38,
     "aurora_high": 208,
-    "tag_label": 240
+    "tag_label": 240,
+    "active_cyan": 38,
+    "active_purple": 38,
+    "active_teal": 38,
+    "head_agent": 38,
+    "completed_check": 28
   },
 
   "usage_logic": {
