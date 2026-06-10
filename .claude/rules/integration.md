@@ -57,7 +57,7 @@ WorktreeInfo       { name, path, branch, original_cwd, original_branch }
 - Format: JSONL (one JSON object per line), appended incrementally by Claude Code
 - cc-pulseline reads incrementally via seek-based offsets (never re-reads entire file)
 - Contains tool use/result events, agent progress events, and todo state
-- See `providers/transcript.rs` for the three-path event dispatcher
+- See `providers/transcript.rs` for the two-path event dispatcher (nested content blocks + progress events); metadata lines are skipped by a byte-level pre-filter before JSON parsing
 
 ## Output Contract
 

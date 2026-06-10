@@ -42,10 +42,10 @@ Touch these places in order:
 3. **`merge_configs()`** — add `if let Some(v) = project.field { user.field = v; }`
 4. **`build_render_config()`** — wire the field to `RenderConfig`
 5. **`RenderConfig`** — add the runtime field
-6. **`default_config_toml()`** in `main.rs` — add commented example to template
-7. **`default_project_config_toml()`** in `main.rs` — add commented example if relevant
+6. **`default_config_toml()`** in `config.rs` — add commented example to template
+7. **`default_project_config_toml()`** in `config.rs` — add commented example if relevant
 
-All 7 places are in `config.rs` + `main.rs`. Miss one and the field silently falls back to default.
+All 7 places are in `config.rs`. Miss one and the field silently falls back to default.
 
 ## Visual Dispatch Hub Pattern
 
