@@ -796,6 +796,25 @@ fn format_quota_line(
 /// `5h:62% 7d:41%` — threshold-colored percentages only. The reset time
 /// is dropped; under height pressure the essential signal is how much
 /// budget remains, not when it refills.
+/// `("5h:", "62%")` — the colored label + threshold-colored percentage
+/// cells shared by the full quota line (`format_quota_period`) and the
+/// compact merged form (`format_quota_compact`). Single source so a
+/// threshold or format change can't drift between the two.
+fn quota_label_pct_cells(
+    label: &str,
+    pct_val: f64,
+    p: &ThemePalette,
+    color: bool,
+) -> (String, String) {
+    let label_str = colorize(&format!("{label}:"), &p.secondary, color);
+    let pct_str = colorize(
+        &format!("{pct_val:.0}%"),
+        p.color_for_quota_pct(pct_val),
+        color,
+    );
+    (label_str, pct_str)
+}
+
 fn format_quota_compact(
     quota: &QuotaMetrics,
     config: &RenderConfig,
@@ -808,12 +827,7 @@ fn format_quota_compact(
     let mut parts: Vec<String> = Vec::new();
     let mut push_window = |label: &str, pct: Option<f64>| {
         if let Some(pct_val) = pct {
-            let label_str = colorize(&format!("{label}:"), &p.secondary, color);
-            let pct_str = colorize(
-                &format!("{pct_val:.0}%"),
-                p.color_for_quota_pct(pct_val),
-                color,
-            );
+            let (label_str, pct_str) = quota_label_pct_cells(label, pct_val, p, color);
             parts.push(format!("{label_str}{pct_str}"));
         }
     };
@@ -837,10 +851,7 @@ fn format_quota_period(
 
     match pct {
         Some(pct_val) => {
-            let pct_color = p.color_for_quota_pct(pct_val);
-
-            let pct_str = colorize(&format!("{pct_val:.0}%"), pct_color, color);
-            let label_str = colorize(&format!("{label}:"), &p.secondary, color);
+            let (label_str, pct_str) = quota_label_pct_cells(label, pct_val, p, color);
 
             let reset_part = reset_minutes
                 .map(|m| {

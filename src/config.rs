@@ -586,7 +586,7 @@ visual = ""
 
 [segments.tools]
 enabled = true
-max_lines = 2           # max running tools shown
+max_lines = 2           # max running tools shown (0 = hide the running-tools row)
 max_completed = 4       # max completed tool counts
 max_completed_lines = 1 # max rows of completed tools (overflow folds into ` +N` tail)
 # visual: `+`-joined atoms — `counts` (completed rows), `targets`
@@ -1182,7 +1182,7 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [segments.tools]
 # enabled = true
-# max_lines = 2
+# max_lines = 2            # 0 = hide the running-tools row
 # max_completed = 4
 # max_completed_lines = 1
 # visual = ""               # "counts+targets" | "ticker"

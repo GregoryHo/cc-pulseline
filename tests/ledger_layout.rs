@@ -699,3 +699,82 @@ fn ledger_dense_false_preserves_legacy_spacing() {
         "row above bottom frame must NOT be blank: {above_bottom:?}"
     );
 }
+
+// ── tools_visual / todo_visual spec compliance ───────────────────────
+
+#[test]
+fn ledger_tools_ticker_fuses_to_one_tool_row() {
+    let mut f = frame_basic();
+    f.completed_tools = vec![
+        cc_pulseline::types::CompletedToolCount {
+            name: "Bash".to_string(),
+            count: 12,
+            last_completed_at: None,
+            failed: 0,
+        },
+        cc_pulseline::types::CompletedToolCount {
+            name: "Read".to_string(),
+            count: 8,
+            last_completed_at: None,
+            failed: 0,
+        },
+    ];
+    f.tools = vec![cc_pulseline::types::ToolSummary {
+        id: "t1".to_string(),
+        name: "Bash".to_string(),
+        target: Some("cargo test".to_string()),
+    }];
+    let config = RenderConfig {
+        tools_visual: "ticker".to_string(),
+        ..cfg(120)
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&f, &config);
+    let tool_rows: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains("TOOL") || l.contains("20 tools"))
+        .collect();
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("20 tools"),
+        "ticker grand total expected: {blob}"
+    );
+    assert!(
+        blob.contains("cargo test"),
+        "first running tool keeps target: {blob}"
+    );
+    // Grand total and running tool share ONE row.
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("20 tools") && l.contains("Bash")),
+        "ticker must fuse onto one row: {blob}"
+    );
+    drop(tool_rows);
+}
+
+#[test]
+fn ledger_todo_bar_renders_progress_gauge() {
+    let mut f = frame_basic();
+    f.todo = Some(cc_pulseline::types::TodoSummary {
+        text: String::new(),
+        pending: 3,
+        completed: 2,
+        total: 5,
+        in_progress_items: vec![],
+        all_done: false,
+        is_task_api: true,
+        sub_agent_count: None,
+    });
+    let config = RenderConfig {
+        todo_visual: "bar+text".to_string(),
+        ..cfg(120)
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&f, &config);
+    let blob = lines.join("\n");
+    // 2/5 = 40% on a 5-cell icon gauge → ▰▰───.
+    assert!(
+        blob.contains("\u{25B0}\u{25B0}"),
+        "todo gauge expected in ledger: {blob}"
+    );
+    assert!(blob.contains("2/5 done"), "text atom kept: {blob}");
+}

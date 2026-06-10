@@ -226,33 +226,59 @@ fn should_throttle(last_poll: Option<Instant>, throttle_ms: u64) -> bool {
 /// snapshots) — skipping them before `serde_json::from_str` roughly
 /// halves parse cost on busy sessions.
 ///
-/// The scan is bounded to the first 256 bytes: CC serializes top-level
-/// keys first, while any nested `"type"` matches that deep usually belong
-/// to content blocks (`text` / `tool_use` / …) which fail the needle
-/// check. A miss in either direction only costs one wasted parse — never
-/// a wrongly skipped event — because the first `"type":"` occurrence must
-/// ALSO carry one of the metadata values for the line to be dropped.
+/// The scan is a string-aware depth walk over the first 256 bytes: only a
+/// `"type":"` key at object depth 1 — a genuine TOP-LEVEL key — can match.
+/// Nested content blocks and string payloads that merely *contain* the
+/// needle (e.g. a Bash command grepping for `"type":"attachment"`) are
+/// skipped over as string content, so they can never drop a real event.
+/// A top-level `type` past the 256-byte window only costs one wasted
+/// parse — the dispatcher ignores those event kinds anyway.
 fn is_ignored_metadata_line(line: &str) -> bool {
     const KEY: &[u8] = b"\"type\":\"";
     let bytes = line.as_bytes();
     let window = &bytes[..bytes.len().min(256)];
-    let Some(pos) = window
-        .windows(KEY.len())
-        .position(|candidate| candidate == KEY)
-    else {
-        return false;
-    };
-    let rest = &window[pos + KEY.len()..];
-    [
-        &b"attachment\""[..],
-        b"file-history-snapshot\"",
-        b"queue-operation\"",
-        b"pr-link\"",
-        b"worktree-state\"",
-        b"bridge-session\"",
-    ]
-    .iter()
-    .any(|needle| rest.starts_with(needle))
+
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < window.len() {
+        let b = window[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            b'"' => {
+                if depth == 1 && window[i..].starts_with(KEY) {
+                    let rest = &window[i + KEY.len()..];
+                    return [
+                        &b"attachment\""[..],
+                        b"file-history-snapshot\"",
+                        b"queue-operation\"",
+                        b"pr-link\"",
+                        b"worktree-state\"",
+                        b"bridge-session\"",
+                    ]
+                    .iter()
+                    .any(|needle| rest.starts_with(needle));
+                }
+                in_string = true;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 fn read_new_lines(path: &Path, start_offset: u64) -> Result<Vec<String>, String> {
@@ -1192,6 +1218,20 @@ mod tests {
         // No type key at all.
         assert!(!is_ignored_metadata_line(
             r#"{"toolUseResult":{"agentId":"a1"}}"#
+        ));
+    }
+
+    #[test]
+    fn metadata_prefilter_ignores_needle_inside_string_payloads() {
+        // A tool_use whose command CONTAINS the metadata needle as string
+        // content must not be skipped — only a top-level (depth 1) `type`
+        // key counts. Regression for the PR-review finding.
+        let line = r#"{"message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"grep '"type":"attachment"' transcript.jsonl"}}]}}"#;
+        assert!(!is_ignored_metadata_line(line));
+        // Same needle as a value string of a top-level key that is NOT
+        // `type` — still a real event line.
+        assert!(!is_ignored_metadata_line(
+            r#"{"note":""type":"attachment"","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}"#
         ));
     }
 }
