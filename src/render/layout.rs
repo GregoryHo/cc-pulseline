@@ -307,27 +307,38 @@ fn assemble_compact(
     p_state: &ThemePalette,
     p_activity: &ThemePalette,
 ) -> Vec<String> {
+    use crate::render::activity::budget::pack_with_separator;
+    use crate::render::activity::cell::{Cell, CellPriority};
+
     let color = config.color_enabled;
     let sep = colorize(" | ", &p_state.separator, color);
 
-    let mut head_parts: Vec<String> = Vec::new();
-    let identity = format_line1(frame, config, p_state);
-    if !identity.is_empty() {
-        head_parts.push(identity);
-    }
-    let budget = format_line3(frame, config, p_state);
-    if !budget.is_empty() {
-        head_parts.push(budget);
+    // Row 1 packs width-aware so the RIGHT-side essentials (cost, quota)
+    // survive narrow terminals: Optional reference cells (TOK breakdown,
+    // project path, version, style, …) drop first, rightmost first —
+    // never a blind right-tail truncation that would cut the budget area.
+    let mut cells: Vec<Cell> = Vec::new();
+    for (part, priority) in line1_parts(frame, config, p_state)
+        .into_iter()
+        .chain(line3_parts(frame, config, p_state))
+    {
+        let w = visible_width(&part);
+        cells.push(Cell::label(part, w, priority));
     }
     if config.show_quota {
         if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
-            head_parts.push(quota);
+            let w = visible_width(&quota);
+            cells.push(Cell::label(quota, w, CellPriority::Required));
         }
     }
 
     let mut lines: Vec<String> = Vec::new();
-    if !head_parts.is_empty() {
-        lines.push(head_parts.join(&sep));
+    if !cells.is_empty() {
+        let head_width = config.terminal_width.unwrap_or(usize::MAX);
+        let head = pack_with_separator(&cells, head_width, &sep, 3, color);
+        if !head.is_empty() {
+            lines.push(head);
+        }
     }
 
     let activity_width = config.terminal_width.unwrap_or(usize::MAX);
@@ -380,16 +391,34 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
 }
 
 fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
-    let mode = config.glyph_mode;
     let color = config.color_enabled;
     let sep = colorize(" | ", &p.separator, color);
+    line1_parts(frame, config, p)
+        .into_iter()
+        .map(|(part, _)| part)
+        .collect::<Vec<_>>()
+        .join(&sep)
+}
 
-    let mut parts: Vec<String> = Vec::new();
+/// L1 segments with a glance-priority tag for the compact layout's
+/// width-aware packing: `Required` cells (model, git) survive width
+/// pressure; `Optional` cells (style, version, project, …) drop first,
+/// rightmost first. The flat layouts join all parts and ignore the tag.
+fn line1_parts(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+) -> Vec<(String, crate::render::activity::cell::CellPriority)> {
+    use crate::render::activity::cell::CellPriority::{Optional, Required};
+    let mode = config.glyph_mode;
+    let color = config.color_enabled;
+
+    let mut parts: Vec<(String, crate::render::activity::cell::CellPriority)> = Vec::new();
 
     if config.show_model {
         let model_label = colorize(&glyph(mode, ICON_MODEL, "M:"), &p.stable_blue, color);
         let model_val = colorize(&frame.line1.model, &p.stable_blue, color);
-        parts.push(format!("{model_label}{model_val}"));
+        parts.push((format!("{model_label}{model_val}"), Required));
     }
 
     if config.show_effort {
@@ -397,7 +426,7 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
             let effort_color = p.color_for_effort_level(level);
             let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color);
             let val = colorize(level, effort_color, color);
-            parts.push(format!("{label}{val}"));
+            parts.push((format!("{label}{val}"), Optional));
         }
     }
 
@@ -406,42 +435,42 @@ fn format_line1(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
         // Trim before colorizing so the ANSI reset stays tight against the glyph.
         let raw = glyph(mode, ICON_THINKING, "[T]");
         let label = colorize(raw.trim_end(), &p.head_thinking, color);
-        parts.push(label);
+        parts.push((label, Optional));
     }
 
     if config.show_agent {
         if let Some(agent_name) = &frame.line1.agent_name {
             let label = colorize(&glyph(mode, ICON_AGENT, "AG:"), &p.head_agent, color);
             let val = colorize(agent_name, &p.head_agent, color);
-            parts.push(format!("{label}{val}"));
+            parts.push((format!("{label}{val}"), Optional));
         }
     }
 
     if config.show_style {
         let style_label = colorize(&glyph(mode, ICON_STYLE, "S:"), &p.secondary, color);
         let style_val = colorize(&frame.line1.output_style, &p.secondary, color);
-        parts.push(format!("{style_label}{style_val}"));
+        parts.push((format!("{style_label}{style_val}"), Optional));
     }
 
     if config.show_version {
         let version_label = colorize(&glyph(mode, ICON_VERSION, "CC:"), &p.secondary, color);
         let version_val = colorize(&frame.line1.claude_code_version, &p.secondary, color);
-        parts.push(format!("{version_label}{version_val}"));
+        parts.push((format!("{version_label}{version_val}"), Optional));
     }
 
     if config.show_project {
         let project_label = colorize(&glyph(mode, ICON_PROJECT, "P:"), &p.secondary, color);
         let project_val = colorize(&frame.line1.project_path, &p.secondary, color);
-        parts.push(format!("{project_label}{project_val}"));
+        parts.push((format!("{project_label}{project_val}"), Optional));
     }
 
     if config.show_git {
         let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), p.git_green(), color);
         let git_val = format_git_status(&frame.line1, config, p);
-        parts.push(format!("{git_label}{git_val}"));
+        parts.push((format!("{git_label}{git_val}"), Required));
     }
 
-    parts.join(&sep)
+    parts
 }
 
 pub(crate) fn format_line2(
@@ -550,9 +579,27 @@ pub(crate) fn format_line2(
 fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
     let sep = colorize(" | ", &p.separator, color);
+    line3_parts(frame, config, p)
+        .into_iter()
+        .map(|(part, _)| part)
+        .collect::<Vec<_>>()
+        .join(&sep)
+}
+
+/// L3 segments with a glance-priority tag — see `line1_parts`. CTX and
+/// cost are the alert-bearing cells (`Required`); the token breakdown is
+/// reference data (`Optional`, dropped first under compact width
+/// pressure).
+fn line3_parts(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+) -> Vec<(String, crate::render::activity::cell::CellPriority)> {
+    use crate::render::activity::cell::CellPriority::{Optional, Required};
+    let color = config.color_enabled;
     let mode = config.glyph_mode;
 
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<(String, crate::render::activity::cell::CellPriority)> = Vec::new();
 
     if config.show_context {
         let mut ctx = format_context_segment(&frame.line3, config, p, &frame.ctx_history);
@@ -569,7 +616,7 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
             ctx.push_str(&colorize(&badge, &p.alert_red, color));
         }
 
-        parts.push(ctx);
+        parts.push((ctx, Required));
     }
     if config.show_tokens {
         let speed = if config.show_speed {
@@ -577,13 +624,16 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
         } else {
             None
         };
-        parts.push(format_tokens_segment(&frame.line3, speed, config, p));
+        parts.push((
+            format_tokens_segment(&frame.line3, speed, config, p),
+            Optional,
+        ));
     }
     if config.show_cost {
-        parts.push(format_cost_segment(&frame.line3, config, p));
+        parts.push((format_cost_segment(&frame.line3, config, p), Required));
     }
 
-    parts.join(&sep)
+    parts
 }
 
 fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette) -> String {

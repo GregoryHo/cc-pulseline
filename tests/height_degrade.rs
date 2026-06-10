@@ -339,3 +339,38 @@ fn compact_layout_fits_terminal_width() {
         );
     }
 }
+
+#[test]
+fn compact_head_keeps_cost_and_quota_under_width_pressure() {
+    // Regression for the PR-review screenshot: row 1 used to be a blind
+    // right-tail truncation, cutting cost/quota (the right-side
+    // essentials) while style/version/path survived. The packed form
+    // must drop Optional reference cells first.
+    let mut frame = busy_frame();
+    frame.line1.project_path = "~/GitHub/AI/cc-pulseline".to_string();
+    frame.line1.claude_code_version = "2.1.170".to_string();
+    frame.line1.output_style = "default".to_string();
+    let config = RenderConfig {
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Compact,
+        terminal_width: Some(80),
+        ..cfg()
+    };
+    let lines = render_frame(&frame, &config);
+    let head = &lines[0];
+    assert!(
+        cc_pulseline::render::color::visible_width(head) <= 80,
+        "head must fit width 80: {head:?}"
+    );
+    assert!(
+        head.contains("$") || head.contains("CTX"),
+        "budget cells must survive: {head:?}"
+    );
+    assert!(
+        head.contains("5h:62%"),
+        "quota must survive width pressure: {head:?}"
+    );
+    assert!(
+        !head.contains("cc-pulseline") && !head.contains("2.1.170"),
+        "Optional reference cells must drop first: {head:?}"
+    );
+}
