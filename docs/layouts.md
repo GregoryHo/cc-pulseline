@@ -117,6 +117,14 @@ in-terminal agents panel; pairs well with trimming L1 via
 `[segments.identity]` toggles (e.g. `show_style = false`,
 `show_version = false`, `show_project = false`).
 
+The height-degradation ladder (`max_total_lines`) reuses this fused head
+as its final rung: running tools → completed tools → agents → todo →
+merged activity row → quota into L3 → drop config row → **fuse-core**
+(identity + budget + compact quota fused into the row above). But note
+that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
+ladder stops early at the quota merge — L1 and L3+quota keep separate
+rows and fuse-core is never reached — while compact always fuses.
+
 ### `zones` — single labelled rule between state and activity
 
 Inserts one horizontal rule (`─── activity ───`) between the **state**

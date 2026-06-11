@@ -95,6 +95,7 @@ struct HeightSqueeze {
     merge_activity: bool,
     merge_quota_into_l3: bool,
     drop_line2: bool,
+    fuse_core: bool,
 }
 
 impl HeightSqueeze {
@@ -108,6 +109,7 @@ impl HeightSqueeze {
             H::MergeActivity => self.merge_activity = true,
             H::MergeQuotaIntoL3 => self.merge_quota_into_l3 = true,
             H::DropLine2 => self.drop_line2 = true,
+            H::FuseCore => self.fuse_core = true,
         }
     }
 
@@ -147,60 +149,74 @@ fn assemble_flat(
 
     let mut lines: Vec<String> = Vec::new();
     let mut groups: Vec<(LineKind, Range<usize>)> = Vec::new();
+    let mut line2_idx: Option<usize> = None;
 
-    // Core rows are pushed only when non-empty — a fully toggled-off
-    // segment must not cost a blank row (vertical footprint discipline).
-    let start = lines.len();
-    // Console hoists the identity into the top frame title, so it gets a
-    // prefix-less ` · `-separated headline (no `M:` / `G:` icon labels —
-    // the title format is its own visual vocabulary). Other layouts keep
-    // `format_line1`'s body-row format.
-    let identity_str = if matches!(config.pane_style, LayoutStyle::Console) {
-        frames::shared::identity_headline(&frame.line1, config, &p_state, " · ")
+    if squeeze.fuse_core {
+        // `FuseCore` rung — the ladder's floor: L1/L2/L3/quota give up
+        // their individual rows and the compact layout's priority-packed
+        // head takes their place as a single Budget-group row. Framed
+        // layouts keep their chrome around it.
+        let start = lines.len();
+        let head = fused_head_row(frame, config, &p_state);
+        if !head.is_empty() {
+            lines.push(head);
+            groups.push((LineKind::Budget, start..lines.len()));
+        }
     } else {
-        format_line1(frame, config, &p_state)
-    };
-    if !identity_str.is_empty() {
-        lines.push(identity_str);
-        groups.push((LineKind::Identity, start..lines.len()));
-    }
+        // Core rows are pushed only when non-empty — a fully toggled-off
+        // segment must not cost a blank row (vertical footprint discipline).
+        let start = lines.len();
+        // Console hoists the identity into the top frame title, so it gets a
+        // prefix-less ` · `-separated headline (no `M:` / `G:` icon labels —
+        // the title format is its own visual vocabulary). Other layouts keep
+        // `format_line1`'s body-row format.
+        let identity_str = if matches!(config.pane_style, LayoutStyle::Console) {
+            frames::shared::identity_headline(&frame.line1, config, &p_state, " · ")
+        } else {
+            format_line1(frame, config, &p_state)
+        };
+        if !identity_str.is_empty() {
+            lines.push(identity_str);
+            groups.push((LineKind::Identity, start..lines.len()));
+        }
 
-    let start = lines.len();
-    let line2 = if squeeze.drop_line2 {
-        String::new()
-    } else {
-        format_line2(frame, config, " | ", &p_state)
-    };
-    let line2_idx = (!line2.is_empty()).then_some(lines.len());
-    if !line2.is_empty() {
-        lines.push(line2);
-        groups.push((LineKind::Config, start..lines.len()));
-    }
+        let start = lines.len();
+        let line2 = if squeeze.drop_line2 {
+            String::new()
+        } else {
+            format_line2(frame, config, " | ", &p_state)
+        };
+        line2_idx = (!line2.is_empty()).then_some(lines.len());
+        if !line2.is_empty() {
+            lines.push(line2);
+            groups.push((LineKind::Config, start..lines.len()));
+        }
 
-    let start = lines.len();
-    let mut line3 = format_line3(frame, config, &p_state);
-    if config.show_quota && squeeze.merge_quota_into_l3 {
-        // `MergeQuotaIntoL3` rung: quota gives up its row; the threshold-
-        // colored percentages survive as a compact L3 suffix.
-        if let Some(compact) = format_quota_compact(&frame.quota, config, &p_state) {
-            if line3.is_empty() {
-                line3 = compact;
-            } else {
-                let sep = colorize(" | ", &p_state.separator, color);
-                line3 = format!("{line3}{sep}{compact}");
+        let start = lines.len();
+        let mut line3 = format_line3(frame, config, &p_state);
+        if config.show_quota && squeeze.merge_quota_into_l3 {
+            // `MergeQuotaIntoL3` rung: quota gives up its row; the threshold-
+            // colored percentages survive as a compact L3 suffix.
+            if let Some(compact) = format_quota_compact(&frame.quota, config, &p_state) {
+                if line3.is_empty() {
+                    line3 = compact;
+                } else {
+                    let sep = colorize(" | ", &p_state.separator, color);
+                    line3 = format!("{line3}{sep}{compact}");
+                }
             }
         }
-    }
-    if !line3.is_empty() {
-        lines.push(line3);
-    }
-    if config.show_quota && !squeeze.merge_quota_into_l3 {
-        if let Some(line) = format_quota_line(&frame.quota, config, &p_state) {
-            lines.push(line);
+        if !line3.is_empty() {
+            lines.push(line3);
         }
-    }
-    if lines.len() > start {
-        groups.push((LineKind::Budget, start..lines.len()));
+        if config.show_quota && !squeeze.merge_quota_into_l3 {
+            if let Some(line) = format_quota_line(&frame.quota, config, &p_state) {
+                lines.push(line);
+            }
+        }
+        if lines.len() > start {
+            groups.push((LineKind::Budget, start..lines.len()));
+        }
     }
 
     // The cheap collapse rungs are implemented by tightening the activity
@@ -307,38 +323,12 @@ fn assemble_compact(
     p_state: &ThemePalette,
     p_activity: &ThemePalette,
 ) -> Vec<String> {
-    use crate::render::activity::budget::pack_with_separator;
-    use crate::render::activity::cell::{Cell, CellPriority};
-
     let color = config.color_enabled;
-    let sep = colorize(" | ", &p_state.separator, color);
-
-    // Row 1 packs width-aware so the RIGHT-side essentials (cost, quota)
-    // survive narrow terminals: Optional reference cells (TOK breakdown,
-    // project path, version, style, …) drop first, rightmost first —
-    // never a blind right-tail truncation that would cut the budget area.
-    let mut cells: Vec<Cell> = Vec::new();
-    for (part, priority) in line1_parts(frame, config, p_state)
-        .into_iter()
-        .chain(line3_parts(frame, config, p_state))
-    {
-        let w = visible_width(&part);
-        cells.push(Cell::label(part, w, priority));
-    }
-    if config.show_quota {
-        if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
-            let w = visible_width(&quota);
-            cells.push(Cell::label(quota, w, CellPriority::Required));
-        }
-    }
 
     let mut lines: Vec<String> = Vec::new();
-    if !cells.is_empty() {
-        let head_width = config.terminal_width.unwrap_or(usize::MAX);
-        let head = pack_with_separator(&cells, head_width, &sep, 3, color);
-        if !head.is_empty() {
-            lines.push(head);
-        }
+    let head = fused_head_row(frame, config, p_state);
+    if !head.is_empty() {
+        lines.push(head);
     }
 
     let activity_width = config.terminal_width.unwrap_or(usize::MAX);
@@ -357,6 +347,43 @@ fn assemble_compact(
             .collect();
     }
     lines
+}
+
+/// The fused head row shared by the `compact` layout and the `FuseCore`
+/// height-degradation rung: identity (L1) and budget (L3) cells joined
+/// with the standard ` | ` separator, plus the compact quota when shown.
+///
+/// The row packs width-aware so the RIGHT-side essentials (cost, quota)
+/// survive narrow terminals: Optional reference cells (TOK breakdown,
+/// project path, version, style, …) drop first, rightmost first —
+/// never a blind right-tail truncation that would cut the budget area.
+fn fused_head_row(frame: &RenderFrame, config: &RenderConfig, p_state: &ThemePalette) -> String {
+    use crate::render::activity::budget::pack_with_separator;
+    use crate::render::activity::cell::{Cell, CellPriority};
+
+    let color = config.color_enabled;
+    let sep = colorize(" | ", &p_state.separator, color);
+
+    let mut cells: Vec<Cell> = Vec::new();
+    for (part, priority) in line1_parts(frame, config, p_state)
+        .into_iter()
+        .chain(line3_parts(frame, config, p_state))
+    {
+        let w = visible_width(&part);
+        cells.push(Cell::label(part, w, priority));
+    }
+    if config.show_quota {
+        if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
+            let w = visible_width(&quota);
+            cells.push(Cell::label(quota, w, CellPriority::Required));
+        }
+    }
+
+    if cells.is_empty() {
+        return String::new();
+    }
+    let head_width = config.terminal_width.unwrap_or(usize::MAX);
+    pack_with_separator(&cells, head_width, &sep, 3, color)
 }
 
 fn pane_config_from(config: &RenderConfig) -> PaneConfig {

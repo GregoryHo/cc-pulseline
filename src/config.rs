@@ -655,7 +655,8 @@ ledger_dense = false
 
 # Hard cap on TOTAL statusline rows, frame chrome included. When the render
 # exceeds it, groups collapse in order (running tools → completed tools →
-# agents → todo → merged activity row → quota into L3 → drop config row)
+# agents → todo → merged activity row → quota into L3 → drop config row →
+# fuse-core: identity+budget+quota fused into one compact head row)
 # until it fits. Unset = unlimited. Ledger ignores this (use ledger_dense).
 # "auto" derives the cap from the terminal height (~25%, clamped to 4–10).
 # max_total_lines = 6
@@ -1207,7 +1208,8 @@ pub fn default_project_config_toml() -> &'static str {
 # cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
-# max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal)
+# max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
+#                           # ladder ends at fuse-core (identity+budget on one row)
 "#
 }
 
@@ -1260,6 +1262,9 @@ pub enum HeightDegradeStrategy {
     MergeQuotaIntoL3,
     /// Drop the L2 config-counts row (static, lowest urgency).
     DropLine2,
+    /// Fuse identity + budget + compact quota into the compact layout's
+    /// single priority-packed head row (the ladder's floor).
+    FuseCore,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1450,6 +1455,7 @@ impl Default for RenderConfig {
                 HeightDegradeStrategy::MergeActivity,
                 HeightDegradeStrategy::MergeQuotaIntoL3,
                 HeightDegradeStrategy::DropLine2,
+                HeightDegradeStrategy::FuseCore,
             ],
             degrade_order: vec![
                 WidthDegradeStrategy::CompressLine2,

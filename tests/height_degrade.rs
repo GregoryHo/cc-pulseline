@@ -245,16 +245,134 @@ fn cap_counts_frame_chrome_rows() {
 
 #[test]
 fn ladder_exhausted_hard_truncates_from_bottom() {
+    // cap=1 exhausts even the FuseCore rung (fused head + ticker = 2 rows);
+    // the hard truncate then cuts from the bottom, leaving the fused head —
+    // identity AND budget survive on the single remaining row.
+    let config = RenderConfig {
+        max_total_lines: Some(1),
+        ..cfg()
+    };
+    let lines = render_frame(&busy_frame(), &config);
+    assert_eq!(lines.len(), 1, "hard cap: {}", lines.join("\n"));
+    assert!(
+        lines[0].contains("M:Opus"),
+        "identity survives on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("CTX"),
+        "budget survives on the fused head: {:?}",
+        lines[0]
+    );
+}
+
+#[test]
+fn fuse_core_rung_fuses_head_when_ladder_exhausts() {
+    // cap=2 busy: the earlier rungs leave 3 rows (L1 / L3+quota / merged
+    // activity); FuseCore folds the core into the compact head so the
+    // activity ticker survives instead of being hard-truncated.
     let config = RenderConfig {
         max_total_lines: Some(2),
         ..cfg()
     };
     let lines = render_frame(&busy_frame(), &config);
-    assert_eq!(lines.len(), 2, "hard cap: {}", lines.join("\n"));
+    assert_eq!(lines.len(), 2, "cap=2 busy: {}", lines.join("\n"));
     assert!(
         lines[0].contains("M:Opus"),
-        "identity row survives at the top: {:?}",
+        "identity on the fused head: {:?}",
         lines[0]
+    );
+    assert!(
+        lines[0].contains("CTX"),
+        "budget on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("5h:62%"),
+        "compact quota on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("75 tools"),
+        "activity ticker survives on row 2: {:?}",
+        lines[1]
+    );
+}
+
+#[test]
+fn fuse_core_not_reached_when_idle_ladder_stops_early() {
+    // compact ≠ none + max_total_lines=2: idle, the ladder stops at
+    // MergeQuotaIntoL3 (L1 / L3+quota fits cap=2) — the head never fuses.
+    let mut frame = busy_frame();
+    frame.completed_tools.clear();
+    frame.tools.clear();
+    frame.agents.clear();
+    frame.todo = None;
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        ..cfg()
+    };
+    let lines = render_frame(&frame, &config);
+    assert_eq!(lines.len(), 2, "cap=2 idle: {}", lines.join("\n"));
+    assert!(
+        lines[0].contains("M:Opus") && !lines[0].contains("CTX"),
+        "L1 keeps its own row when idle: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("CTX") && lines[1].contains("5h:62%"),
+        "L3 carries compact quota when idle: {:?}",
+        lines[1]
+    );
+}
+
+#[test]
+fn fuse_core_head_packs_width_aware() {
+    // The fused rung inherits the compact head's priority packing: under
+    // width pressure the Optional reference cells (path, version) drop
+    // first while cost/quota — the right-side essentials — survive.
+    let mut frame = busy_frame();
+    frame.line1.project_path = "~/GitHub/AI/cc-pulseline".to_string();
+    frame.line1.claude_code_version = "2.1.170".to_string();
+    frame.line1.output_style = "default".to_string();
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        terminal_width: Some(80),
+        ..cfg()
+    };
+    let lines = render_frame(&frame, &config);
+    let head = &lines[0];
+    assert!(
+        cc_pulseline::render::color::visible_width(head) <= 80,
+        "fused head must fit width 80: {head:?}"
+    );
+    assert!(
+        head.contains("5h:62%"),
+        "quota must survive width pressure: {head:?}"
+    );
+    assert!(
+        !head.contains("cc-pulseline") && !head.contains("2.1.170"),
+        "Optional reference cells must drop first: {head:?}"
+    );
+}
+
+#[test]
+fn framed_layout_tiny_cap_hard_truncates_without_panic() {
+    // Frame chrome counts against the cap even past the FuseCore rung: a
+    // framed fused head still needs border rows, so a tiny cap ends in the
+    // hard truncate — the cap is a hard contract, never a panic.
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        terminal_width: Some(120),
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Console,
+        ..cfg()
+    };
+    let lines = render_frame(&busy_frame(), &config);
+    assert!(
+        lines.len() <= 2,
+        "tiny cap on a framed layout must hard-truncate: {} rows\n{}",
+        lines.len(),
+        lines.join("\n")
     );
 }
 
