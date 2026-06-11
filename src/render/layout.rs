@@ -50,12 +50,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below
         // and is decorated by `apply_pane`.
-        LayoutStyle::None
-        | LayoutStyle::Compact
-        | LayoutStyle::Zones
-        | LayoutStyle::Grid
-        | LayoutStyle::Sections
-        | LayoutStyle::Console => {}
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Console => {}
     }
 
     let mut lines = assemble_flat(frame, config, HeightSqueeze::default());
@@ -266,14 +261,12 @@ fn assemble_flat(
     // budget so content + decoration together fit the terminal.
     let pane_active = !matches!(config.pane_style, LayoutStyle::None | LayoutStyle::Compact);
     let style_overhead = match config.pane_style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Zones => 0,
-        // Grid consumes `label_width + 2` cols on the left. The default group
-        // labels (Identity/Config/Budget/Activity) top out at 8 chars + 2 pad
-        // + 2 for " │ " = ~12 cols. Budget value for width degradation.
-        LayoutStyle::Grid => 12,
-        // Sections / Console use a wall-on-both-sides layout (`│ ` left +
-        // internal ` │ ` divider + ` │` right) — ~4 more cols than Grid.
-        LayoutStyle::Sections | LayoutStyle::Console => 16,
+        LayoutStyle::None | LayoutStyle::Compact => 0,
+        // Console uses a wall-on-both-sides layout (`│ ` left + internal
+        // ` │ ` divider + ` │` right) around a label column whose default
+        // group labels (Identity/Config/Budget/Activity) top out at 8
+        // chars — ~16 cols total. Budget value for width degradation.
+        LayoutStyle::Console => 16,
         // Ledger owns its own pipeline and never reaches this branch.
         LayoutStyle::Ledger => 0,
     };
@@ -293,7 +286,7 @@ fn assemble_flat(
             line2_idx,
         );
         // `apply_width_degradation` may have truncated `lines`; clamp every
-        // group range so downstream renderers (cards/sections) don't push
+        // group range so the downstream renderer (console) doesn't push
         // chrome for indices that no longer exist (which produces empty
         // framed boxes).
         groups.retain_mut(|(_, range)| {
@@ -407,7 +400,6 @@ fn pane_config_from(config: &RenderConfig) -> PaneConfig {
     ];
     PaneConfig {
         style: config.pane_style,
-        width_mode: config.pane_width_mode,
         min_width: config.pane_min_width,
         max_width: config.pane_max_width,
         groups: default_groups,

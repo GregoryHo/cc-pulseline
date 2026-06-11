@@ -1,8 +1,8 @@
 //! Integration tests for the quota gauge bar (F design — marks on track).
 //!
 //! Verifies:
-//!   - Per-layout default `quota_visual` (none/zones/grid → text;
-//!     sections/console/ledger → gauge)
+//!   - Per-layout default `quota_visual` (none → text;
+//!     console/ledger → gauge)
 //!   - Bar is positioned BEFORE the percentage in both flat (console)
 //!     and TAG-column (ledger) formats
 //!   - `quota_visual = "text"` opt-out actually drops the bar
@@ -65,31 +65,26 @@ fn cfg(layout: LayoutStyle, mode: GlyphMode) -> RenderConfig {
 
 #[test]
 fn flat_layouts_default_to_text_no_bar() {
-    // none / zones / grid keep their minimalist default — `quota_visual = "text"`.
+    // none keeps its minimalist default — `quota_visual = "text"`.
     let f = frame_with_quota(62.0, 28.0);
-    for layout in [LayoutStyle::None, LayoutStyle::Zones, LayoutStyle::Grid] {
-        let lines = render_frame(&f, &cfg(layout, GlyphMode::Icon));
-        let quota_line = lines
-            .iter()
-            .find(|l| l.contains("5h:"))
-            .unwrap_or_else(|| panic!("no 5h line for {layout:?}"));
-        assert!(
-            !quota_line.contains(FILLED_ICON),
-            "{layout:?} should default to text (no ▰): {quota_line:?}"
-        );
-    }
+    let layout = LayoutStyle::None;
+    let lines = render_frame(&f, &cfg(layout, GlyphMode::Icon));
+    let quota_line = lines
+        .iter()
+        .find(|l| l.contains("5h:"))
+        .unwrap_or_else(|| panic!("no 5h line for {layout:?}"));
+    assert!(
+        !quota_line.contains(FILLED_ICON),
+        "{layout:?} should default to text (no ▰): {quota_line:?}"
+    );
 }
 
 #[test]
 fn framed_layouts_default_to_gauge_with_bar() {
     let f = frame_with_quota(62.0, 28.0);
-    for layout in [
-        LayoutStyle::Sections,
-        LayoutStyle::Console,
-        LayoutStyle::Ledger,
-    ] {
+    for layout in [LayoutStyle::Console, LayoutStyle::Ledger] {
         let lines = render_frame(&f, &cfg(layout, GlyphMode::Icon));
-        // Sections/Console: 5h on a `5h:` cell. Ledger: 5h on a TAG row.
+        // Console: 5h on a `5h:` cell. Ledger: 5h on a TAG row.
         let line = lines
             .iter()
             .find(|l| l.contains("5h"))
@@ -104,11 +99,7 @@ fn framed_layouts_default_to_gauge_with_bar() {
 #[test]
 fn quota_visual_text_disables_bar_in_framed_layouts() {
     let f = frame_with_quota(62.0, 28.0);
-    for layout in [
-        LayoutStyle::Sections,
-        LayoutStyle::Console,
-        LayoutStyle::Ledger,
-    ] {
+    for layout in [LayoutStyle::Console, LayoutStyle::Ledger] {
         let mut c = cfg(layout, GlyphMode::Icon);
         c.quota_visual = "text".to_string();
         let lines = render_frame(&f, &c);
@@ -243,7 +234,7 @@ fn ascii_mode_renders_punctuation_ladder_no_blocks() {
 
 #[test]
 fn ctx_gauge_uses_window_aware_marks_not_quota_50_85() {
-    // CTX gauge in sections (FLAT_GAUGE_WIDTH = 18 cells). With a 200k
+    // CTX gauge in console (FLAT_GAUGE_WIDTH = 18 cells). With a 200k
     // window, marks come from `ctx_marks_for_window`:
     //   warn = 100 - (90_000 * 100 / 200_000) = 55  → round(55*18/100) = cell 10
     //   crit = 100 - (50_000 * 100 / 200_000) = 75  → round(75*18/100) = cell 14
@@ -253,7 +244,7 @@ fn ctx_gauge_uses_window_aware_marks_not_quota_50_85() {
     // threshold sets.
     let mut f = frame_with_quota(0.0, 0.0);
     f.line3.context_used_percentage = Some(0);
-    let mut c = cfg(LayoutStyle::Sections, GlyphMode::Icon);
+    let mut c = cfg(LayoutStyle::Console, GlyphMode::Icon);
     c.context_visual = "gauge".to_string();
     // Set quota_visual = "text" so the only bar in the output is CTX's,
     // removing ambiguity about which line we're inspecting.

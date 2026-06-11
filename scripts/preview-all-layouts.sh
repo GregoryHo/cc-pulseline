@@ -26,7 +26,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_CONFIG="${REPO_ROOT}/.claude/pulseline.toml"
 BINARY="${REPO_ROOT}/target/release/cc-pulseline"
 
-LAYOUTS=(none zones grid sections console ledger)
+LAYOUTS=(none compact console ledger)
 WIDTHS=("$@")
 [[ ${#WIDTHS[@]} -eq 0 ]] && WIDTHS=(140)
 

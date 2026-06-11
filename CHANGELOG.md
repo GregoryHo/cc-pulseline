@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **`zones`, `grid`, and `sections` layouts** — consolidated 7→4; the
+  survivors are `none`, `compact`, `console`, and `ledger`. Configs
+  naming a removed layout fall back with a stderr warning: `zones` and
+  `grid` → `none` (they shared none's visual defaults), `sections` →
+  `console` (its identity-in-title sibling, same frame chrome).
+- **`[layout] width_mode` / `fixed_width`** — only the removed `zones`
+  layout read them. The keys are now parse-ignored in existing TOML
+  (no `deny_unknown_fields`), so old configs keep loading; `min_width`,
+  `max_width`, and `cc_margin` are unchanged.
+
 ## [1.1.5] - 2026-05-19
 
 Feature release on two axes: sub-agent TODO visibility from dispatched

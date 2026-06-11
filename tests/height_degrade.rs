@@ -231,7 +231,7 @@ fn cap_counts_frame_chrome_rows() {
     let config = RenderConfig {
         max_total_lines: Some(6),
         terminal_width: Some(120),
-        pane_style: cc_pulseline::render::pane::LayoutStyle::Sections,
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Console,
         ..cfg()
     };
     let lines = render_frame(&busy_frame(), &config);

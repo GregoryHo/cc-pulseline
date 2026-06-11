@@ -19,20 +19,9 @@ pub enum LayoutStyle {
     /// row 1; row 2 is a single packed activity ticker that only appears
     /// when there is activity (idle footprint = 1 row). No chrome.
     Compact,
-    /// Two strata separated by a single labelled rule (echoes CC's own
-    /// horizontal rules above/below the input box). State (Identity/Config/
-    /// Budget) above, `──── activity ────` rule, then live Activity below.
-    Zones,
-    /// Table layout with a fixed label column + `│` divider + right-padded
-    /// content. Every line begins and ends at the same visual position —
-    /// solves jagged right edges and makes group boundaries explicit without
-    /// adding rows. Activity continuation rows span the label column.
-    Grid,
-    /// Single outer `╭─┬─╮ / ╰─┴─╯` wrapper with a `├─┼─┤` separator
-    /// emitted between every pair of non-empty groups. Reads as one
-    /// container with explicit internal dividers.
-    Sections,
-    /// Sections with the Identity row hoisted into the top frame title:
+    /// Single outer `╭─...─╮` wrapper with a `├─┼─┤` separator emitted
+    /// between every pair of non-empty groups, and the Identity row
+    /// hoisted into the top frame title:
     /// `╭─ <model · path · branch> ───╮`. Best when statusline is
     /// ≥110 cols.
     Console,
@@ -42,13 +31,6 @@ pub enum LayoutStyle {
     /// blank rows separate groups. Tallest layout — favours typographic
     /// rhythm over density.
     Ledger,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneWidth {
-    Auto,
-    Terminal,
-    Fixed(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -65,7 +47,7 @@ pub struct PaneGroup {
     pub kinds: Vec<LineKind>,
 }
 
-/// Cols subtracted from `terminal_width` in `PaneWidth::Terminal` mode.
+/// Cols subtracted from the detected `terminal_width` before layout.
 /// Claude Code allocates the statusline a sub-region that is ~1-4 cols
 /// narrower than the raw terminal; lines at exactly the raw width trigger
 /// wrap and collapse multi-line rendering to a single visible line. 4 is
@@ -75,7 +57,6 @@ pub const DEFAULT_PANE_CC_MARGIN: usize = 4;
 #[derive(Debug, Clone)]
 pub struct PaneConfig {
     pub style: LayoutStyle,
-    pub width_mode: PaneWidth,
     pub min_width: usize,
     pub max_width: usize,
     pub groups: Vec<PaneGroup>,
@@ -96,7 +77,7 @@ pub fn apply_pane(
 ) -> Vec<String> {
     match cfg.style {
         LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => return lines,
-        LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Sections | LayoutStyle::Console => {}
+        LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
         return lines;
@@ -108,20 +89,14 @@ pub fn apply_pane(
         }
     }
 
+    // No group has content → nothing to frame; pass through unchanged.
     let grouped = collect_grouped_lines(&lines, groups, &cfg.groups);
     if grouped.is_empty() {
         return lines;
     }
 
     let g = frames::shared::glyphs(cfg.glyph_mode);
-    match cfg.style {
-        LayoutStyle::Zones => frames::zones::render(&grouped, &lines, groups, cfg, g),
-        LayoutStyle::Grid => frames::grid::render(&lines, groups, cfg, g),
-        LayoutStyle::Sections => frames::sections::render(&lines, groups, cfg, g),
-        LayoutStyle::Console => frames::console::render(&lines, groups, cfg, g),
-        // Decoration-bypassing styles short-circuited at the top of this fn.
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => lines,
-    }
+    frames::console::render(&lines, groups, cfg, g)
 }
 
 pub(super) fn collect_grouped_lines<'a>(

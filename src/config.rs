@@ -1,5 +1,5 @@
 use crate::render::color::{resolve_palette, ThemePalette};
-use crate::render::pane::{LayoutStyle, PaneWidth};
+use crate::render::pane::LayoutStyle;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -75,9 +75,6 @@ impl Default for PerformanceConfig {
 fn default_layout_name() -> String {
     "none".to_string()
 }
-fn default_layout_width_mode() -> String {
-    "auto".to_string()
-}
 fn default_layout_min_width() -> usize {
     60
 }
@@ -98,10 +95,6 @@ fn default_layout_ledger_dense() -> bool {
 pub struct LayoutSection {
     #[serde(default = "default_layout_name")]
     pub name: String,
-    #[serde(default = "default_layout_width_mode")]
-    pub width_mode: String,
-    #[serde(default)]
-    pub fixed_width: Option<usize>,
     #[serde(default = "default_layout_min_width")]
     pub min_width: usize,
     #[serde(default = "default_layout_max_width")]
@@ -137,8 +130,6 @@ impl Default for LayoutSection {
     fn default() -> Self {
         Self {
             name: default_layout_name(),
-            width_mode: default_layout_width_mode(),
-            fixed_width: None,
             min_width: default_layout_min_width(),
             max_width: default_layout_max_width(),
             cc_margin: default_layout_cc_margin(),
@@ -577,9 +568,9 @@ enabled = false             # opt-in: driven by CC's native rate_limits stdin fi
 show_five_hour = true
 show_seven_day = false
 # visual: bar gauge or text. Empty (default) defers to the layout —
-# sections / console / ledger default to "gauge" (F-style bar with
-# threshold marks at 50% / 85% positions); flat layouts (none /
-# zones / grid) default to "text". Examples:
+# console / ledger default to "gauge" (F-style bar with threshold
+# marks at 50% / 85% positions); flat layouts (none / compact)
+# default to "text". Examples:
 #   visual = "gauge"            # ▰▰▰▰▰▰▰▰▰───·─ 62% (resets ...)
 #   visual = "text"             # 62% (resets ...) — no bar
 visual = ""
@@ -623,24 +614,18 @@ visual = ""
 #   "compact"  — 1–2 rows total: identity+budget+quota fused on row 1,
 #                packed activity ticker on row 2 (only when active).
 #                Smallest footprint — never squeezes CC's footer.
-#   "zones"    — `─── activity ───` rule between state and activity (+1 row)
-#   "grid"     — fixed label column + │ + right-padded content (table layout)
-#   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between groups
-#   "console"  — sections, with the identity row hoisted into the top frame
-#                title (best ≥110 cols)
+#   "console"  — single outer ╭─...─╮ frame with ├─┼─┤ between groups and
+#                the identity row hoisted into the top frame title (best
+#                ≥110 cols)
 #
 # Typographic-rhythm:
 #   "ledger"   — TAG-column rows with blank-row group separation. Tallest
 #                layout — favours rhythm over density. Ships sparkline +
 #                delta-time on the CTX row by default.
 name = "none"
-#
-# Width only applies to "zones" (which draws a horizontal rule).
-width_mode = "auto"     # "auto" | "terminal" | "fixed"
-# fixed_width = 100     # only used when width_mode = "fixed"
 min_width = 60          # skip framing when terminal can't fit this many cols
 max_width = 160         # clamp auto-sized frames to this many cols
-# cc_margin = 4         # cols subtracted from detected width in "terminal" mode
+# cc_margin = 4         # cols subtracted from the detected terminal width
 
 # Per-line separator tint. When true, the `|` between segments uses a
 # theme-authored chrome pair: state rows (Identity/Config/Budget/Quota) get
@@ -683,8 +668,6 @@ pub struct ProjectOverrideConfig {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectLayoutOverride {
     pub name: Option<String>,
-    pub width_mode: Option<String>,
-    pub fixed_width: Option<usize>,
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
     pub cc_margin: Option<usize>,
@@ -1013,12 +996,6 @@ pub fn merge_configs(
         if let Some(v) = &layout.name {
             user.layout.name = v.clone();
         }
-        if let Some(v) = &layout.width_mode {
-            user.layout.width_mode = v.clone();
-        }
-        if layout.fixed_width.is_some() {
-            user.layout.fixed_width = layout.fixed_width;
-        }
         if let Some(v) = layout.min_width {
             user.layout.min_width = v;
         }
@@ -1199,13 +1176,11 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "zones" | "grid" | "sections" | "console" | "ledger"
-# name = "grid"
-# width_mode = "auto"       # "auto" | "terminal" | "fixed"
-# fixed_width = 100
+# # Layouts: "none" | "compact" | "console" | "ledger"
+# name = "console"
 # min_width = 60
 # max_width = 140
-# cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
+# cc_margin = 4             # cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
@@ -1334,7 +1309,6 @@ pub struct RenderConfig {
     pub height_degrade_order: Vec<HeightDegradeStrategy>,
     // Pane framing
     pub pane_style: LayoutStyle,
-    pub pane_width_mode: PaneWidth,
     pub pane_min_width: usize,
     pub pane_max_width: usize,
     pub pane_cc_margin: usize,
@@ -1463,7 +1437,6 @@ impl Default for RenderConfig {
                 WidthDegradeStrategy::DropActivityLinesFirst,
             ],
             pane_style: LayoutStyle::None,
-            pane_width_mode: PaneWidth::Auto,
             pane_min_width: 60,
             pane_max_width: 140,
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
@@ -1477,25 +1450,30 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         "none" => LayoutStyle::None,
         "compact" => LayoutStyle::Compact,
-        "zones" => LayoutStyle::Zones,
-        "grid" => LayoutStyle::Grid,
-        "sections" => LayoutStyle::Sections,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
-        // Removed in the layout consolidation: cards, cockpit, flightstrip,
-        // auto. Provide a hint toward the closest replacement.
-        "cards" | "cockpit" | "flightstrip" | "auto" => {
+        // Removed in the layout consolidations: zones / grid fold into the
+        // flat default (they shared none's visual defaults); sections —
+        // like cards, cockpit, flightstrip, and auto before it — folds
+        // into console, its identity-in-title sibling.
+        "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | zones | grid | sections | \
-                 console | ledger)"
+                 \"none\" (valid: none | compact | console | ledger)"
+            );
+            LayoutStyle::None
+        }
+        "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
+            eprintln!(
+                "warning: layout.name {value:?} was removed; falling back to \
+                 \"console\" (valid: none | compact | console | ledger)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | zones | grid | sections | console | ledger)"
+                 (valid: none | compact | console | ledger)"
             );
             LayoutStyle::None
         }
@@ -1512,14 +1490,6 @@ fn resolve_visual_field(user_value: &str, default_value: &'static str) -> String
         default_value.to_string()
     } else {
         user_value.to_string()
-    }
-}
-
-fn parse_pane_width_mode(value: &str, fixed_width: Option<usize>) -> PaneWidth {
-    match value.to_lowercase().as_str() {
-        "terminal" => PaneWidth::Terminal,
-        "fixed" => PaneWidth::Fixed(fixed_width.unwrap_or(100)),
-        _ => PaneWidth::Auto,
     }
 }
 
@@ -1720,10 +1690,6 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_agents: pulseline.segments.agents.enabled,
         show_todo: pulseline.segments.todo.enabled,
         pane_style: layout_style,
-        pane_width_mode: parse_pane_width_mode(
-            &pulseline.layout.width_mode,
-            pulseline.layout.fixed_width,
-        ),
         pane_min_width: pulseline.layout.min_width,
         pane_max_width: pulseline.layout.max_width,
         pane_cc_margin: pulseline.layout.cc_margin,

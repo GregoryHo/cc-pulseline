@@ -127,7 +127,7 @@ fn console_title_agent_uses_head_agent_color() {
     // Console / Ledger hoist Identity into the frame title via a separate
     // formatter (`identity_headline`); guard that path too.
     use cc_pulseline::config::GlyphMode;
-    use cc_pulseline::render::pane::{LayoutStyle, PaneWidth};
+    use cc_pulseline::render::pane::LayoutStyle;
 
     let payload = make_payload_with_agent("design-advisor");
     let frame = RenderFrame::from_payload(&payload);
@@ -136,7 +136,6 @@ fn console_title_agent_uses_head_agent_color() {
         color_enabled: true,
         glyph_mode: GlyphMode::Ascii,
         pane_style: LayoutStyle::Console,
-        pane_width_mode: PaneWidth::Auto,
         ..Default::default()
     };
     let lines = cc_pulseline::render::layout::render_frame(&frame, &config);

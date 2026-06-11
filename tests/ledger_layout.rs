@@ -117,18 +117,18 @@ fn ledger_drops_groups_when_no_data() {
 }
 
 #[test]
-fn ledger_falls_back_to_sections_below_90_cols() {
+fn ledger_falls_back_to_console_below_90_cols() {
     let f = frame_basic();
     let lines = render_frame(&f, &cfg(80));
-    // Sections fallback uses the same `╭` glyph for the top border but the
-    // body has labelled rows (`│ Identity │`, `│ Budget │`). Ledger's
-    // own body uses the TAG column (no `Identity` label since identity is
-    // in the title). At <90 cols we expect the sections fallback to put
-    // identity back into a body row.
+    // Console fallback uses the same `╭` glyph for the top border but the
+    // body has labelled rows (`│ Budget │`, `│ Activity │`). Ledger's
+    // own body uses the TAG column (no group labels — metrics anchor on
+    // TAGs like CTX / TOK / COST instead). At <90 cols we expect the
+    // console fallback to render group-labelled body rows.
     let blob = lines.join("\n");
     assert!(
         blob.contains("Identity") || blob.contains("Budget"),
-        "below-90 fallback should render sections labels: {blob}"
+        "below-90 fallback should render console group labels: {blob}"
     );
 }
 

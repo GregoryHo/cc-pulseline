@@ -6,29 +6,30 @@ rows. The shipping layouts:
 | Layout | What it does |
 |---|---|
 | `none` | Flat output, no chrome. Default. |
-| `zones` | Inserts a single `─── activity ───` rule between state and activity rows. |
-| `grid` | Fixed label column + `│` divider + right-padded content. |
-| `sections` | Single `╭─┬─╮` outer frame with `├─┼─┤` between groups. |
-| `console` | `sections` with the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
+| `compact` | 1–2 row micro layout: identity + budget + quota fused on row 1, packed activity ticker on row 2 (only when active). |
+| `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
-All six share the same theme palette, segment toggles, and per-segment
+All four share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
 TOML strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
 
 > **Removed in v1.1.0:** `cards`, `cockpit`, `flightstrip`, `auto` —
-> consolidated into the surviving six above. User configs naming any of
-> the removed layouts fall back to `console` with a stderr warning.
+> user configs naming any of these fall back to `console` with a stderr
+> warning.
+>
+> **Removed in the 7→4 consolidation:** `zones` and `grid` fall back to
+> `none` (they shared its visual defaults); `sections` falls back to
+> `console` (its identity-in-title sibling). Each emits a stderr
+> warning.
 
 ```toml
 [layout]
 name        = "none"     # see catalog below
-width_mode  = "auto"     # "auto" | "terminal" | "fixed"
-fixed_width = 100        # only used when width_mode = "fixed"
 min_width   = 60         # skip framing when terminal can't fit this many cols
 max_width   = 160        # clamp auto-sized frames to this many cols
-cc_margin   = 4          # cols subtracted from detected width in "terminal" mode
+cc_margin   = 4          # cols subtracted from the detected terminal width
 tonal_strata = true      # 2-tier separator tint (see docs/theme-palette.md)
 ```
 
@@ -125,71 +126,10 @@ that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
 ladder stops early at the quota merge — L1 and L3+quota keep separate
 rows and fuse-core is never reached — while compact always fuses.
 
-### `zones` — single labelled rule between state and activity
+### `console` — framed dashboard with identity-in-title
 
-Inserts one horizontal rule (`─── activity ───`) between the **state**
-rows (Identity / ENV / Budget) and the **activity** rows (Tools /
-Agents / Todos). Echoes Claude Code's own input-box rules so the
-statusline reads as a continuation of CC chrome.
-
-```
-M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline | G:feat/x *
-1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs | 4 skills | 1h 22m
-CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
-─── activity ─────────────────────────────────────────────
-T:Read main.rs | T:Bash cargo test
-A:Explore [haiku]: Investigate logic (2m)
-TODO:Fixing auth bug (1/3)
-```
-
-**Cost:** +1 row when activity present; degrades to flat otherwise.
-**Pick when** you want a single visual cue marking "this is what's
-happening" without introducing borders.
-
-### `grid` — fixed label column + divider
-
-Table layout with a fixed-width label column, a `│` divider, and
-right-padded content. Every line begins and ends at the same visual
-position. Activity continuation rows blank the label so the divider
-lines up.
-
-```
-Identity  │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline
-ENV       │ 1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs
-Budget    │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
-Activity  │ T:Read main.rs | T:Bash cargo test
-          │ A:Explore [haiku]: Investigate logic (2m)
-          │ TODO:Fixing auth bug (1/3)
-```
-
-**Cost:** 0 rows; ~12 cols on the left.
-**Pick when** you want explicit group labels and aligned right edges
-without row overhead.
-
-### `sections` — single outer frame with internal separators
-
-One outer `╭─┬─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
-between every pair of non-empty groups. Reads as one container.
-
-```
-╭──────────┬───────────────────────────────────────────────────────────╮
-│ Identity │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline │
-├──────────┼───────────────────────────────────────────────────────────┤
-│ Budget   │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50            │
-├──────────┼───────────────────────────────────────────────────────────┤
-│ Activity │ T:Read main.rs | T:Bash cargo test                        │
-╰──────────┴───────────────────────────────────────────────────────────╯
-```
-
-**Cost:** +2 rows + 1 per gap between non-empty groups.
-**Pick when** you want the framed dashboard feel AND the identity as a
-labelled body row. `sections` and `console` are one family sharing one
-implementation (`sections::render_with_options`) — console is the
-primary pick; sections is the no-title variant of it.
-
-### `console` — sections + identity-in-title
-
-`console` is structurally just `sections` with the Identity row hoisted
+One outer `╭─...─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
+between every pair of non-empty groups, and the Identity row hoisted
 into the top frame border:
 
 ```
@@ -207,11 +147,11 @@ The title separator is ` · ` (middle dot) in `structural` color. Identity
 fields keep their existing semantic colors (model → `stable_blue`, branch
 → `stable_green` / `alert_orange` for dirty, etc.).
 
-**Cost:** 1 row saved over `sections` (Identity is in the title, not a
-labelled row).
+**Cost:** +2 rows + 1 per gap between non-empty groups (Identity is in
+the title, not a labelled row).
 **Pick when** terminal is ≥ 110 cols and you want a polished framed
-presentation. Below ~90 cols the frame chrome gets cramped — `sections`
-or `none` is friendlier there.
+presentation. Below ~90 cols the frame chrome gets cramped — `none` is
+friendlier there.
 
 ### `ledger` — TAG-column typographic rhythm
 
@@ -257,7 +197,7 @@ delta label remains).
 **Cost:** 12-15 rows when fully populated.
 **Pick when** the statusline pane has plenty of vertical room and you
 want to scan metrics by group rather than density. Below 90 cols falls
-back to `sections`.
+back to `console`.
 
 #### Spacing: `ledger_dense`
 
@@ -329,9 +269,9 @@ paths (mostly tests) that construct `RenderConfig` directly.
 
 | Layout | `context_visual` | `quota_visual` | `tools_visual` | `todo_visual` |
 |--------|------------------|----------------|----------------|---------------|
-| `none`, `zones`, `grid` | `text` | `text` | `counts+targets` | `text` |
+| `none` | `text` | `text` | `counts+targets` | `text` |
 | `compact` | `text` | `text` | `ticker`¹ | `text` |
-| `sections`, `console` | `text` | `gauge` | `counts+targets` | `text` |
+| `console` | `text` | `gauge` | `counts+targets` | `text` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `text` |
 
 ¹ Informational: compact always renders the fused inline activity row,
@@ -346,9 +286,9 @@ benefits more from the bar's spatial signal.
 ### Composability examples
 
 ```toml
-# Sections layout, but with a CTX gauge added (default is text-only).
+# Console layout, but with a CTX gauge added (default is text-only).
 [layout]
-name = "sections"
+name = "console"
 [segments.budget]
 context_visual = "gauge"
 
@@ -426,15 +366,12 @@ is narrower than `layout.min_width`, the active frame is bypassed
 entirely and rows render flat — the binary will not output a half-
 collapsed frame.
 
-`width_mode = "terminal"` makes framed styles span the detected
-terminal width minus `cc_margin` cols. The default `cc_margin = 4` is
-the empirically verified safe value for Claude Code 2.1.119; CC
-allocates the statusline a sub-region ~1–4 cols narrower than the raw
-terminal, and lines at exactly the raw width trigger wrap and collapse
-the multi-line render to a single visible line.
-
-`width_mode = "fixed"` pins a frame to `fixed_width` cols regardless of
-terminal size — useful for screenshot fixtures and reproducible mockups.
+`cc_margin` cols are subtracted from the detected terminal width before
+layout. The default `cc_margin = 4` is the empirically verified safe
+value for Claude Code 2.1.119; CC allocates the statusline a sub-region
+~1–4 cols narrower than the raw terminal, and lines at exactly the raw
+width trigger wrap and collapse the multi-line render to a single
+visible line.
 
 Layouts may apply additional per-segment width gating inside their
 dispatch (e.g. dropping `sparkline` from the spec below a threshold).

@@ -40,9 +40,9 @@ pub const ICON_COMPACT: &str = "\u{27F3}";
 // API-error badge (⚠ = U+26A0 warning sign; ASCII: !)
 pub const ICON_API_ERROR: &str = "\u{26A0}";
 
-// Box-drawing characters used by every framed layout (Sections, Console,
-// Ledger). One source of truth so frame edges stay consistent across
-// layouts and tests can assert against the constants.
+// Box-drawing characters used by every framed layout (Console, Ledger).
+// One source of truth so frame edges stay consistent across layouts and
+// tests can assert against the constants.
 pub const FRAME_TL: char = '\u{256D}'; // ╭
 pub const FRAME_TR: char = '\u{256E}'; // ╮
 pub const FRAME_BL: char = '\u{2570}'; // ╰

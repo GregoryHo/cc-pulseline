@@ -139,7 +139,7 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/pane.rs` + `render/frames/` -- Layouts
 
-`pane.rs::LayoutStyle` enumerates the 6 layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
+`pane.rs::LayoutStyle` enumerates the 4 layouts (`None` / `Compact` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (console = single outer frame + identity-in-title; `None` / `Compact` pass through undecorated). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
 
 ### `render/widgets/` -- Atomic Widgets
 

@@ -1,8 +1,8 @@
 //! Shared building blocks for layout frames.
 //!
 //! Two non-overlapping concerns live here:
-//! 1. **Box-drawing glyphs + label/content padding** — used by every framed
-//!    layout (`zones`, `grid`, `sections`, `console`).
+//! 1. **Box-drawing glyphs + label/content padding** — used by the framed
+//!    layouts (`console`, `ledger`).
 //! 2. **CTX dispatch hub + per-cell builders** — `render_context_visual`
 //!    composes a CTX cell from the user's `*_visual` spec by routing to
 //!    the relevant cell builder (`ctx_text_cell`, `ctx_gauge_cell`,

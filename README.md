@@ -148,14 +148,14 @@ max_lines = 2
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Six layouts ship: `none` (flat default), `zones` (one rule between state and activity), `grid` (label column + divider), `sections` (single outer frame), `console` (sections + identity-in-frame-title, recommended ≥110 cols), and `ledger` (label-value pairs in a fixed-width TAG column with sparkline + delta-time on CTX).
+`[layout].name` picks how rows are arranged and decorated. Four layouts ship: `none` (flat default), `compact` (1–2 row micro layout), `console` (single outer frame + identity-in-frame-title, recommended ≥110 cols), and `ledger` (label-value pairs in a fixed-width TAG column with sparkline + delta-time on CTX).
 
 Each layout asserts a tasteful default for the four widget-bearing segments. The user can override per segment via `*_visual` strings — same widget, any layout:
 
 ```toml
-# Sections layout, but with a CTX gauge added (default is text-only).
+# Console layout, but with a CTX gauge added (default is text-only).
 [layout]
-name = "sections"
+name = "console"
 [segments.budget]
 context_visual = "gauge"
 

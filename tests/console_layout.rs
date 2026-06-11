@@ -65,8 +65,8 @@ fn console_emits_framed_borders_at_full_width() {
         .expect("render");
     let first = lines.first().unwrap();
     let last = lines.last().unwrap();
-    // Mode-aware: console renders sections frame chrome which honors
-    // `glyph_mode`. Ascii test config emits `+`, Icon mode `╭` / `╰`.
+    // Mode-aware: console's frame chrome honors `glyph_mode`. Ascii
+    // test config emits `+`, Icon mode `╭` / `╰`.
     assert!(
         first.starts_with(FRAME_TL) || first.starts_with('+'),
         "expected framed top, got {first:?}"
