@@ -166,6 +166,41 @@ fn line2_shows_only_claude_md_and_mcp() {
     assert!(!lines[1].contains("skills"), "L2 should not show skills");
 }
 
+#[test]
+fn claude_md_toggle_hides_agents_md_cell() {
+    // AGENTS.md shares the show_claude_md gate (same semantic class) —
+    // disabling the toggle must hide both cells even when a root
+    // AGENTS.md exists.
+    let tmp = TempDir::new().expect("tempdir should be created");
+    std::fs::write(tmp.path().join("AGENTS.md"), "# Agents\n").expect("agents md");
+
+    let mut payload: serde_json::Value =
+        serde_json::from_str(&basic_input()).expect("basic input is valid json");
+    payload["cwd"] = json!(tmp.path());
+    payload["workspace"] = json!({"current_dir": tmp.path()});
+    let input = payload.to_string();
+
+    let enabled = run_from_str(&input, RenderConfig::default()).unwrap();
+    assert!(
+        enabled[1].contains("1 AGENTS.md"),
+        "sanity: AGENTS.md cell renders when show_claude_md=true"
+    );
+
+    let config = RenderConfig {
+        show_claude_md: false,
+        ..RenderConfig::default()
+    };
+    let lines = run_from_str(&input, config).unwrap();
+    assert!(
+        !lines[1].contains("AGENTS.md"),
+        "L2 should not contain AGENTS.md when show_claude_md=false"
+    );
+    assert!(
+        !lines[1].contains("CLAUDE.md"),
+        "L2 should not contain CLAUDE.md when show_claude_md=false"
+    );
+}
+
 // ── Line 3 toggles ──────────────────────────────────────────────────
 
 #[test]

@@ -508,6 +508,17 @@ pub(crate) fn format_line2(
             frame.line2.claude_md_count,
         ));
     }
+    if config.show_claude_md && frame.line2.agents_md_count > 0 {
+        // Same semantic class as CLAUDE.md — reuse its icon and indicator
+        // color, and zero-suppress (like plugins) so the cell only appears
+        // when a root AGENTS.md exists.
+        parts.push(format_item(
+            ICON_CLAUDE_MD,
+            &p.indicator_claude_md,
+            "AGENTS.md",
+            frame.line2.agents_md_count,
+        ));
+    }
     if config.show_rules {
         parts.push(format_item(
             ICON_RULES,

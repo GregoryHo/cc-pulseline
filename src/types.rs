@@ -195,6 +195,8 @@ impl Line1Metrics {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Line2Metrics {
     pub claude_md_count: u32,
+    /// Root-level AGENTS.md presence (repo-root only, see `count_agents_md`).
+    pub agents_md_count: u32,
     pub rules_count: u32,
     pub hooks_count: u32,
     pub mcp_count: u32,
@@ -461,6 +463,7 @@ impl RenderFrame {
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
+                agents_md_count: 0,
                 rules_count: 0,
                 memory_count: 0,
                 hooks_count: 0,

@@ -176,6 +176,7 @@ fn build_render_frame(
     frame.line1.git_untracked = git_snapshot.untracked_count;
 
     frame.line2.claude_md_count = env_snapshot.claude_md_count;
+    frame.line2.agents_md_count = env_snapshot.agents_md_count;
     frame.line2.rules_count = env_snapshot.rules_count;
     frame.line2.memory_count = env_snapshot.memory_count;
     frame.line2.hooks_count = env_snapshot.hooks_count;

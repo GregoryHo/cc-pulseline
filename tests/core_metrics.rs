@@ -154,6 +154,38 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
 }
 
 #[test]
+fn agents_md_cell_renders_when_present() {
+    let workspace = build_core_fixture_workspace();
+    let root = workspace.path();
+    fs::write(root.join("AGENTS.md"), "# Agents\n").expect("agents md");
+
+    let input = json!({
+        "session_id": "agents-md-session",
+        "cwd": root,
+        "workspace": {"current_dir": root},
+        "model": {"display_name": "Opus 4.6"},
+        "version": "2.1.37"
+    })
+    .to_string();
+
+    let fake_home = root.join("fake_home");
+    let mut runner = PulseLineRunner::default().with_user_home(fake_home);
+    let lines = runner
+        .run_from_str(&input, RenderConfig::default())
+        .expect("render should succeed");
+
+    assert!(
+        lines[1].contains("1 AGENTS.md"),
+        "line2 should show root AGENTS.md count, got: {}",
+        lines[1]
+    );
+    assert!(
+        lines[1].contains("1 CLAUDE.md"),
+        "AGENTS.md cell must not fold into the CLAUDE.md count"
+    );
+}
+
+#[test]
 fn hides_git_segment_when_not_a_repo() {
     // TempDir WITHOUT git init — the git collector resolves no branch and
     // the entire G: cell must disappear instead of printing "G:unknown".
@@ -379,6 +411,10 @@ fn falls_back_when_stdin_fields_are_missing() {
     assert!(
         lines[1].contains("0 skills"),
         "missing env should render zero skills"
+    );
+    assert!(
+        !lines[1].contains("AGENTS.md"),
+        "AGENTS.md cell is zero-suppressed when no root AGENTS.md exists"
     );
     assert_eq!(
         lines[2],
