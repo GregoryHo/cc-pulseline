@@ -550,8 +550,18 @@ fn tok_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
         val_color,
         color,
     );
+    // Cache hit rate appended after the raw pair — `50% hit`,
+    // threshold-colored; omitted entirely when there is no cache signal.
+    let hit_part = line3
+        .cache_hit_pct()
+        .map(|pct| {
+            let pct_v = colorize(&format!("{pct:.0}%"), p.color_for_cache_hit_pct(pct), color);
+            let hit_lbl = colorize("hit", &p.structural, color);
+            format!("  {pct_v} {hit_lbl}")
+        })
+        .unwrap_or_default();
     format!(
-        "{in_v} {in_lbl}{ITEM_GAP}{out_v} {out_lbl}{ITEM_GAP}{create_v} {slash} {read_v} {cache_lbl}"
+        "{in_v} {in_lbl}{ITEM_GAP}{out_v} {out_lbl}{ITEM_GAP}{create_v} {slash} {read_v} {cache_lbl}{hit_part}"
     )
 }
 

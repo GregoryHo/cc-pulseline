@@ -143,6 +143,19 @@ impl ThemePalette {
         }
     }
 
+    /// Cache hit-rate ladder — `≥80% → green` (warm cache), `≥40% →
+    /// primary` (neutral ramp), else warn (churn = cost leak). Amber, NOT
+    /// red — high is good here and there is no hard limit.
+    pub fn color_for_cache_hit_pct(&self, pct: f64) -> &str {
+        if pct >= 80.0 {
+            &self.stable_green
+        } else if pct >= 40.0 {
+            &self.primary
+        } else {
+            self.ctx_warn()
+        }
+    }
+
     /// CTX threshold marks (warn, critical) as percentages, for the
     /// gauge widget's `marks` parameter. Matches `color_for_ctx_pct`
     /// so mark positions land at the same percentages as colour
@@ -997,6 +1010,15 @@ mod tests {
         assert!(p.secondary.contains("146"));
         assert!(p.structural.contains("103"));
         assert!(p.separator.contains("238"));
+    }
+
+    #[test]
+    fn color_for_cache_hit_pct_thresholds() {
+        let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
+        assert_eq!(p.color_for_cache_hit_pct(39.9), p.ctx_warn());
+        assert_eq!(p.color_for_cache_hit_pct(40.0), &p.primary);
+        assert_eq!(p.color_for_cache_hit_pct(79.9), &p.primary);
+        assert_eq!(p.color_for_cache_hit_pct(80.0), &p.stable_green);
     }
 
     #[test]

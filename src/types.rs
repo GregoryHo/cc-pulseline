@@ -225,6 +225,21 @@ pub struct Line3Metrics {
 }
 
 impl Line3Metrics {
+    /// Cache hit rate as a percentage: `read / (input + creation + read)`.
+    ///
+    /// `None` means no cache signal at all (including the first-tick
+    /// `current_usage: null` case) — callers render dashes rather than a
+    /// misleading 0%.
+    pub fn cache_hit_pct(&self) -> Option<f64> {
+        let read = self.cache_read_tokens.unwrap_or(0);
+        let creation = self.cache_creation_tokens.unwrap_or(0);
+        if read + creation == 0 {
+            return None;
+        }
+        let denom = self.input_tokens.unwrap_or(0) + creation + read;
+        Some(read as f64 * 100.0 / denom as f64)
+    }
+
     /// Returns true if any field has a value (not all None).
     pub fn has_data(&self) -> bool {
         self.context_window_size.is_some()

@@ -98,7 +98,9 @@ Everything fuses onto at most two rows, no chrome. Row 1 joins the
 identity cells, the budget (L3) cells, and a compact quota
 (`5h:62%` — threshold-colored percentage, reset time dropped) with the
 standard ` | ` separator; which cells appear is still governed by the
-`show_*` toggles. Row 2 is a single packed activity ticker (completed
+`show_*` toggles. Under width pressure the TOK cell (including the
+`C:%` cache hit rate) drops first by design — it is reference data, not
+alert-bearing. Row 2 is a single packed activity ticker (completed
 grand total → first running tool → agent groups → todo counts) and only
 appears while there is activity — idle footprint is exactly **1 row**.
 L2 config counts have no home here by design (reference data — flip to

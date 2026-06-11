@@ -742,14 +742,11 @@ fn format_tokens_segment(
         .output_tokens
         .map(format_number)
         .unwrap_or_else(|| "--".to_string());
-    let cache_str = if has_data {
-        format!(
-            "{}/{}",
-            format_number(line3.cache_creation_tokens.unwrap_or(0)),
-            format_number(line3.cache_read_tokens.unwrap_or(0)),
-        )
-    } else {
-        "--/--".to_string()
+    // Cache hit rate — `C:50%` threshold-colored, or structural `C:--`
+    // when there is no cache signal (never a misleading red 0%).
+    let (cache_str, cache_color) = match line3.cache_hit_pct() {
+        Some(pct) => (format!("{pct:.0}%"), p.color_for_cache_hit_pct(pct)),
+        None => ("--".to_string(), &p.structural as &str),
     };
 
     // Speed inline after output tokens: "O:20.0k ↗1.5K/s"
@@ -777,7 +774,7 @@ fn format_tokens_segment(
                 &p.structural,
                 color
             ),
-            colorize(&cache_str, val_color, color),
+            colorize(&cache_str, cache_color, color),
         ),
     ];
     format!("{label}{}", parts.join(" "))
