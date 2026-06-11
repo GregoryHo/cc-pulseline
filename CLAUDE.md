@@ -89,7 +89,7 @@ Full layout × visual reference: `docs/layouts.md`.
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:30/40 | $3.50 ($3.50/h)` (default `text` form; opt in to gauge or sparkline via `context_visual`).
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:50% | $3.50 ($3.50/h)` (default `text` form; opt in to gauge or sparkline via `context_visual`).
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)` (single `Q:` group prefix). Driven by CC's native `rate_limits` field.
 - **L4a**: `✓ Read ×12 | ✓ Bash ×8 ✘2 | ✓ Edit ×5 +3` (completed tool counts with failure marks — stable, accumulates over session; capped by `max_completed_lines` rows, overflow folds into a ` +N` tail)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools with targets — volatile)
