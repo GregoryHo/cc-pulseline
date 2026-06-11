@@ -154,6 +154,39 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
 }
 
 #[test]
+fn hides_git_segment_when_not_a_repo() {
+    // TempDir WITHOUT git init — the git collector resolves no branch and
+    // the entire G: cell must disappear instead of printing "G:unknown".
+    let workspace = TempDir::new().expect("tempdir should be created");
+    let cwd = workspace
+        .path()
+        .to_str()
+        .expect("workspace path should be utf-8")
+        .to_string();
+
+    let input = json!({
+        "session_id": "no-repo-session",
+        "cwd": cwd,
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus 4.6"},
+        "output_style": {"name": "explanatory"},
+        "version": "2.1.37"
+    })
+    .to_string();
+
+    let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
+    assert!(
+        !lines[0].contains("G:"),
+        "L1 should hide the git segment outside a repository, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("M:Opus 4.6"),
+        "L1 should still show the other identity segments"
+    );
+}
+
+#[test]
 fn renders_with_nerd_font_icons() {
     let input = json!({
         "model": {"display_name": "Opus"},

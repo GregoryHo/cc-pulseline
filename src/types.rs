@@ -183,6 +183,15 @@ pub struct Line1Metrics {
     pub thinking_enabled: Option<bool>,
 }
 
+impl Line1Metrics {
+    /// True when a real branch was resolved. `"unknown"` is the
+    /// `GitSnapshot::default()` sentinel produced outside a repository —
+    /// the git segment is hidden rather than rendering a literal "unknown".
+    pub fn has_git_branch(&self) -> bool {
+        !self.git_branch.is_empty() && self.git_branch != "unknown"
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Line2Metrics {
     pub claude_md_count: u32,

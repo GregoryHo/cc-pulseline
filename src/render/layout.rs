@@ -464,7 +464,7 @@ fn line1_parts(
         parts.push((format!("{project_label}{project_val}"), Optional));
     }
 
-    if config.show_git {
+    if config.show_git && frame.line1.has_git_branch() {
         let git_label = colorize(&glyph(mode, ICON_GIT, "G:"), p.git_green(), color);
         let git_val = format_git_status(&frame.line1, config, p);
         parts.push((format!("{git_label}{git_val}"), Required));
@@ -638,14 +638,6 @@ fn line3_parts(
 
 fn format_git_status(line1: &Line1Metrics, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
-
-    if line1.git_branch.is_empty() || line1.git_branch == "unknown" {
-        let mut s = colorize("unknown", &p.structural, color);
-        if config.show_worktree && line1.in_worktree {
-            s.push_str(&colorize(" (WT)", &p.structural, color));
-        }
-        return s;
-    }
 
     let mut status = colorize(&line1.git_branch, p.git_green(), color);
     if line1.git_dirty {

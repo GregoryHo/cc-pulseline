@@ -1,5 +1,6 @@
 use cc_pulseline::{config::RenderConfig, run_from_str};
 use serde_json::json;
+use tempfile::TempDir;
 
 fn basic_input() -> String {
     json!({
@@ -22,6 +23,25 @@ fn basic_input() -> String {
         }
     })
     .to_string()
+}
+
+/// Workspace with a real git repo — the L1 git segment only renders inside
+/// a repository, so tests asserting its presence need one. Returns the
+/// TempDir (keep it alive) and a `basic_input()` payload pointing at it.
+fn git_workspace_input() -> (TempDir, String) {
+    let tmp = TempDir::new().expect("tempdir should be created");
+    let status = std::process::Command::new("git")
+        .args(["-C", tmp.path().to_str().expect("utf-8 path"), "init"])
+        .status()
+        .expect("git init should run");
+    assert!(status.success(), "git init failed");
+
+    let mut payload: serde_json::Value =
+        serde_json::from_str(&basic_input()).expect("basic input is valid json");
+    payload["cwd"] = json!(tmp.path());
+    payload["workspace"] = json!({"current_dir": tmp.path()});
+    let input = payload.to_string();
+    (tmp, input)
 }
 
 // ── Line 1 toggles ──────────────────────────────────────────────────
@@ -50,7 +70,8 @@ fn line1_hides_version_and_project() {
         show_project: false,
         ..RenderConfig::default()
     };
-    let lines = run_from_str(&basic_input(), config).unwrap();
+    let (_workspace, input) = git_workspace_input();
+    let lines = run_from_str(&input, config).unwrap();
     assert!(!lines[0].contains("CC:"), "L1 should not contain version");
     assert!(!lines[0].contains("P:"), "L1 should not contain project");
     assert!(
@@ -68,7 +89,8 @@ fn line1_shows_only_model_and_git() {
         show_project: false,
         ..RenderConfig::default()
     };
-    let lines = run_from_str(&basic_input(), config).unwrap();
+    let (_workspace, input) = git_workspace_input();
+    let lines = run_from_str(&input, config).unwrap();
     assert!(lines[0].contains("M:Opus 4.6"), "L1 should show model");
     assert!(lines[0].contains("G:"), "L1 should show git");
     assert!(!lines[0].contains("S:"), "L1 should not show style");

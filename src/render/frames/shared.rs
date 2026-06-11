@@ -241,7 +241,7 @@ pub fn identity_headline(
         parts.push(colorize(&line1.project_path, &p.secondary, color));
     }
 
-    if config.show_git {
+    if config.show_git && line1.has_git_branch() {
         let mut s = colorize(&line1.git_branch, p.git_green(), color);
         if line1.git_dirty {
             s.push_str(&colorize("*", p.git_modified(), color));
@@ -721,6 +721,25 @@ mod tests {
         assert!(
             !bounded.contains("!3"),
             "git_stats dropped; got {bounded:?}"
+        );
+    }
+
+    #[test]
+    fn identity_headline_omits_git_when_branch_unknown() {
+        let line1 = Line1Metrics {
+            git_branch: "unknown".to_string(),
+            ..line1_with_all_optional_pills()
+        };
+        let cfg = cfg_identity_all_on();
+        let palette = ThemePalette::default();
+        let headline = identity_headline(&line1, &cfg, &palette, " · ");
+        assert!(
+            !headline.contains("unknown"),
+            "git cell should be omitted when branch is unknown; got {headline:?}"
+        );
+        assert!(
+            !headline.contains("(WT)"),
+            "worktree indicator rides the git cell and should drop with it; got {headline:?}"
         );
     }
 }
