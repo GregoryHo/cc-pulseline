@@ -79,8 +79,15 @@
     "strata_activity": 245,
     "aurora_low": 60,
     "aurora_mid": 43,
-    "aurora_high": 220,
-    "tag_label": 238
+    "aurora_high": 136,
+    "tag_label": 238,
+    "active_teal": 35,
+    "active_amber": 136,
+    "indicator_rules": 136,
+    "indicator_skills": 35,
+    "cost_base": 243,
+    "cost_med_rate": 136,
+    "head_thinking": 136
   },
 
   "design_notes": {

@@ -92,6 +92,29 @@ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
 **Pick when** you want the minimal status line and care about screen real
 estate above all else.
 
+### `compact` — 1–2 row micro layout
+
+Everything fuses onto at most two rows, no chrome. Row 1 joins the
+identity cells, the budget (L3) cells, and a compact quota
+(`5h:62%` — threshold-colored percentage, reset time dropped) with the
+standard ` | ` separator; which cells appear is still governed by the
+`show_*` toggles. Row 2 is a single packed activity ticker (completed
+grand total → first running tool → agent groups → todo counts) and only
+appears while there is activity — idle footprint is exactly **1 row**.
+L2 config counts have no home here by design (reference data — flip to
+another layout when you need them).
+
+```
+M:Opus 4.7 | G:feat/x * | CTX:43% (86.0k/200.0k) | $3.50 | 5h:62%
+✓ 25 tools | T:Bash: cargo test | A:Explore (2m) | TODO:1/3
+```
+
+**Cost:** 1–2 rows total — the smallest possible footprint.
+**Pick when** the statusline keeps squeezing Claude Code's footer or the
+in-terminal agents panel; pairs well with trimming L1 via
+`[segments.identity]` toggles (e.g. `show_style = false`,
+`show_version = false`, `show_project = false`).
+
 ### `zones` — single labelled rule between state and activity
 
 Inserts one horizontal rule (`─── activity ───`) between the **state**
@@ -149,7 +172,10 @@ between every pair of non-empty groups. Reads as one container.
 ```
 
 **Cost:** +2 rows + 1 per gap between non-empty groups.
-**Pick when** you want a framed dashboard feel.
+**Pick when** you want the framed dashboard feel AND the identity as a
+labelled body row. `sections` and `console` are one family sharing one
+implementation (`sections::render_with_options`) — console is the
+primary pick; sections is the no-title variant of it.
 
 ### `console` — sections + identity-in-title
 
@@ -281,6 +307,8 @@ context_visual = ""                 # = layout default
 |---------|---------|-----------------|
 | `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
+| `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
+| `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |
 
 ### Per-layout defaults
 
@@ -289,11 +317,15 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
-| Layout | `context_visual` | `quota_visual` |
-|--------|------------------|----------------|
-| `none`, `zones`, `grid` | `text` | `text` |
-| `sections`, `console` | `text` | `gauge` |
-| `ledger` | `text+sparkline` | `gauge` |
+| Layout | `context_visual` | `quota_visual` | `tools_visual` | `todo_visual` |
+|--------|------------------|----------------|----------------|---------------|
+| `none`, `zones`, `grid` | `text` | `text` | `counts+targets` | `text` |
+| `compact` | `text` | `text` | `ticker`¹ | `text` |
+| `sections`, `console` | `text` | `gauge` | `counts+targets` | `text` |
+| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `text` |
+
+¹ Informational: compact always renders the fused inline activity row,
+which is the ticker form by construction.
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only

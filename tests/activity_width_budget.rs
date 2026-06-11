@@ -211,10 +211,10 @@ fn sequential_agents_render_individually_no_fold() {
         !blob.contains("parallel"),
         "sequential agents must not collapse: {blob}"
     );
-    // 2 individual rows visible + 1 overflow summary. Pluralization is
-    // count-correct: 1 → `more agent`, 2+ → `more agents`.
+    // 2 individual rows visible; the third folds into a ` +1` tail on the
+    // last visible row instead of a dedicated summary row.
     assert!(
-        blob.contains("more agent"),
-        "expected overflow summary, got: {blob}"
+        blob.contains(" +1"),
+        "expected inline fold tail, got: {blob}"
     );
 }

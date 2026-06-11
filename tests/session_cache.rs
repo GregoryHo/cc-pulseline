@@ -200,7 +200,7 @@ fn transcript_offset_persists_across_fresh_runners() {
     // Runner 1: append a tool_use, render to establish offset
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"tool-1","name":"Bash"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"Bash","input":{}}]}}"#,
     );
     {
         let mut runner = PulseLineRunner::default();
@@ -220,7 +220,7 @@ fn transcript_offset_persists_across_fresh_runners() {
     // Runner 2: append tool_result (offset should continue from cached position)
     append_line(
         &transcript,
-        r#"{"type":"tool_result","tool_use_id":"tool-1"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","content":[{"type":"tool_result","tool_use_id":"tool-1"}]}"#,
     );
     {
         let mut runner = PulseLineRunner::default();
@@ -260,12 +260,15 @@ fn transcript_truncation_resets_state() {
     // Runner 1: write lots of events
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t1","name":"Read"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/lib.rs"}}]}}"#,
     );
-    append_line(&transcript, r#"{"type":"tool_result","tool_use_id":"t1"}"#);
     append_line(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t2","name":"Bash"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:01.000Z","content":[{"type":"tool_result","tool_use_id":"t1"}]}"#,
+    );
+    append_line(
+        &transcript,
+        r#"{"timestamp":"2026-04-27T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"cargo build"}}]}}"#,
     );
     {
         let mut runner = PulseLineRunner::default();
@@ -280,7 +283,7 @@ fn transcript_truncation_resets_state() {
     // Truncate transcript (simulates file replacement)
     fs::write(
         &transcript,
-        r#"{"type":"tool_use","tool_use_id":"t3","name":"Glob"}"#,
+        r#"{"timestamp":"2026-04-27T10:00:03.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"Glob","input":{"pattern":"*.rs"}}]}}"#,
     )
     .unwrap();
 

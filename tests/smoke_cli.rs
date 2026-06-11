@@ -12,7 +12,24 @@ fn smoke_cli_startup_with_fixture() {
     let fixture = fs::read_to_string("tests/fixtures/minimal_statusline_input.json")
         .expect("fixture should exist");
 
+    // Hermetic spawn: fresh HOME + cwd, AND the payload's own project
+    // path rewritten into the sandbox — the binary resolves project
+    // config from the payload's cwd/workspace, so a fixture pointing at
+    // this repo would leak the developer's local .claude/pulseline.toml
+    // into the assertion. The test pins the OUT-OF-THE-BOX contract:
+    // flat layout, L1 + L3 (L2 config counts are opt-in since the
+    // height-discipline release).
+    let sandbox = tempfile::TempDir::new().expect("temp sandbox");
+    let mut payload: serde_json::Value =
+        serde_json::from_str(&fixture).expect("fixture parses as JSON");
+    let sandbox_path = serde_json::Value::String(sandbox.path().display().to_string());
+    payload["cwd"] = sandbox_path.clone();
+    payload["workspace"] = serde_json::json!({ "current_dir": sandbox_path });
+    let fixture = payload.to_string();
     let mut child = Command::new(env!("CARGO_BIN_EXE_cc-pulseline"))
+        .current_dir(sandbox.path())
+        .env("HOME", sandbox.path())
+        .env("USERPROFILE", sandbox.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -32,10 +49,18 @@ fn smoke_cli_startup_with_fixture() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let lines: Vec<&str> = stdout.lines().collect();
-    assert!(lines.len() >= 3, "expected at least 3 lines of output");
+    assert!(
+        lines.len() >= 2,
+        "expected at least L1 + L3 with default config, got {} lines:\n{stdout}",
+        lines.len()
+    );
     assert!(
         stdout.contains("Opus 4.6"),
         "output should include model name somewhere"
+    );
+    assert!(
+        stdout.contains('$'),
+        "output should include the budget row (cost segment)"
     );
 }
 

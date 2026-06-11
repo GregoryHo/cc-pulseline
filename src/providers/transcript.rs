@@ -87,7 +87,7 @@ use serde_json::Value;
 
 use crate::{
     config::RenderConfig,
-    state::{SessionState, SubAgentTranscriptState},
+    state::{cache, SessionState, SubAgentTranscriptState},
     types::{AgentSummary, CompletedToolCount, StdinPayload, TodoSummary, ToolSummary},
 };
 
@@ -97,6 +97,10 @@ pub struct TranscriptSnapshot {
     pub completed_counts: Vec<CompletedToolCount>,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
+    /// Number of `compact_boundary` events seen this session.
+    pub compact_count: u32,
+    /// Epoch-ms of the most recent `api_error` event, if within 30s.
+    pub last_api_error_ms: Option<u64>,
 }
 
 pub trait TranscriptCollector {
@@ -147,26 +151,34 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.recent_tools.clear();
             state.active_agents.clear();
             state.completed_tool_counts.clear();
+            state.completed_tool_failures.clear();
             state.todo = None;
             state.last_output_tokens = None;
             state.last_output_token_time_ms = None;
             state.output_speed_toks_per_sec = None;
+            state.ctx_history.clear();
+            state.compact_count = 0;
+            state.last_api_error_ms = None;
         }
 
         if let Ok(new_lines) = read_new_lines(path, state.last_transcript_offset) {
-            let mut events: Vec<Value> = new_lines
+            // Pre-filter THEN window THEN parse: metadata lines (often the
+            // largest — hook payloads, file snapshots) never reach
+            // serde_json, and windowed-away lines aren't parsed either.
+            let mut kept: Vec<&String> = new_lines
                 .iter()
-                .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+                .filter(|line| !is_ignored_metadata_line(line))
                 .collect();
 
-            if config.transcript_window_events > 0 && events.len() > config.transcript_window_events
-            {
-                let keep_from = events.len() - config.transcript_window_events;
-                events.drain(0..keep_from);
+            if config.transcript_window_events > 0 && kept.len() > config.transcript_window_events {
+                let keep_from = kept.len() - config.transcript_window_events;
+                kept.drain(0..keep_from);
             }
 
-            for event in events {
-                apply_transcript_event(state, &event);
+            for line in kept {
+                if let Ok(event) = serde_json::from_str::<Value>(line) {
+                    apply_transcript_event(state, &event);
+                }
             }
         }
 
@@ -205,6 +217,68 @@ fn should_throttle(last_poll: Option<Instant>, throttle_ms: u64) -> bool {
     };
 
     last_poll.elapsed() < Duration::from_millis(throttle_ms)
+}
+
+/// Cheap byte-level pre-filter: `true` when the line's top-level `"type"`
+/// is a metadata kind the event dispatcher fully ignores. 34–67% of lines
+/// in large transcripts are `attachment`/bookkeeping payloads, and they
+/// are disproportionately the LARGEST lines (hook outputs, file-history
+/// snapshots) — skipping them before `serde_json::from_str` roughly
+/// halves parse cost on busy sessions.
+///
+/// The scan is a string-aware depth walk over the first 256 bytes: only a
+/// `"type":"` key at object depth 1 — a genuine TOP-LEVEL key — can match.
+/// Nested content blocks and string payloads that merely *contain* the
+/// needle (e.g. a Bash command grepping for `"type":"attachment"`) are
+/// skipped over as string content, so they can never drop a real event.
+/// A top-level `type` past the 256-byte window only costs one wasted
+/// parse — the dispatcher ignores those event kinds anyway.
+fn is_ignored_metadata_line(line: &str) -> bool {
+    const KEY: &[u8] = b"\"type\":\"";
+    let bytes = line.as_bytes();
+    let window = &bytes[..bytes.len().min(256)];
+
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut i = 0;
+    while i < window.len() {
+        let b = window[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            b'"' => {
+                if depth == 1 && window[i..].starts_with(KEY) {
+                    let rest = &window[i + KEY.len()..];
+                    return [
+                        &b"attachment\""[..],
+                        b"file-history-snapshot\"",
+                        b"queue-operation\"",
+                        b"pr-link\"",
+                        b"worktree-state\"",
+                        b"bridge-session\"",
+                    ]
+                    .iter()
+                    .any(|needle| rest.starts_with(needle));
+                }
+                in_string = true;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    false
 }
 
 fn read_new_lines(path: &Path, start_offset: u64) -> Result<Vec<String>, String> {
@@ -253,7 +327,7 @@ impl<'a> AsyncAgentSignal<'a> {
     }
 }
 
-// ── Three-path event dispatcher ──────────────────────────────────────
+// ── Two-path event dispatcher ────────────────────────────────────────
 
 fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     // Extract event timestamp (epoch millis) from the JSONL line's top-level "timestamp" field
@@ -300,10 +374,45 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
                 }
             }
         }
+
+        // System events: compact_boundary, api_error
+        if event_type == "system" {
+            let subtype = raw_event
+                .get("subtype")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            match subtype {
+                "compact_boundary" => {
+                    state.compact_count = state.compact_count.saturating_add(1);
+                    state.ctx_history.clear();
+                    return;
+                }
+                "api_error" => {
+                    if let Some(ts) = event_ts {
+                        state.last_api_error_ms = Some(ts);
+                    } else {
+                        // Use wall clock when event has no timestamp
+                        state.last_api_error_ms = Some(cache::now_epoch_ms());
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
     }
 
-    // Path 3: Flat format fallback (existing test fixtures / simple formats)
-    apply_flat_event(state, raw_event, event_ts);
+    // Top-level isApiErrorMessage flag (alternate api_error signal)
+    if raw_event
+        .get("isApiErrorMessage")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        if let Some(ts) = event_ts {
+            state.last_api_error_ms = Some(ts);
+        } else {
+            state.last_api_error_ms = Some(cache::now_epoch_ms());
+        }
+    }
 }
 
 /// Extract content[] blocks from nested transcript events.
@@ -333,7 +442,6 @@ fn extract_content_blocks(raw_event: &Value) -> Option<Vec<&Value>> {
 
 /// Process a single content block from a message's content[] array.
 /// Internal Claude Code tools excluded from tool tracking.
-/// Referenced by both Path 1 (nested content) and Path 3 (flat fallback).
 const NOISE_TOOLS: &[&str] = &[
     "EnterPlanMode",
     "ExitPlanMode",
@@ -414,19 +522,19 @@ fn apply_content_block(
 
             // TaskCreate → individual task item tracking
             if name == "TaskCreate" {
-                dispatch_task_create(state, block, None);
+                dispatch_task_create(state, block);
                 return;
             }
 
             // TaskUpdate → update individual task or old bulk format
             if name == "TaskUpdate" {
-                dispatch_task_update(state, block, None);
+                dispatch_task_update(state, block);
                 return;
             }
 
             // TodoWrite → old format with todos[] array
             if name == "TodoWrite" {
-                dispatch_todo_write(state, block, None);
+                dispatch_todo_write(state, block);
                 return;
             }
 
@@ -441,6 +549,10 @@ fn apply_content_block(
         "tool_result" => {
             let tool_use_id = block.get("tool_use_id").and_then(Value::as_str);
             let signal = tool_use_result.and_then(AsyncAgentSignal::parse);
+            let is_error = block
+                .get("is_error")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
 
             // Async-agent dispatch (status "async_launched") binds the
             // runtime agentId to the active AgentSummary so we can tail
@@ -453,7 +565,9 @@ fn apply_content_block(
                     state.bind_agent_id(id, s.agent_id);
                     state.ensure_sub_agent(s.agent_id.to_string(), event_ts);
                 }
-                (Some(id), _) => complete_tool_result(state, id, event_ts),
+                (Some(id), _) => {
+                    complete_tool_result(state, id, event_ts, is_error, tool_use_result)
+                }
                 (None, _) => {}
             }
 
@@ -553,13 +667,11 @@ fn handle_agent_progress(state: &mut SessionState, data: &Value, event_ts: Optio
 // ── Shared task/todo dispatch helpers ─────────────────────────────────
 
 /// Handle a TaskCreate event by extracting the subject and activeForm from multiple possible locations.
-fn dispatch_task_create(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
+fn dispatch_task_create(state: &mut SessionState, event: &Value) {
     let subject = find_string(event, &["subject"])
-        .or_else(|| find_nested_string(event, &[&["input", "subject"]]))
-        .or_else(|| fallback.and_then(|v| find_string(v, &["subject"])));
+        .or_else(|| find_nested_string(event, &[&["input", "subject"]]));
     let active_form = find_string(event, &["activeForm"])
-        .or_else(|| find_nested_string(event, &[&["input", "activeForm"]]))
-        .or_else(|| fallback.and_then(|v| find_string(v, &["activeForm"])));
+        .or_else(|| find_nested_string(event, &[&["input", "activeForm"]]));
     if let Some(subject) = subject {
         state.create_task_item(subject, active_form);
     }
@@ -567,32 +679,47 @@ fn dispatch_task_create(state: &mut SessionState, event: &Value, fallback: Optio
 
 /// Handle a TaskUpdate event. Tries new format (taskId + status) first, then falls back
 /// to the old todos[] array format.
-fn dispatch_task_update(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
+fn dispatch_task_update(state: &mut SessionState, event: &Value) {
     let task_id = find_string(event, &["taskId"])
-        .or_else(|| find_nested_string(event, &[&["input", "taskId"]]))
-        .or_else(|| fallback.and_then(|v| find_string(v, &["taskId"])));
+        .or_else(|| find_nested_string(event, &[&["input", "taskId"]]));
     if let Some(task_id) = task_id {
         let status = find_string(event, &["status"])
             .or_else(|| find_nested_string(event, &[&["input", "status"]]))
-            .or_else(|| fallback.and_then(|v| find_string(v, &["status"])))
             .unwrap_or_else(|| "pending".to_string());
         state.update_task_item(&task_id, &status);
         return;
     }
     // Fallback: old format with todos[] array
-    let todo = extract_todo_summary(event).or_else(|| fallback.and_then(extract_todo_summary));
+    let todo = extract_todo_summary(event);
     state.set_todo(todo);
 }
 
 /// Handle a TodoWrite event by extracting the todo summary.
-fn dispatch_todo_write(state: &mut SessionState, event: &Value, fallback: Option<&Value>) {
-    let todo = extract_todo_summary(event).or_else(|| fallback.and_then(extract_todo_summary));
+fn dispatch_todo_write(state: &mut SessionState, event: &Value) {
+    let todo = extract_todo_summary(event);
     state.set_todo(todo);
 }
 
 /// Complete a tool_result by resolving agent links: linked agent, pending task, or plain removal.
-fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: Option<u64>) {
-    state.remove_tool(tool_use_id, event_ts);
+fn complete_tool_result(
+    state: &mut SessionState,
+    tool_use_id: &str,
+    event_ts: Option<u64>,
+    is_error: bool,
+    tool_use_result: Option<&Value>,
+) {
+    state.remove_tool_with_error(tool_use_id, event_ts, is_error);
+
+    // Parse completion stats from toolUseResult envelope (2f).
+    let total_duration_ms = tool_use_result
+        .and_then(|v| v.get("totalDurationMs"))
+        .and_then(Value::as_u64);
+    let total_tokens = tool_use_result
+        .and_then(|v| v.get("totalTokens"))
+        .and_then(Value::as_u64);
+    let total_tool_use_count = tool_use_result
+        .and_then(|v| v.get("totalToolUseCount"))
+        .and_then(Value::as_u64);
 
     // If the active agent identified by `tool_use_id` carries a runtime
     // `agent_id`, the sub-agent transcript tail belongs to this agent —
@@ -604,7 +731,12 @@ fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: O
         .and_then(|a| a.agent_id.clone());
 
     if let Some(linked_agent) = state.resolve_task_agent(tool_use_id) {
-        state.remove_agent(&linked_agent);
+        state.remove_agent_with_stats(
+            &linked_agent,
+            total_duration_ms,
+            total_tokens,
+            total_tool_use_count,
+        );
     } else if let Some(pending) = state.drain_pending_task(tool_use_id) {
         state.upsert_agent(
             tool_use_id.to_string(),
@@ -614,9 +746,19 @@ fn complete_tool_result(state: &mut SessionState, tool_use_id: &str, event_ts: O
             pending.model,
             pending.message_id,
         );
-        state.remove_agent(tool_use_id);
+        state.remove_agent_with_stats(
+            tool_use_id,
+            total_duration_ms,
+            total_tokens,
+            total_tool_use_count,
+        );
     } else {
-        state.remove_agent(tool_use_id);
+        state.remove_agent_with_stats(
+            tool_use_id,
+            total_duration_ms,
+            total_tokens,
+            total_tool_use_count,
+        );
     }
 
     if let Some(agent_id) = bound_agent_id {
@@ -678,153 +820,6 @@ fn extract_target(name: &str, block: &Value) -> Option<String> {
     Some(crate::render::fmt::sanitize_single_line(raw).into_owned())
 }
 
-// ── Flat format fallback (Path 3) ────────────────────────────────────
-
-fn apply_flat_event(state: &mut SessionState, raw_event: &Value, event_ts: Option<u64>) {
-    let event = if let Some(message) = raw_event.get("message").filter(|value| value.is_object()) {
-        message
-    } else {
-        raw_event
-    };
-
-    let event_type = find_string(event, &["type", "event", "event_type"])
-        .or_else(|| find_string(raw_event, &["type", "event", "event_type"]));
-
-    match event_type.as_deref() {
-        Some("tool_use") => handle_flat_tool_use(state, event, raw_event, event_ts),
-        Some("tool_result") => handle_flat_tool_result(state, event, raw_event, event_ts),
-        Some("Agent") => handle_task_event(state, event, event_ts),
-        Some("TaskCreate") => {
-            dispatch_task_create(state, event, Some(raw_event));
-        }
-        Some("TaskUpdate") => {
-            dispatch_task_update(state, event, Some(raw_event));
-        }
-        Some("TodoWrite") => {
-            dispatch_todo_write(state, event, Some(raw_event));
-        }
-        _ => handle_event_by_name(state, event, raw_event, event_ts),
-    }
-}
-
-fn handle_flat_tool_use(
-    state: &mut SessionState,
-    event: &Value,
-    raw_event: &Value,
-    event_ts: Option<u64>,
-) {
-    let name = find_string(event, &["name", "tool_name", "tool"])
-        .or_else(|| find_string(raw_event, &["name", "tool_name", "tool"]))
-        .unwrap_or_else(|| "unknown".to_string());
-
-    match name.as_str() {
-        "Agent" => {
-            handle_task_from_tool_use(state, event, raw_event, event_ts);
-        }
-        "TaskCreate" => {
-            dispatch_task_create(state, event, Some(raw_event));
-        }
-        "TaskUpdate" => {
-            dispatch_task_update(state, event, Some(raw_event));
-        }
-        "TodoWrite" => {
-            dispatch_todo_write(state, event, Some(raw_event));
-        }
-        _ => {
-            if NOISE_TOOLS.contains(&name.as_str()) {
-                return;
-            }
-            let id = find_string(event, &["id", "tool_use_id", "tool_call_id"])
-                .or_else(|| find_string(raw_event, &["id", "tool_use_id", "tool_call_id"]))
-                .unwrap_or_else(|| format!("{name}-active"));
-            state.upsert_tool(id, name, None);
-        }
-    }
-}
-
-fn handle_flat_tool_result(
-    state: &mut SessionState,
-    event: &Value,
-    raw_event: &Value,
-    event_ts: Option<u64>,
-) {
-    if let Some(id) = find_string(event, &["tool_use_id", "id", "tool_call_id"])
-        .or_else(|| find_string(raw_event, &["tool_use_id", "id", "tool_call_id"]))
-    {
-        complete_tool_result(state, &id, event_ts);
-    }
-
-    if let Some(todo) = extract_todo_summary(event).or_else(|| extract_todo_summary(raw_event)) {
-        state.set_todo(Some(todo));
-    }
-}
-
-fn handle_task_event(state: &mut SessionState, event: &Value, event_ts: Option<u64>) {
-    let id = find_string(event, &["task_id", "id", "name"]).unwrap_or_else(|| "task".to_string());
-    let summary =
-        find_string(event, &["name", "description", "prompt"]).unwrap_or_else(|| id.clone());
-    let status = find_string(event, &["status", "state"]).unwrap_or_else(|| "running".to_string());
-
-    if is_terminal_status(&status) {
-        state.remove_agent(&id);
-    } else {
-        // Path-3 flat fallback has no message envelope.
-        state.upsert_agent(id, summary, None, event_ts, None, None);
-    }
-}
-
-fn handle_task_from_tool_use(
-    state: &mut SessionState,
-    event: &Value,
-    raw_event: &Value,
-    event_ts: Option<u64>,
-) {
-    let id = find_string(event, &["id", "tool_use_id", "task_id"])
-        .or_else(|| find_string(raw_event, &["id", "tool_use_id", "task_id"]))
-        .unwrap_or_else(|| "task-active".to_string());
-
-    let summary = find_string(event, &["name", "description", "prompt"])
-        .or_else(|| {
-            find_nested_string(
-                event,
-                &[
-                    &["input", "description"],
-                    &["input", "prompt"],
-                    &["arguments", "description"],
-                ],
-            )
-        })
-        .unwrap_or_else(|| "Agent".to_string());
-
-    // Path-3 flat fallback: no message envelope present.
-    state.upsert_agent(id, summary, None, event_ts, None, None);
-}
-
-fn handle_event_by_name(
-    state: &mut SessionState,
-    event: &Value,
-    raw_event: &Value,
-    event_ts: Option<u64>,
-) {
-    let Some(name) = find_string(event, &["name", "tool_name", "tool"]) else {
-        return;
-    };
-
-    match name.as_str() {
-        "Agent" => handle_task_from_tool_use(state, event, raw_event, event_ts),
-        "TaskCreate" => {
-            dispatch_task_create(state, event, Some(raw_event));
-        }
-        "TaskUpdate" => {
-            dispatch_task_update(state, event, Some(raw_event));
-        }
-        "TodoWrite" => {
-            dispatch_todo_write(state, event, Some(raw_event));
-        }
-        _ => {}
-    }
-}
-
 /// Check `toolUseResult` for agent completion (defense-in-depth for tool_result path).
 ///
 /// Claude Code appends a top-level `toolUseResult` object on agent completion events,
@@ -832,26 +827,46 @@ fn handle_event_by_name(
 /// content block processed by Path 1, but provides a fallback if the link-based resolution
 /// in `complete_tool_result()` fails (e.g., ID mismatch). `remove_agent()` is idempotent.
 fn check_tool_use_result_completion(state: &mut SessionState, raw_event: &Value) {
-    let Some(signal) = raw_event
-        .get("toolUseResult")
-        .and_then(AsyncAgentSignal::parse)
-    else {
+    let tur = raw_event.get("toolUseResult");
+    let Some(signal) = tur.and_then(AsyncAgentSignal::parse) else {
         return;
     };
     if !is_terminal_status(signal.status) {
         return;
     }
+
+    // Parse completion stats from the toolUseResult envelope.
+    let total_duration_ms = tur
+        .and_then(|v| v.get("totalDurationMs"))
+        .and_then(Value::as_u64);
+    let total_tokens = tur
+        .and_then(|v| v.get("totalTokens"))
+        .and_then(Value::as_u64);
+    let total_tool_use_count = tur
+        .and_then(|v| v.get("totalToolUseCount"))
+        .and_then(Value::as_u64);
+
     // Active list keys agents by tool_use_id; the runtime agent_id may
     // differ. Try tool_use_id resolution first, then fall back to the
-    // runtime id (remove_agent is idempotent).
+    // runtime id (remove_agent_with_stats is idempotent).
     let tool_use_id = state
         .active_agents
         .iter()
         .find(|a| a.agent_id.as_deref() == Some(signal.agent_id))
         .map(|a| a.id.clone());
     match tool_use_id {
-        Some(id) => state.remove_agent(&id),
-        None => state.remove_agent(signal.agent_id),
+        Some(id) => state.remove_agent_with_stats(
+            &id,
+            total_duration_ms,
+            total_tokens,
+            total_tool_use_count,
+        ),
+        None => state.remove_agent_with_stats(
+            signal.agent_id,
+            total_duration_ms,
+            total_tokens,
+            total_tool_use_count,
+        ),
     }
     state.sub_agents.remove(signal.agent_id);
 }
@@ -877,6 +892,8 @@ fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> Transcrip
         completed_counts: state.scored_completed_tools(config.max_completed_tools),
         agents: state.agents_for_display(AGENT_SNAPSHOT_CAP),
         todo: aggregate_todo(state),
+        compact_count: state.compact_count,
+        last_api_error_ms: state.last_api_error_ms,
     }
 }
 
@@ -1172,5 +1189,49 @@ mod tests {
         let block = json!({ "input": { "command": cmd } });
         let out = extract_target("Bash", &block).expect("target");
         assert_eq!(out, cmd, "expected raw payload, got {out:?}");
+    }
+
+    #[test]
+    fn metadata_prefilter_skips_attachment_lines() {
+        assert!(is_ignored_metadata_line(
+            r#"{"type":"attachment","attachment":{"type":"hook_success","output":"..."}}"#
+        ));
+        assert!(is_ignored_metadata_line(
+            r#"{"type":"file-history-snapshot","messageId":"m1","snapshot":{}}"#
+        ));
+        assert!(is_ignored_metadata_line(
+            r#"{"type":"queue-operation","operation":"enqueue","content":"hi"}"#
+        ));
+    }
+
+    #[test]
+    fn metadata_prefilter_keeps_event_lines() {
+        // tool_use event — nested content `"type":"tool_use"` is the first
+        // match in the window and fails every metadata needle.
+        assert!(!is_ignored_metadata_line(
+            r#"{"message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#
+        ));
+        // progress event (top-level type, but not a metadata kind).
+        assert!(!is_ignored_metadata_line(
+            r#"{"type":"progress","data":{"type":"agent_progress","agentId":"a1"}}"#
+        ));
+        // No type key at all.
+        assert!(!is_ignored_metadata_line(
+            r#"{"toolUseResult":{"agentId":"a1"}}"#
+        ));
+    }
+
+    #[test]
+    fn metadata_prefilter_ignores_needle_inside_string_payloads() {
+        // A tool_use whose command CONTAINS the metadata needle as string
+        // content must not be skipped — only a top-level (depth 1) `type`
+        // key counts. Regression for the PR-review finding.
+        let line = r#"{"message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"grep '"type":"attachment"' transcript.jsonl"}}]}}"#;
+        assert!(!is_ignored_metadata_line(line));
+        // Same needle as a value string of a top-level key that is NOT
+        // `type` — still a real event line.
+        assert!(!is_ignored_metadata_line(
+            r#"{"note":""type":"attachment"","message":{"content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}"#
+        ));
     }
 }

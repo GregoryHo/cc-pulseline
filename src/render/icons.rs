@@ -34,6 +34,12 @@ pub const ICON_THINKING: &str = "\u{f0335}"; // 󰌵 nf-md-lightbulb-on
 // Plugins (CC 2.0.12+)
 pub const ICON_PLUGIN: &str = "\u{f0431}"; // 󰐱 nf-md-puzzle
 
+// Compaction marker (⟳ = U+27F3 clockwise arrow over circle; ASCII: ~)
+pub const ICON_COMPACT: &str = "\u{27F3}";
+
+// API-error badge (⚠ = U+26A0 warning sign; ASCII: !)
+pub const ICON_API_ERROR: &str = "\u{26A0}";
+
 // Box-drawing characters used by every framed layout (Sections, Console,
 // Ledger). One source of truth so frame edges stay consistent across
 // layouts and tests can assert against the constants.

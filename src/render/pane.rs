@@ -15,6 +15,10 @@ use super::frames;
 pub enum LayoutStyle {
     /// Flat output, no decoration. Default.
     None,
+    /// 1–2 row micro layout: identity + budget + compact quota fused on
+    /// row 1; row 2 is a single packed activity ticker that only appears
+    /// when there is activity (idle footprint = 1 row). No chrome.
+    Compact,
     /// Two strata separated by a single labelled rule (echoes CC's own
     /// horizontal rules above/below the input box). State (Identity/Config/
     /// Budget) above, `──── activity ────` rule, then live Activity below.
@@ -91,7 +95,7 @@ pub fn apply_pane(
     cfg: &PaneConfig,
 ) -> Vec<String> {
     match cfg.style {
-        LayoutStyle::None | LayoutStyle::Ledger => return lines,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => return lines,
         LayoutStyle::Zones | LayoutStyle::Grid | LayoutStyle::Sections | LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {
@@ -116,7 +120,7 @@ pub fn apply_pane(
         LayoutStyle::Sections => frames::sections::render(&lines, groups, cfg, g),
         LayoutStyle::Console => frames::console::render(&lines, groups, cfg, g),
         // Decoration-bypassing styles short-circuited at the top of this fn.
-        LayoutStyle::None | LayoutStyle::Ledger => lines,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => lines,
     }
 }
 

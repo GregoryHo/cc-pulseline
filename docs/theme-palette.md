@@ -10,7 +10,7 @@
 | Indicator | Steel, Sage, Lilac, Amber, Lavender, Teal, Rose | 109, 108, 182, 179, 139, 73, 174 |
 | Cost | Base, Low, Med, High | 222, 186, 221, 201 |
 | Emphasis (Dark) | Primary, Secondary, Structural, Separator | 251, 146, 103, 238 |
-| Emphasis (Light) | Primary, Secondary, Structural, Separator | 234, 240, 245, 252 |
+| Emphasis (Light) | Primary, Secondary, Structural, Separator | 234, 240, 246, 253 |
 
 ---
 
@@ -45,10 +45,10 @@ Four-level hierarchy for text and structural elements. Vary by theme; semantic c
 |------|------|-------|-----|
 | **Primary** | 251 | 234 | Reserved (available for high-priority values) |
 | **Secondary** | 146 | 240 | Values, counts, data (blue-tinted gray) |
-| **Structural** | 103 | 245 | Icons, labels, supporting text (blue-purple, brighter than old 60) |
-| **Separator** | 238 | 252 | Punctuation only (\|, (), /) |
+| **Structural** | 103 | 246 | Icons, labels, supporting text (blue-purple, brighter than old 60) |
+| **Separator** | 238 | 253 | Punctuation only (\|, (), /) |
 
-**Light theme gap distribution**: 234->240(6), 240->245(5), 245->252(7) -- even distribution for readability. Previously: 236->243(7), 243->246(3), 246->250(4) -- the 3-point gap between secondary and structural was nearly indistinguishable.
+**Light theme gap distribution**: 234->240(6), 240->246(6), 246->253(7) -- even distribution for readability. Previously: 236->243(7), 243->246(3), 246->250(4) -- the 3-point gap between secondary and structural was nearly indistinguishable.
 
 ### Alert Tier -- Bright, Saturated, Urgent
 
@@ -163,30 +163,30 @@ For backward compatibility, old names map to the new tier system:
 ### Line 1: Identity (Semantic + Secondary)
 
 ```
-[STABLE_BLUE(111)]M:model [separator(238/252)]| [secondary(146/240)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] up-n
+[STABLE_BLUE(111)]M:model [separator(238/253)]| [secondary(146/240)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] up-n
 ```
 
 - `111` Model: icon+value both STABLE_BLUE (most important identity)
 - `146/240` Style/Version/Project: icon+value both tier.secondary (promoted from structural -- these are important session identifiers)
 - `71` Git: icon+value both STABLE_GREEN (unless dirty/ahead/behind)
-- `238/252` Separators: tier.separator
+- `238/253` Separators: tier.separator
 
 ### Line 2: Config Counts (Indicator + Monochrome Hierarchy)
 
 ```
-[INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(103/245)]label [separator(238/252)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
+[INDICATOR_CLAUDE_MD(109)]icon [secondary(146/240)]count [structural(103/245)]label [separator(238/253)]| [INDICATOR_RULES(108)]icon [secondary]count [structural]label | ...
 ```
 
 - `109/108/182/179/139/73/174` Icons: per-metric INDICATOR color (visual fingerprints)
 - `146/240` Counts: tier.secondary (the actual data -- most prominent on L2)
 - `103/245` Labels: tier.structural (descriptive text)
-- `238/252` Separators: tier.separator
+- `238/253` Separators: tier.separator
 - **ASCII mode**: icons are absent, counts and labels use the same hierarchy
 
 ### Line 3: Resources & Cost (Mixed)
 
 ```
-[CTX_*(71/178/196)]CTX:pct% [separator(238/252)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(103/245)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[primary]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
+[CTX_*(71/178/196)]CTX:pct% [separator(238/253)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(103/245)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[primary]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
 ```
 
 - `71/178/196` Context: icon+pct both use CTX_GOOD/WARN/CRITICAL (semantic, state-driven)
@@ -194,7 +194,7 @@ For backward compatibility, old names map to the new tier system:
 - `251/234` Token values + speed: tier.primary (val_color) when data exists, tier.structural when absent
 - `222` Total cost: COST_BASE (warm gold)
 - `186/221/201` Burn rate: COST_LOW/MED/HIGH_RATE (rate-driven)
-- `238/252` Separators, parentheses: tier.separator
+- `238/253` Separators, parentheses: tier.separator
 
 ### Line 4+: Activity (Active Tier)
 
@@ -281,13 +281,13 @@ The total cost always uses `COST_BASE` (222, warm gold).
 
 ## Theme Support
 
-Set `theme = "light"` in config for light terminal backgrounds. Only emphasis tiers change between themes; all semantic colors (including INDICATOR) remain the same -- they are mid-to-bright saturated colors that work on both dark and light backgrounds.
+Set `theme = "light"` in config for light terminal backgrounds. Emphasis tiers always reverse contrast direction. Semantic colors that are pale/high-luminance in dark mode must be overridden in the `light_emphasis` section — the built-in themes ship these overrides; custom themes should do the same.
 
 ## Light Theme Readability
 
 ### Contrast Strategy
 
-On light backgrounds, the emphasis tiers reverse contrast direction -- dark grays on white instead of light grays on black. Semantic colors (blues, greens, teals, etc.) are mid-saturation and inherently readable on both backgrounds.
+On light backgrounds, the emphasis tiers reverse contrast direction -- dark grays on white instead of light grays on black. Semantic value colors that are pale in dark mode (e.g. warm golds, neon cyans, lime greens) need a `light_emphasis` override pointing to a darker shade of the same hue.
 
 | Tier | Dark (on ~#24283b) | Light (on ~#d5d6db) | Contrast Direction |
 |------|-------------------|--------------------|--------------------|
@@ -296,15 +296,11 @@ On light backgrounds, the emphasis tiers reverse contrast direction -- dark gray
 | **Structural** | 103 (blue-purple) | 245 (medium gray) | Reversed |
 | **Separator** | 238 (dark gray) | 252 (light gray) | Reversed |
 
-### What Stays Fixed
+### Contrast Floor
 
-All semantic colors are theme-invariant -- they are chosen to be readable on both dark and light backgrounds:
+The contrast floor test (`all_builtin_themes_light_pass_contrast_floor`) enforces that every non-chrome palette field in the light variant of every built-in theme has approximate luminance ≤ 0.75. Chrome fields (`primary`, `secondary`, `structural`, `separator`, `strata_state`, `strata_activity`) are exempt — they reverse contrast direction by design.
 
-- Alert tier (196, 214, 201) -- bright saturated, always visible
-- Active tier (117, 183, 80, 178, 209) -- mid-saturation, sufficient contrast on both
-- Stable tier (111, 71) -- mid-brightness blues/greens, readable on both
-- Indicator tier (109, 108, 182, 179, 139, 73, 174) -- muted pastels, readable on both
-- Cost tier (222, 186, 221, 201) -- warm/bright tones, always legible
+`--preview` warns on stderr when a custom theme's light variant fails this check.
 
 ## Built-in Themes
 
@@ -510,11 +506,35 @@ theme.json
 │   ├── head_agent              (u8, optional) ─── L1 AG: pill (defaults to active_purple)
 │   └── head_thinking           (u8, optional) ─── L1 [T] pill (defaults to active_amber)
 │
-├── "light_emphasis"       (optional — overrides emphasis tiers for light backgrounds)
-│   ├── primary            (u8)
-│   ├── secondary          (u8)
-│   ├── structural         (u8)
-│   ├── separator          (u8)
+├── "light_emphasis"       (optional — overrides palette fields for light backgrounds)
+│   ├── primary            (u8, REQUIRED)
+│   ├── secondary          (u8, REQUIRED)
+│   ├── structural         (u8, REQUIRED)
+│   ├── separator          (u8, REQUIRED)
+│   │   ── Any of the 30 remaining palette fields may also be included. ──
+│   │   ── Fields absent here fall back to the dark palette_mapping value. ──
+│   ├── alert_red          (u8, optional) ─ fix contrast if code lum > 0.75
+│   ├── alert_orange       (u8, optional)
+│   ├── alert_magenta      (u8, optional)
+│   ├── active_cyan        (u8, optional)
+│   ├── active_purple      (u8, optional)
+│   ├── active_teal        (u8, optional)
+│   ├── active_amber       (u8, optional)
+│   ├── active_coral       (u8, optional)
+│   ├── stable_blue        (u8, optional)
+│   ├── stable_green       (u8, optional)
+│   ├── indicator_claude_md (u8, optional)
+│   ├── indicator_rules    (u8, optional)
+│   ├── indicator_memory   (u8, optional)
+│   ├── indicator_hooks    (u8, optional)
+│   ├── indicator_mcp      (u8, optional)
+│   ├── indicator_skills   (u8, optional)
+│   ├── indicator_duration (u8, optional)
+│   ├── completed_check    (u8, optional)
+│   ├── cost_base          (u8, optional)
+│   ├── cost_low_rate      (u8, optional)
+│   ├── cost_med_rate      (u8, optional)
+│   ├── cost_high_rate     (u8, optional)
 │   ├── strata_state       (u8, optional — falls back to dark variant if absent)
 │   ├── strata_activity    (u8, optional — falls back to dark variant if absent)
 │   ├── aurora_low         (u8, optional — falls back to dark variant if absent)
@@ -549,15 +569,32 @@ Each `indicator_*` gets a unique muted accent color for fast visual scanning.
 **Invisible "good" state** (cyberdeck-hud, cc-vanguard-telemetry):
 Set `stable_green` very dark. "Good" context percentage vanishes — only warnings and critical states draw attention.
 
-3. Optionally add `light_emphasis` for light terminal backgrounds:
+3. Optionally add `light_emphasis` for light terminal backgrounds. The four
+   emphasis tiers (`primary`/`secondary`/`structural`/`separator`) are
+   required. Any of the other 30 palette fields may also be included to fix
+   contrast — fields absent from the section fall back to the dark
+   `palette_mapping` value:
+
    ```json
    "light_emphasis": {
      "primary": 234,
      "secondary": 240,
      "structural": 245,
-     "separator": 252
+     "separator": 252,
+     "cost_base": 94,
+     "active_amber": 136
    }
    ```
+
+   **Contrast guideline**: any value-color field (alert_*, active_*, stable_*,
+   cost_*, indicator_*, completed_check, aurora_*, head_*) with approximate
+   luminance > 0.75 will be illegible on a white background. Luminance for a
+   color-cube code C (16–231): L ≈ (0.2126r + 0.7152g + 0.0722b)/5 where
+   C−16 = 36r+6g+b. For grayscale (232–255): L ≈ (C−232)/23.
+   Replace high-luminance codes with a darker shade of the same hue family
+   (e.g. 222 warm-gold → 94 dark-olive, 51 neon-cyan → 38 darker-cyan).
+   `--preview` prints a stderr warning for any theme whose light variant fails
+   this check.
 
 4. Set it in config:
    ```toml

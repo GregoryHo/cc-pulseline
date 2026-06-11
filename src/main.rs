@@ -7,8 +7,8 @@ use cc_pulseline::{
         update_theme_in_config, ColorsConfig,
     },
     render::color::{
-        available_presets, colorize, extract_ansi_code, resolve_palette, theme_descriptions,
-        ThemePalette, RESET,
+        available_presets, colorize, extract_ansi_code, light_contrast_failures, resolve_palette,
+        theme_descriptions, ThemePalette, RESET,
     },
     types::StdinPayload,
     PulseLineRunner,
@@ -362,6 +362,22 @@ fn preview_themes(theme_args: &[&str]) {
             "  {}accent{RESET}  {}warn{RESET}  {}alert{RESET}  {}dirty{RESET}  {}done{RESET}  {}model{RESET}",
             p.active_cyan, p.active_amber, p.alert_red, p.alert_orange, p.completed_check, p.stable_blue,
         );
+
+        // Warn on stderr if the light variant of this theme has high-luminance value fields.
+        // Built-in themes ship with these fixed; this warning exists for custom themes.
+        let light_p = resolve_palette(theme_name, Some("light"), &ColorsConfig::default());
+        let contrast_failures = light_contrast_failures(&light_p, 0.75);
+        if !contrast_failures.is_empty() {
+            let field_list: Vec<String> = contrast_failures
+                .iter()
+                .map(|(f, code, lum)| format!("{f}={code}(lum={lum:.2})"))
+                .collect();
+            eprintln!(
+                "warning: theme \"{theme_name}\" light variant has high-luminance fields \
+                 that may be illegible on light backgrounds: {}",
+                field_list.join(", ")
+            );
+        }
     }
 }
 

@@ -1,2 +1,2 @@
-{"type":"TodoWrite","todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"in_progress"},{"content":"verify perf","status":"pending"}]}
-{"type":"TaskUpdate","todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"completed"},{"content":"verify perf","status":"completed"}]}
+{"timestamp":"2026-01-18T10:50:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tw1","name":"TodoWrite","input":{"todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"in_progress"},{"content":"verify perf","status":"pending"}]}}]}}
+{"timestamp":"2026-01-18T10:51:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"TaskUpdate","input":{"todos":[{"content":"wire pipeline","status":"completed"},{"content":"add tests","status":"completed"},{"content":"verify perf","status":"completed"}]}}]}}

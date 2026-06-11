@@ -229,14 +229,72 @@ struct PresetColors {
     head_thinking: Option<u8>,
 }
 
-/// Light variant emphasis overrides (only 4 fields differ from dark, plus
-/// optional strata pair and aurora triple when light should diverge from dark).
+/// Light variant overrides — accepts any of the 34 palette fields.
+/// The 4 emphasis tiers (primary/secondary/structural/separator) are required.
+/// All semantic fields (alert_*, active_*, stable_*, indicator_*, cost_*,
+/// completed_check, strata_*, aurora_*, tag_label, head_*) are optional and
+/// fall back to the dark `palette_mapping` value when absent.
+///
+/// This is the correct place to fix contrast on light backgrounds: add a field
+/// here with a darker shade of the same hue family whenever the dark value
+/// has high luminance (approx > 0.75 on a white background).
 #[derive(Deserialize)]
 struct LightEmphasis {
     primary: u8,
     secondary: u8,
     structural: u8,
     separator: u8,
+    // Alert tier
+    #[serde(default)]
+    alert_red: Option<u8>,
+    #[serde(default)]
+    alert_orange: Option<u8>,
+    #[serde(default)]
+    alert_magenta: Option<u8>,
+    // Active tier
+    #[serde(default)]
+    active_cyan: Option<u8>,
+    #[serde(default)]
+    active_purple: Option<u8>,
+    #[serde(default)]
+    active_teal: Option<u8>,
+    #[serde(default)]
+    active_amber: Option<u8>,
+    #[serde(default)]
+    active_coral: Option<u8>,
+    // Stable tier
+    #[serde(default)]
+    stable_blue: Option<u8>,
+    #[serde(default)]
+    stable_green: Option<u8>,
+    // Indicator tier
+    #[serde(default)]
+    indicator_claude_md: Option<u8>,
+    #[serde(default)]
+    indicator_rules: Option<u8>,
+    #[serde(default)]
+    indicator_memory: Option<u8>,
+    #[serde(default)]
+    indicator_hooks: Option<u8>,
+    #[serde(default)]
+    indicator_mcp: Option<u8>,
+    #[serde(default)]
+    indicator_skills: Option<u8>,
+    #[serde(default)]
+    indicator_duration: Option<u8>,
+    // Completed accent
+    #[serde(default)]
+    completed_check: Option<u8>,
+    // Cost tier
+    #[serde(default)]
+    cost_base: Option<u8>,
+    #[serde(default)]
+    cost_low_rate: Option<u8>,
+    #[serde(default)]
+    cost_med_rate: Option<u8>,
+    #[serde(default)]
+    cost_high_rate: Option<u8>,
+    // Strata / Aurora / Head
     #[serde(default)]
     strata_state: Option<u8>,
     #[serde(default)]
@@ -281,6 +339,35 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             secondary: le.secondary,
             structural: le.structural,
             separator: le.separator,
+            // Alert tier — fall back to dark values when absent
+            alert_red: le.alert_red.unwrap_or(dark.alert_red),
+            alert_orange: le.alert_orange.unwrap_or(dark.alert_orange),
+            alert_magenta: le.alert_magenta.unwrap_or(dark.alert_magenta),
+            // Active tier
+            active_cyan: le.active_cyan.unwrap_or(dark.active_cyan),
+            active_purple: le.active_purple.unwrap_or(dark.active_purple),
+            active_teal: le.active_teal.unwrap_or(dark.active_teal),
+            active_amber: le.active_amber.unwrap_or(dark.active_amber),
+            active_coral: le.active_coral.unwrap_or(dark.active_coral),
+            // Stable tier
+            stable_blue: le.stable_blue.unwrap_or(dark.stable_blue),
+            stable_green: le.stable_green.unwrap_or(dark.stable_green),
+            // Indicator tier
+            indicator_claude_md: le.indicator_claude_md.unwrap_or(dark.indicator_claude_md),
+            indicator_rules: le.indicator_rules.unwrap_or(dark.indicator_rules),
+            indicator_memory: le.indicator_memory.unwrap_or(dark.indicator_memory),
+            indicator_hooks: le.indicator_hooks.unwrap_or(dark.indicator_hooks),
+            indicator_mcp: le.indicator_mcp.unwrap_or(dark.indicator_mcp),
+            indicator_skills: le.indicator_skills.unwrap_or(dark.indicator_skills),
+            indicator_duration: le.indicator_duration.unwrap_or(dark.indicator_duration),
+            // Completed accent
+            completed_check: le.completed_check.unwrap_or(dark.completed_check),
+            // Cost tier
+            cost_base: le.cost_base.unwrap_or(dark.cost_base),
+            cost_low_rate: le.cost_low_rate.unwrap_or(dark.cost_low_rate),
+            cost_med_rate: le.cost_med_rate.unwrap_or(dark.cost_med_rate),
+            cost_high_rate: le.cost_high_rate.unwrap_or(dark.cost_high_rate),
+            // Strata / Aurora / Head
             strata_state: le.strata_state.or(dark.strata_state),
             strata_activity: le.strata_activity.or(dark.strata_activity),
             aurora_low: le.aurora_low.or(dark.aurora_low),
@@ -289,7 +376,6 @@ fn parse_theme_json(json: &str) -> Result<ThemePreset, String> {
             tag_label: le.tag_label.or(dark.tag_label),
             head_agent: le.head_agent.or(dark.head_agent),
             head_thinking: le.head_thinking.or(dark.head_thinking),
-            ..dark
         },
         None => dark,
     };
@@ -669,6 +755,86 @@ pub fn extract_ansi_code(escape: &str) -> Option<u8> {
 
 fn custom_themes_dir() -> Option<std::path::PathBuf> {
     user_home().map(|home| std::path::PathBuf::from(home).join(".claude/pulseline/themes"))
+}
+
+// ── Contrast / luminance helpers ──
+
+/// Approximate relative luminance of an ANSI-256 color code.
+///
+/// For the 216-color cube (codes 16–231): code-16 = 36r+6g+b with r,g,b ∈ 0..5.
+/// Luminance ≈ (0.2126r + 0.7152g + 0.0722b) / 5.
+///
+/// For the 24-step grayscale ramp (codes 232–255):
+/// Luminance ≈ (code − 232) / 23.
+///
+/// Basic palette (0–15): not used in this project's palette fields; returns 0.
+///
+/// Used by: the built-in light-contrast floor test (threshold 0.75), and
+/// `--preview` to warn when a custom theme ships a high-luminance value
+/// color in its light variant.
+pub fn ansi_luminance(code: u8) -> f64 {
+    match code {
+        16..=231 => {
+            let n = code - 16;
+            let b = (n % 6) as f64;
+            let g = ((n / 6) % 6) as f64;
+            let r = (n / 36) as f64;
+            (0.2126 * r + 0.7152 * g + 0.0722 * b) / 5.0
+        }
+        232..=255 => (code - 232) as f64 / 23.0,
+        _ => 0.0,
+    }
+}
+
+/// Return the luminance of every non-chrome palette field that exceeds `threshold`.
+/// Used by `--preview` to warn about custom themes.
+pub fn light_contrast_failures(
+    palette: &ThemePalette,
+    threshold: f64,
+) -> Vec<(&'static str, u8, f64)> {
+    // Build the list of (field_name, ansi_code) pairs for all semantic (non-chrome) fields.
+    let candidates: &[(&str, &str)] = &[
+        ("alert_red", &palette.alert_red),
+        ("alert_orange", &palette.alert_orange),
+        ("alert_magenta", &palette.alert_magenta),
+        ("active_cyan", &palette.active_cyan),
+        ("active_purple", &palette.active_purple),
+        ("active_teal", &palette.active_teal),
+        ("active_amber", &palette.active_amber),
+        ("active_coral", &palette.active_coral),
+        ("stable_blue", &palette.stable_blue),
+        ("stable_green", &palette.stable_green),
+        ("indicator_claude_md", &palette.indicator_claude_md),
+        ("indicator_rules", &palette.indicator_rules),
+        ("indicator_memory", &palette.indicator_memory),
+        ("indicator_hooks", &palette.indicator_hooks),
+        ("indicator_mcp", &palette.indicator_mcp),
+        ("indicator_skills", &palette.indicator_skills),
+        ("indicator_duration", &palette.indicator_duration),
+        ("completed_check", &palette.completed_check),
+        ("cost_base", &palette.cost_base),
+        ("cost_low_rate", &palette.cost_low_rate),
+        ("cost_med_rate", &palette.cost_med_rate),
+        ("cost_high_rate", &palette.cost_high_rate),
+        ("aurora_low", &palette.aurora_low),
+        ("aurora_mid", &palette.aurora_mid),
+        ("aurora_high", &palette.aurora_high),
+        ("tag_label", &palette.tag_label),
+        ("head_agent", &palette.head_agent),
+        ("head_thinking", &palette.head_thinking),
+    ];
+    candidates
+        .iter()
+        .filter_map(|&(name, escape)| {
+            let code = extract_ansi_code(escape)?;
+            let lum = ansi_luminance(code);
+            if lum > threshold {
+                Some((name, code, lum))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 // ── Legacy pub const — used by integration tests for Tokyo Night assertions ──
@@ -1053,5 +1219,130 @@ mod tests {
         apply_color_overrides(&mut p, &overrides);
         assert!(p.tag_label.contains("60"));
         assert!(p.secondary.contains("70"));
+    }
+
+    // ── Part 1 unit tests: light-variant full-field override mechanism ──
+
+    /// A semantic field (cost_base) overridden in light_emphasis resolves to
+    /// the override value in light mode and retains the dark value in dark mode.
+    #[test]
+    fn light_variant_semantic_override_resolves_in_light_only() {
+        let json = r#"{
+            "theme": "test-semantic-override",
+            "palette_mapping": {
+                "emphasis_primary": 251, "emphasis_secondary": 146,
+                "emphasis_structural": 103, "emphasis_separator": 238,
+                "alert_red": 196, "alert_orange": 214, "alert_magenta": 201,
+                "active_cyan": 117, "active_purple": 183, "active_teal": 80,
+                "active_amber": 178, "active_coral": 209,
+                "stable_blue": 111, "stable_green": 71,
+                "indicator_claude_md": 109, "indicator_rules": 108,
+                "indicator_memory": 182, "indicator_hooks": 179,
+                "indicator_mcp": 139, "indicator_skills": 73,
+                "indicator_duration": 174, "completed_check": 67,
+                "cost_base": 222, "cost_low_rate": 186,
+                "cost_med_rate": 221, "cost_high_rate": 201,
+                "strata_state": 238, "strata_activity": 103,
+                "aurora_low": 73, "aurora_mid": 80, "aurora_high": 209,
+                "tag_label": 146, "head_agent": 183, "head_thinking": 178
+            },
+            "light_emphasis": {
+                "primary": 234, "secondary": 240, "structural": 246, "separator": 253,
+                "cost_base": 94
+            }
+        }"#;
+        let preset = parse_theme_json(json).expect("parse ok");
+        // Light variant gets the override
+        let light = build_palette(&preset.light);
+        assert!(
+            light.cost_base.contains("94"),
+            "light cost_base should be 94 (override), got {}",
+            light.cost_base
+        );
+        // Dark variant retains original value
+        let dark = build_palette(&preset.dark);
+        assert!(
+            dark.cost_base.contains("222"),
+            "dark cost_base should be 222 (original), got {}",
+            dark.cost_base
+        );
+    }
+
+    /// Fields absent from light_emphasis fall back to the dark palette_mapping value.
+    #[test]
+    fn light_variant_absent_fields_fall_back_to_dark() {
+        let json = r#"{
+            "theme": "test-fallback",
+            "palette_mapping": {
+                "emphasis_primary": 251, "emphasis_secondary": 146,
+                "emphasis_structural": 103, "emphasis_separator": 238,
+                "alert_red": 196, "alert_orange": 214, "alert_magenta": 201,
+                "active_cyan": 117, "active_purple": 183, "active_teal": 80,
+                "active_amber": 178, "active_coral": 209,
+                "stable_blue": 111, "stable_green": 71,
+                "indicator_claude_md": 109, "indicator_rules": 108,
+                "indicator_memory": 182, "indicator_hooks": 179,
+                "indicator_mcp": 139, "indicator_skills": 73,
+                "indicator_duration": 174, "completed_check": 67,
+                "cost_base": 222, "cost_low_rate": 186,
+                "cost_med_rate": 221, "cost_high_rate": 201,
+                "strata_state": 238, "strata_activity": 103,
+                "aurora_low": 73, "aurora_mid": 80, "aurora_high": 209,
+                "tag_label": 146, "head_agent": 183, "head_thinking": 178
+            },
+            "light_emphasis": {
+                "primary": 234, "secondary": 240, "structural": 246, "separator": 253
+            }
+        }"#;
+        let preset = parse_theme_json(json).expect("parse ok");
+        // active_cyan absent from light section → falls back to dark value 117
+        let light = build_palette(&preset.light);
+        assert!(
+            light.active_cyan.contains("117"),
+            "absent active_cyan should fall back to dark value 117, got {}",
+            light.active_cyan
+        );
+        // completed_check absent → falls back to dark 67
+        assert!(
+            light.completed_check.contains("67"),
+            "absent completed_check should fall back to dark value 67, got {}",
+            light.completed_check
+        );
+    }
+
+    /// The existing tokyo-night light emphasis assertions (emphasis tiers only) still pass.
+    #[test]
+    fn tokyo_night_light_emphasis_tiers_unchanged() {
+        let p = resolve_palette("tokyo-night", Some("light"), &ColorsConfig::default());
+        assert!(p.primary.contains("234"), "primary should be 234");
+        assert!(p.secondary.contains("240"), "secondary should be 240");
+        assert!(p.structural.contains("246"), "structural should be 246");
+        assert!(p.separator.contains("253"), "separator should be 253");
+    }
+
+    // ── Part 2 unit test: contrast floor across all built-in themes ──
+
+    const CONTRAST_THRESHOLD: f64 = 0.75;
+
+    #[test]
+    fn all_builtin_themes_light_pass_contrast_floor() {
+        let mut all_failures: Vec<String> = Vec::new();
+
+        for (name, _) in BUILTIN_THEMES {
+            let p = resolve_palette(name, Some("light"), &ColorsConfig::default());
+            let failures = light_contrast_failures(&p, CONTRAST_THRESHOLD);
+            for (field, code, lum) in &failures {
+                all_failures.push(format!(
+                    "  theme={name} field={field} code={code} lum={lum:.3}"
+                ));
+            }
+        }
+
+        assert!(
+            all_failures.is_empty(),
+            "Built-in themes have light-mode palette fields with luminance > {CONTRAST_THRESHOLD} \
+             (fails on light/white backgrounds):\n{}",
+            all_failures.join("\n")
+        );
     }
 }

@@ -105,6 +105,9 @@ mod tests {
             completed_at: Some(60_000),
             message_id: msg.map(String::from),
             agent_id: None,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         }
     }
 

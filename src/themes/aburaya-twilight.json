@@ -80,7 +80,9 @@
     "aurora_low": 67,
     "aurora_mid": 73,
     "aurora_high": 210,
-    "tag_label": 241
+    "tag_label": 241,
+    "active_amber": 136,
+    "head_thinking": 136
   },
 
   "design_notes": {

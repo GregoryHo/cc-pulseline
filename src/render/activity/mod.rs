@@ -7,4 +7,4 @@ pub mod cell;
 pub mod cells;
 pub mod truncate;
 
-pub use builder::build_activity_rows;
+pub use builder::{build_activity_inline_row, build_activity_rows};

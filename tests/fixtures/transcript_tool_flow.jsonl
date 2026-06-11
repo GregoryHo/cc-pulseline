@@ -1,2 +1,2 @@
-{"type":"tool_use","tool_use_id":"tool-1","name":"ReadFile"}
-{"type":"tool_result","tool_use_id":"tool-1"}
+{"timestamp":"2026-04-27T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1","name":"ReadFile","input":{}}]}}
+{"timestamp":"2026-04-27T10:00:01.000Z","content":[{"type":"tool_result","tool_use_id":"tool-1"}]}

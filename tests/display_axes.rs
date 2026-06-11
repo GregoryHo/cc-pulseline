@@ -40,6 +40,9 @@ fn frame_with_agent_and_quota() -> RenderFrame {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     f.quota = QuotaMetrics {
         five_hour_pct: Some(75.0),
@@ -204,6 +207,7 @@ fn frame_with_tools_for_ascii_contract() -> RenderFrame {
         name: "Edit".to_string(),
         count: 5,
         last_completed_at: None,
+        failed: 0,
     }];
     f
 }
@@ -352,6 +356,9 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         completed_at: None,
         message_id: Some("m1".to_string()),
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     f.agents.push(AgentSummary {
         id: "p2".to_string(),
@@ -362,6 +369,9 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         completed_at: None,
         message_id: Some("m1".to_string()),
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     f.agents.push(AgentSummary {
         id: "s1".to_string(),
@@ -372,6 +382,9 @@ fn console_with_many_agents_no_overflow_and_descriptions_visible() {
         completed_at: None,
         message_id: Some("m2".to_string()),
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.max_agent_lines = 3;
@@ -435,21 +448,25 @@ fn console_tools_split_to_two_rows_when_running_too_long_for_inline_counts() {
             name: "Bash".to_string(),
             count: 206,
             last_completed_at: None,
+            failed: 0,
         },
         CompletedToolCount {
             name: "Read".to_string(),
             count: 92,
             last_completed_at: None,
+            failed: 0,
         },
         CompletedToolCount {
             name: "Edit".to_string(),
             count: 77,
             last_completed_at: None,
+            failed: 0,
         },
         CompletedToolCount {
             name: "Write".to_string(),
             count: 4,
             last_completed_at: None,
+            failed: 0,
         },
     ];
     let cfg = cfg_for(LayoutStyle::Console, true, 130);
@@ -500,6 +517,9 @@ fn console_agents_wrap_to_multiple_rows_when_overflowing_one() {
             completed_at: None,
             message_id: Some(format!("m{i}")),
             agent_id: None,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         });
     }
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
@@ -544,6 +564,9 @@ fn console_agents_visual_name_only_drops_description_and_model() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.agents_visual = "name".to_string();
@@ -573,6 +596,9 @@ fn console_agents_visual_name_and_model_shows_model_tag_no_description() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut cfg = cfg_for(LayoutStyle::Console, true, 130);
     cfg.agents_visual = "name+model".to_string();

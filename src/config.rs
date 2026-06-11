@@ -14,14 +14,19 @@ fn default_dark() -> String {
 fn default_max_lines() -> usize {
     2
 }
+/// Agent / todo rows default to 1 — vertical footprint discipline.
+/// Overflow folds into the last visible row as a ` +N` tail.
+fn default_max_activity_lines() -> usize {
+    1
+}
 fn default_max_completed() -> usize {
     4
 }
 /// Hard cap on completed-tool rows. Width-aware packing fills rows
-/// greedily; once this many rows are filled, remaining items collapse
-/// into a `… + N more tools` summary line at the bottom.
+/// greedily; once this many rows are filled, remaining items fold into
+/// a ` +N` tail on the last visible row.
 fn default_max_completed_lines() -> usize {
-    2
+    1
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -34,6 +39,37 @@ pub struct PulselineConfig {
     pub segments: SegmentsConfig,
     #[serde(default)]
     pub layout: LayoutSection,
+    #[serde(default)]
+    pub performance: PerformanceConfig,
+}
+
+fn default_transcript_window_events() -> usize {
+    400
+}
+fn default_transcript_poll_throttle_ms() -> u64 {
+    250
+}
+
+/// Transcript-parsing performance knobs. Defaults are tuned for the
+/// p95 < 50ms render budget; raise the window only if activity state
+/// looks stale after huge bursts, lower the throttle only for tests.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PerformanceConfig {
+    /// Max transcript events processed per invocation (0 = unlimited).
+    #[serde(default = "default_transcript_window_events")]
+    pub transcript_window_events: usize,
+    /// Min interval between transcript re-reads (0 = no throttle).
+    #[serde(default = "default_transcript_poll_throttle_ms")]
+    pub transcript_poll_throttle_ms: u64,
+}
+
+impl Default for PerformanceConfig {
+    fn default() -> Self {
+        Self {
+            transcript_window_events: default_transcript_window_events(),
+            transcript_poll_throttle_ms: default_transcript_poll_throttle_ms(),
+        }
+    }
 }
 
 fn default_layout_name() -> String {
@@ -79,6 +115,22 @@ pub struct LayoutSection {
     /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
     #[serde(default = "default_layout_ledger_dense")]
     pub ledger_dense: bool,
+    /// Hard cap on TOTAL output rows (chrome included). When exceeded the
+    /// height-degradation ladder collapses groups in order until the render
+    /// fits. `None` = unlimited (current behavior). Ledger is exempt (it
+    /// owns its pipeline) — use `ledger_dense` there.
+    #[serde(default)]
+    pub max_total_lines: Option<MaxTotalLines>,
+}
+
+/// TOML forms of `layout.max_total_lines`: an integer cap, or `"auto"`
+/// (cap derived from the detected terminal height so the statusline never
+/// eats more than ~25% of the terminal — see `auto_height_cap`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(untagged)]
+pub enum MaxTotalLines {
+    Cap(usize),
+    Mode(String),
 }
 
 impl Default for LayoutSection {
@@ -92,6 +144,7 @@ impl Default for LayoutSection {
             cc_margin: default_layout_cc_margin(),
             tonal_strata: default_layout_tonal_strata(),
             ledger_dense: default_layout_ledger_dense(),
+            max_total_lines: None,
         }
     }
 }
@@ -260,6 +313,14 @@ impl Default for IdentitySegmentConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConfigSegmentConfig {
+    /// Master toggle for the whole L2 config-counts row. Defaults to
+    /// `false`: the counts (CLAUDE.md / rules / memories / hooks / MCPs /
+    /// skills / plugins / duration) rarely change within a session, and
+    /// the row costs a full terminal line everywhere (plus an ENV group
+    /// in framed layouts). Set `enabled = true` to bring it back; the
+    /// individual `show_*` toggles below then apply as before.
+    #[serde(default)]
+    pub enabled: bool,
     #[serde(default = "default_true")]
     pub show_claude_md: bool,
     #[serde(default = "default_true")]
@@ -281,6 +342,7 @@ pub struct ConfigSegmentConfig {
 impl Default for ConfigSegmentConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             show_claude_md: true,
             show_rules: true,
             show_memory: true,
@@ -332,7 +394,7 @@ pub struct QuotaSegmentConfig {
     pub show_five_hour: bool,
     #[serde(default)]
     pub show_seven_day: bool,
-    /// Quota visual spec. Recognized: `text`, `bar`. Defers to layout
+    /// Quota visual spec. Recognized: `text`, `gauge`. Defers to layout
     /// default when empty (see `frames::default_visuals_for`).
     #[serde(default)]
     pub visual: String,
@@ -359,6 +421,12 @@ pub struct ToolSegmentConfig {
     pub max_completed: usize,
     #[serde(default = "default_max_completed_lines")]
     pub max_completed_lines: usize,
+    /// Tools visual spec. Recognized atoms (`+`-joined): `counts`
+    /// (completed-tool count rows), `targets` (running/recent tools row),
+    /// `ticker` (counts + running fused into ONE row — subsumes both).
+    /// Defers to the layout default when empty.
+    #[serde(default)]
+    pub visual: String,
 }
 
 impl Default for ToolSegmentConfig {
@@ -367,7 +435,8 @@ impl Default for ToolSegmentConfig {
             enabled: true,
             max_lines: 2,
             max_completed: 4,
-            max_completed_lines: 2,
+            max_completed_lines: 1,
+            visual: String::new(),
         }
     }
 }
@@ -376,7 +445,7 @@ impl Default for ToolSegmentConfig {
 pub struct AgentSegmentConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_max_lines")]
+    #[serde(default = "default_max_activity_lines")]
     pub max_lines: usize,
     /// Agent visual spec. Recognized atoms (`+`-joined): `description`,
     /// `model`. The agent's name (type or first description line) is
@@ -390,7 +459,7 @@ impl Default for AgentSegmentConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_lines: 2,
+            max_lines: 1,
             visual: String::new(),
         }
     }
@@ -400,15 +469,21 @@ impl Default for AgentSegmentConfig {
 pub struct SegmentToggle {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_max_lines")]
+    #[serde(default = "default_max_activity_lines")]
     pub max_lines: usize,
+    /// Todo visual spec. Recognized atoms (`+`-joined): `text` (item
+    /// text / task summary), `bar` (5-cell progress gauge of
+    /// completed/total). Defers to the layout default when empty.
+    #[serde(default)]
+    pub visual: String,
 }
 
 impl Default for SegmentToggle {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_lines: 2,
+            max_lines: 1,
+            visual: String::new(),
         }
     }
 }
@@ -444,7 +519,11 @@ pub fn load_config() -> PulselineConfig {
 /// Generate the default config file content.
 pub fn default_config_toml() -> &'static str {
     r#"[display]
-theme = "dark"          # tokyo-night | echo-sub-zero | dark | light
+theme = "dark"
+# Built-ins: tokyo-night | echo-sub-zero | titanium-precision | cnc-telemetry
+#            cyberdeck-hud | stark-hud | mako-reactor | aburaya-twilight
+#            matte-carbon-neon | pulseline-aurora
+# Legacy aliases: dark | light (tokyo-night with that variant)
 # variant = "dark"      # dark | light (overrides theme-implied variant)
 icons = true            # nerd font icons vs ascii
 
@@ -453,7 +532,7 @@ icons = true            # nerd font icons vs ascii
 # alert_red = 196       # alert/active/stable/indicator/cost tiers
 # strata_state = 238    # chrome on state rows (L1/L2/L3/Quota)
 # strata_activity = 103 # chrome on activity rows (Tools/Agents/Todos)
-# See docs/theme-palette.md for all 28 field names
+# See docs/theme-palette.md for all 34 field names
 
 [segments.identity]     # Line 1 — model, style, version, project, git
 show_model = true
@@ -468,6 +547,9 @@ show_effort = true      # effort level pill (low/medium/high/xhigh/max, CC 2.1.1
 show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
+# Master toggle. Default OFF: the counts rarely change within a session
+# and the row costs a full line (plus an ENV group in framed layouts).
+enabled = false
 show_claude_md = true
 show_rules = true
 show_memory = true
@@ -491,7 +573,7 @@ show_speed = false          # output tok/s rate
 context_visual = ""
 
 [segments.quota]            # Usage/quota tracking (subscription plans)
-enabled = false             # opt-in: requires OAuth credentials
+enabled = false             # opt-in: driven by CC's native rate_limits stdin field
 show_five_hour = true
 show_seven_day = false
 # visual: bar gauge or text. Empty (default) defers to the layout —
@@ -504,13 +586,18 @@ visual = ""
 
 [segments.tools]
 enabled = true
-max_lines = 2           # max running tools shown
+max_lines = 2           # max running tools shown (0 = hide the running-tools row)
 max_completed = 4       # max completed tool counts
-max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
+max_completed_lines = 1 # max rows of completed tools (overflow folds into ` +N` tail)
+# visual: `+`-joined atoms — `counts` (completed rows), `targets`
+# (running tools row), `ticker` (both fused into ONE row).
+#   visual = "counts+targets"   # layout default
+#   visual = "ticker"           # ✓ 25 tools | T:Bash: cargo test
+visual = ""
 
 [segments.agents]
 enabled = true
-max_lines = 2
+max_lines = 1
 # visual: `+`-joined atoms — `description`, `model`. The agent name
 # (type or first-line description) is always rendered.
 #   visual = "name"               # name + ×N (parallel grouping kept)
@@ -521,13 +608,21 @@ visual = ""
 
 [segments.todo]
 enabled = true
-max_lines = 2
+max_lines = 1
+# visual: `+`-joined atoms — `text` (item text), `bar` (5-cell progress
+# gauge of completed/total).
+#   visual = "text"        # layout default
+#   visual = "bar+text"    # TODO:▰▰─── fix the parser (1/3)
+visual = ""
 
 [layout]
 # Which renderer arranges the lines.
 #
 # Plain / decorated:
 #   "none"     — flat output, no grouping markers
+#   "compact"  — 1–2 rows total: identity+budget+quota fused on row 1,
+#                packed activity ticker on row 2 (only when active).
+#                Smallest footprint — never squeezes CC's footer.
 #   "zones"    — `─── activity ───` rule between state and activity (+1 row)
 #   "grid"     — fixed label column + │ + right-padded content (table layout)
 #   "sections" — single outer ╭─┬─╮ frame with ├─┼─┤ between groups
@@ -557,6 +652,19 @@ tonal_strata = true
 # / TOOL / AGENT+TODO). The bottom frame always closes flush against the
 # last content row regardless of this setting.
 ledger_dense = false
+
+# Hard cap on TOTAL statusline rows, frame chrome included. When the render
+# exceeds it, groups collapse in order (running tools → completed tools →
+# agents → todo → merged activity row → quota into L3 → drop config row)
+# until it fits. Unset = unlimited. Ledger ignores this (use ledger_dense).
+# "auto" derives the cap from the terminal height (~25%, clamped to 4–10).
+# max_total_lines = 6
+# max_total_lines = "auto"
+
+# ── Performance ──────────────────────────────────────────────────────
+# [performance]
+# transcript_window_events = 400    # max events parsed per tick (0 = unlimited)
+# transcript_poll_throttle_ms = 250 # min ms between transcript re-reads
 "#
 }
 
@@ -567,6 +675,7 @@ pub struct ProjectOverrideConfig {
     pub display: Option<ProjectDisplayOverride>,
     pub colors: Option<ColorsConfig>,
     pub segments: Option<ProjectSegmentsOverride>,
+    pub performance: Option<ProjectPerformanceOverride>,
     pub layout: Option<ProjectLayoutOverride>,
 }
 
@@ -580,6 +689,13 @@ pub struct ProjectLayoutOverride {
     pub cc_margin: Option<usize>,
     pub tonal_strata: Option<bool>,
     pub ledger_dense: Option<bool>,
+    pub max_total_lines: Option<MaxTotalLines>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProjectPerformanceOverride {
+    pub transcript_window_events: Option<usize>,
+    pub transcript_poll_throttle_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -616,6 +732,7 @@ pub struct ProjectIdentityOverride {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProjectConfigOverride {
+    pub enabled: Option<bool>,
     pub show_claude_md: Option<bool>,
     pub show_rules: Option<bool>,
     pub show_memory: Option<bool>,
@@ -651,6 +768,8 @@ pub struct ProjectToolOverride {
     pub max_lines: Option<usize>,
     pub max_completed: Option<usize>,
     pub max_completed_lines: Option<usize>,
+    /// Tools visual spec — see `ToolSegmentConfig::visual`.
+    pub visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -665,6 +784,8 @@ pub struct ProjectAgentOverride {
 pub struct ProjectSegmentToggleOverride {
     pub enabled: Option<bool>,
     pub max_lines: Option<usize>,
+    /// Todo visual spec — see `SegmentToggle::visual`.
+    pub visual: Option<String>,
 }
 
 /// Returns `{project_root}/.claude/pulseline.toml`
@@ -787,6 +908,9 @@ pub fn merge_configs(
             }
         }
         if let Some(config) = &segments.config {
+            if let Some(v) = config.enabled {
+                user.segments.config.enabled = v;
+            }
             if let Some(v) = config.show_claude_md {
                 user.segments.config.show_claude_md = v;
             }
@@ -856,6 +980,9 @@ pub fn merge_configs(
             if let Some(v) = tools.max_completed_lines {
                 user.segments.tools.max_completed_lines = v;
             }
+            if let Some(v) = &tools.visual {
+                user.segments.tools.visual = v.clone();
+            }
         }
         if let Some(agents) = &segments.agents {
             if let Some(v) = agents.enabled {
@@ -874,6 +1001,9 @@ pub fn merge_configs(
             }
             if let Some(v) = todo.max_lines {
                 user.segments.todo.max_lines = v;
+            }
+            if let Some(v) = &todo.visual {
+                user.segments.todo.visual = v.clone();
             }
         }
     }
@@ -902,6 +1032,18 @@ pub fn merge_configs(
         }
         if let Some(v) = layout.ledger_dense {
             user.layout.ledger_dense = v;
+        }
+        if let Some(v) = &layout.max_total_lines {
+            user.layout.max_total_lines = Some(v.clone());
+        }
+    }
+
+    if let Some(performance) = &project.performance {
+        if let Some(v) = performance.transcript_window_events {
+            user.performance.transcript_window_events = v;
+        }
+        if let Some(v) = performance.transcript_poll_throttle_ms {
+            user.performance.transcript_poll_throttle_ms = v;
         }
     }
 
@@ -1024,6 +1166,7 @@ pub fn default_project_config_toml() -> &'static str {
 # show_thinking = false
 
 # [segments.config]
+# enabled = true            # L2 row is opt-in (off by default)
 # show_memory = false
 # show_skills = false
 # show_plugins = false
@@ -1039,21 +1182,23 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [segments.tools]
 # enabled = true
-# max_lines = 2
+# max_lines = 2            # 0 = hide the running-tools row
 # max_completed = 4
-# max_completed_lines = 2
+# max_completed_lines = 1
+# visual = ""               # "counts+targets" | "ticker"
 
 # [segments.agents]
 # enabled = true
-# max_lines = 2
+# max_lines = 1
 # visual = ""               # "name" | "name+description" | "name+model" | "name+description+model"
 
 # [segments.todo]
 # enabled = true
-# max_lines = 2
+# max_lines = 1
+# visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Surviving layouts: "none" | "zones" | "grid" | "sections" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "zones" | "grid" | "sections" | "console" | "ledger"
 # name = "grid"
 # width_mode = "auto"       # "auto" | "terminal" | "fixed"
 # fixed_width = 100
@@ -1062,6 +1207,7 @@ pub fn default_project_config_toml() -> &'static str {
 # cc_margin = 4             # "terminal" mode: cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
+# max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal)
 "#
 }
 
@@ -1090,6 +1236,30 @@ pub enum WidthDegradeStrategy {
     DropActivityLinesFirst,
     CompressLine2,
     CompressCoreLines,
+}
+
+/// One rung of the height-degradation ladder. When the rendered output
+/// exceeds `max_total_lines`, rungs are enabled cumulatively in
+/// `height_degrade_order` until the render fits — volatile/low-info rows
+/// collapse first, core metrics last. Mirrors `WidthDegradeStrategy`
+/// (and like it, the order is a `RenderConfig` field, not a TOML knob).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HeightDegradeStrategy {
+    /// Drop the running/recent-tools row (volatile; tools resurface in
+    /// the completed counts once they finish).
+    DropRunningTools,
+    /// Force completed-tool counts onto one row (` +N` fold).
+    CollapseCompletedTools,
+    /// Force agent groups onto one row (` +N` fold).
+    CollapseAgents,
+    /// Force todo onto one row (counts already carry the hidden items).
+    CollapseTodo,
+    /// Fuse ALL activity into a single packed row.
+    MergeActivity,
+    /// Append compact quota (`5h:62%`) to L3 instead of its own row.
+    MergeQuotaIntoL3,
+    /// Drop the L2 config-counts row (static, lowest urgency).
+    DropLine2,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1135,6 +1305,10 @@ pub struct RenderConfig {
     pub quota_visual: String,
     /// Effective agents visual spec — atoms `description`, `model`.
     pub agents_visual: String,
+    /// Effective tools visual spec — atoms `counts`, `targets`, `ticker`.
+    pub tools_visual: String,
+    /// Effective todo visual spec — atoms `text`, `bar`.
+    pub todo_visual: String,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
@@ -1149,6 +1323,10 @@ pub struct RenderConfig {
     pub transcript_poll_throttle_ms: u64,
     pub terminal_width: Option<usize>,
     pub degrade_order: Vec<WidthDegradeStrategy>,
+    /// Hard cap on total output rows (chrome included); `None` = off.
+    /// Ledger is exempt — it owns its pipeline.
+    pub max_total_lines: Option<usize>,
+    pub height_degrade_order: Vec<HeightDegradeStrategy>,
     // Pane framing
     pub pane_style: LayoutStyle,
     pub pane_width_mode: PaneWidth,
@@ -1191,6 +1369,24 @@ impl RenderConfig {
             &self.agents_visual
         }
     }
+
+    /// See `effective_context_visual` — same fallback rule for tools.
+    pub fn effective_tools_visual(&self) -> &str {
+        if self.tools_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).tools_visual
+        } else {
+            &self.tools_visual
+        }
+    }
+
+    /// See `effective_context_visual` — same fallback rule for todo.
+    pub fn effective_todo_visual(&self) -> &str {
+        if self.todo_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).todo_visual
+        } else {
+            &self.todo_visual
+        }
+    }
 }
 
 impl Default for RenderConfig {
@@ -1227,11 +1423,13 @@ impl Default for RenderConfig {
             show_quota_seven_day: false,
             quota_visual: String::new(),
             agents_visual: String::new(),
+            tools_visual: String::new(),
+            todo_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
-            max_completed_lines: 2,
-            max_agent_lines: 2,
-            max_todo_lines: 2,
+            max_completed_lines: 1,
+            max_agent_lines: 1,
+            max_todo_lines: 1,
             show_tools: true,
             show_agents: true,
             show_todo: true,
@@ -1243,6 +1441,16 @@ impl Default for RenderConfig {
             // CompressCoreLines truncates L1/L2/L3 with `...`;
             // DropActivityLinesFirst is last — it removes activity entirely,
             // so it should only fire if compression alone can't make room.
+            max_total_lines: None,
+            height_degrade_order: vec![
+                HeightDegradeStrategy::DropRunningTools,
+                HeightDegradeStrategy::CollapseCompletedTools,
+                HeightDegradeStrategy::CollapseAgents,
+                HeightDegradeStrategy::CollapseTodo,
+                HeightDegradeStrategy::MergeActivity,
+                HeightDegradeStrategy::MergeQuotaIntoL3,
+                HeightDegradeStrategy::DropLine2,
+            ],
             degrade_order: vec![
                 WidthDegradeStrategy::CompressLine2,
                 WidthDegradeStrategy::CompressCoreLines,
@@ -1262,6 +1470,7 @@ impl Default for RenderConfig {
 fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         "none" => LayoutStyle::None,
+        "compact" => LayoutStyle::Compact,
         "zones" => LayoutStyle::Zones,
         "grid" => LayoutStyle::Grid,
         "sections" => LayoutStyle::Sections,
@@ -1272,15 +1481,15 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | zones | grid | sections | console | \
-                 ledger)"
+                 \"console\" (valid: none | compact | zones | grid | sections | \
+                 console | ledger)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | zones | grid | sections | console | ledger)"
+                 (valid: none | compact | zones | grid | sections | console | ledger)"
             );
             LayoutStyle::None
         }
@@ -1350,6 +1559,69 @@ fn detect_terminal_width() -> Option<usize> {
     resolve_terminal_width(env_columns.as_deref(), probe_ioctl_width())
 }
 
+/// Height twin of `resolve_terminal_width`: `LINES` env (exported to the
+/// statusline hook by CC 2.1.153+) wins, ioctl probe second.
+fn resolve_terminal_height(lines_env: Option<&str>, ioctl_probe: Option<u16>) -> Option<usize> {
+    if let Some(raw) = lines_env {
+        if let Ok(h) = raw.parse::<usize>() {
+            if h > 0 {
+                return Some(h);
+            }
+        }
+    }
+    ioctl_probe.map(|h| h as usize).filter(|h| *h > 0)
+}
+
+/// Height twin of `probe_ioctl_width` — same two-stage probe, reading the
+/// Height component instead.
+fn probe_ioctl_height() -> Option<u16> {
+    if let Some((_, terminal_size::Height(h))) = terminal_size::terminal_size() {
+        return Some(h);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        if let Ok(f) = std::fs::File::open("/dev/tty") {
+            if let Some((_, terminal_size::Height(h))) = terminal_size::terminal_size_of(f.as_fd())
+            {
+                return Some(h);
+            }
+        }
+    }
+    None
+}
+
+fn detect_terminal_height() -> Option<usize> {
+    let env_lines = std::env::var("LINES").ok();
+    resolve_terminal_height(env_lines.as_deref(), probe_ioctl_height())
+}
+
+/// `"auto"` cap: at most ~25% of the terminal, clamped to [4, 10] so tiny
+/// panes still show core metrics and tall monitors don't sprawl.
+fn auto_height_cap(terminal_height: usize) -> usize {
+    (terminal_height / 4).clamp(4, 10)
+}
+
+/// Resolve the TOML `max_total_lines` value into a concrete row cap.
+/// Unknown string modes warn and disable the cap (fail open — a typo must
+/// not suddenly truncate the user's statusline).
+fn resolve_max_total_lines(value: Option<&MaxTotalLines>) -> Option<usize> {
+    match value {
+        None => None,
+        Some(MaxTotalLines::Cap(n)) => Some(*n),
+        Some(MaxTotalLines::Mode(mode)) if mode.eq_ignore_ascii_case("auto") => {
+            detect_terminal_height().map(auto_height_cap)
+        }
+        Some(MaxTotalLines::Mode(unknown)) => {
+            eprintln!(
+                "warning: unknown layout.max_total_lines {unknown:?}; \
+                 expected an integer or \"auto\""
+            );
+            None
+        }
+    }
+}
+
 /// Build a RenderConfig from PulselineConfig + environment overrides.
 pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
     let color_enabled = std::env::var("NO_COLOR").is_err();
@@ -1390,14 +1662,17 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_effort: pulseline.segments.identity.show_effort,
         show_thinking: pulseline.segments.identity.show_thinking,
         // L2 config toggles
-        show_claude_md: pulseline.segments.config.show_claude_md,
-        show_rules: pulseline.segments.config.show_rules,
-        show_memory: pulseline.segments.config.show_memory,
-        show_hooks: pulseline.segments.config.show_hooks,
-        show_mcp: pulseline.segments.config.show_mcp,
-        show_skills: pulseline.segments.config.show_skills,
-        show_plugins: pulseline.segments.config.show_plugins,
-        show_duration: pulseline.segments.config.show_duration,
+        // L2 is opt-in: the master `enabled` gate zeroes every show_*
+        // toggle so the row (and framed layouts' ENV group) disappears.
+        show_claude_md: pulseline.segments.config.enabled
+            && pulseline.segments.config.show_claude_md,
+        show_rules: pulseline.segments.config.enabled && pulseline.segments.config.show_rules,
+        show_memory: pulseline.segments.config.enabled && pulseline.segments.config.show_memory,
+        show_hooks: pulseline.segments.config.enabled && pulseline.segments.config.show_hooks,
+        show_mcp: pulseline.segments.config.enabled && pulseline.segments.config.show_mcp,
+        show_skills: pulseline.segments.config.enabled && pulseline.segments.config.show_skills,
+        show_plugins: pulseline.segments.config.enabled && pulseline.segments.config.show_plugins,
+        show_duration: pulseline.segments.config.enabled && pulseline.segments.config.show_duration,
         // L3 budget toggles
         show_context: pulseline.segments.budget.show_context,
         show_tokens: pulseline.segments.budget.show_tokens,
@@ -1421,6 +1696,14 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
             &pulseline.segments.agents.visual,
             layout_visual_defaults.agents_visual,
         ),
+        tools_visual: resolve_visual_field(
+            &pulseline.segments.tools.visual,
+            layout_visual_defaults.tools_visual,
+        ),
+        todo_visual: resolve_visual_field(
+            &pulseline.segments.todo.visual,
+            layout_visual_defaults.todo_visual,
+        ),
         // Activity
         max_tool_lines: pulseline.segments.tools.max_lines,
         max_completed_tools: pulseline.segments.tools.max_completed,
@@ -1440,7 +1723,71 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_cc_margin: pulseline.layout.cc_margin,
         pane_tonal_strata: pulseline.layout.tonal_strata,
         pane_ledger_dense: pulseline.layout.ledger_dense,
+        max_total_lines: resolve_max_total_lines(pulseline.layout.max_total_lines.as_ref()),
+        transcript_window_events: pulseline.performance.transcript_window_events,
+        transcript_poll_throttle_ms: pulseline.performance.transcript_poll_throttle_ms,
         ..RenderConfig::default()
+    }
+}
+
+#[cfg(test)]
+mod terminal_height_tests {
+    use super::{auto_height_cap, resolve_max_total_lines, resolve_terminal_height, MaxTotalLines};
+
+    #[test]
+    fn lines_env_wins_over_ioctl() {
+        assert_eq!(resolve_terminal_height(Some("48"), Some(24)), Some(48));
+    }
+
+    #[test]
+    fn falls_back_to_ioctl_when_env_absent_or_bad() {
+        assert_eq!(resolve_terminal_height(None, Some(40)), Some(40));
+        assert_eq!(resolve_terminal_height(Some("bogus"), Some(40)), Some(40));
+        assert_eq!(resolve_terminal_height(Some("0"), Some(40)), Some(40));
+    }
+
+    #[test]
+    fn returns_none_when_both_sources_fail() {
+        assert_eq!(resolve_terminal_height(None, None), None);
+    }
+
+    #[test]
+    fn auto_cap_is_quarter_height_clamped() {
+        assert_eq!(auto_height_cap(48), 10); // 12 → clamped to 10
+        assert_eq!(auto_height_cap(32), 8);
+        assert_eq!(auto_height_cap(24), 6);
+        assert_eq!(auto_height_cap(10), 4); // 2 → clamped to 4
+    }
+
+    #[test]
+    fn integer_cap_passes_through() {
+        assert_eq!(
+            resolve_max_total_lines(Some(&MaxTotalLines::Cap(6))),
+            Some(6)
+        );
+        assert_eq!(resolve_max_total_lines(None), None);
+    }
+
+    #[test]
+    fn unknown_mode_fails_open() {
+        assert_eq!(
+            resolve_max_total_lines(Some(&MaxTotalLines::Mode("never".to_string()))),
+            None
+        );
+    }
+
+    #[test]
+    fn toml_accepts_integer_and_auto_forms() {
+        let int_form: super::PulselineConfig =
+            toml::from_str("[layout]\nmax_total_lines = 6\n").expect("int form parses");
+        assert_eq!(int_form.layout.max_total_lines, Some(MaxTotalLines::Cap(6)));
+
+        let auto_form: super::PulselineConfig =
+            toml::from_str("[layout]\nmax_total_lines = \"auto\"\n").expect("auto form parses");
+        assert_eq!(
+            auto_form.layout.max_total_lines,
+            Some(MaxTotalLines::Mode("auto".to_string()))
+        );
     }
 }
 

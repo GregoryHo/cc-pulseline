@@ -38,7 +38,9 @@
 
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::activity::budget::pack_with_separator;
-use crate::render::activity::builder::{build_agent_cells, ROW_SEPARATOR, ROW_SEPARATOR_W};
+use crate::render::activity::builder::{
+    build_agent_cells, TodoVisualSpec, ToolsVisualSpec, ROW_SEPARATOR, ROW_SEPARATOR_W,
+};
 use crate::render::activity::cell::CellPriority;
 use crate::render::activity::cells::recent_tool::target_strategy_for;
 use crate::render::activity::truncate;
@@ -205,7 +207,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         }
     }
     if config.show_todo {
-        if let Some(body) = todo_row_body(frame, p, ctx.color) {
+        if let Some(body) = todo_row_body(frame, config, p, ctx.color) {
             actors.push(framed_tag_row("TODO", &body, &ctx));
         }
     }
@@ -621,10 +623,17 @@ fn build_tool_rows(
     if !config.show_tools {
         return Vec::new();
     }
+    // Same `tools_visual` contract as the flat builder: `ticker` fuses
+    // everything onto one TOOL row; otherwise `counts`/`targets` gate
+    // their respective rows.
+    let spec = ToolsVisualSpec::parse(config.effective_tools_visual());
+    if spec.ticker {
+        return build_tool_ticker_row(frame, config, p, max_width, color);
+    }
     let mut rows: Vec<String> = Vec::with_capacity(1 + config.max_tool_lines.max(1));
 
     let counts = &frame.completed_tools;
-    if !counts.is_empty() {
+    if spec.show_counts && !counts.is_empty() {
         let parts: Vec<String> = counts
             .iter()
             .take(config.max_completed_tools.max(1))
@@ -640,6 +649,9 @@ fn build_tool_rows(
         }
     }
 
+    if !spec.show_targets {
+        return rows;
+    }
     let arrow_glyph = match config.glyph_mode {
         GlyphMode::Icon => ICON_RUNNING.0,
         GlyphMode::Ascii => ICON_RUNNING.1,
@@ -668,6 +680,67 @@ fn build_tool_rows(
     }
 
     rows
+}
+
+/// The tools `ticker` atom in ledger idiom: completed grand total plus
+/// running tools fused onto ONE row joined by `ITEM_GAP`. Only the first
+/// running tool keeps its (truncated) target so the row stays bounded;
+/// later tools render name-only.
+fn build_tool_ticker_row(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    max_width: usize,
+    color: bool,
+) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut used = 0usize;
+
+    if !frame.completed_tools.is_empty() {
+        let total: u64 = frame.completed_tools.iter().map(|c| c.count as u64).sum();
+        let noun = if total == 1 { "tool" } else { "tools" };
+        let check = colorize("\u{2713}", &p.completed_check, color);
+        let label = colorize(&format!(" {total} {noun}"), &p.completed_check, color);
+        used += 2 + total.to_string().len() + 1 + noun.len();
+        parts.push(format!("{check}{label}"));
+    }
+
+    let arrow_glyph = match config.glyph_mode {
+        GlyphMode::Icon => ICON_RUNNING.0,
+        GlyphMode::Ascii => ICON_RUNNING.1,
+    };
+    let arrow_w = visible_width(arrow_glyph) + 1;
+    let shown: Vec<&crate::types::ToolSummary> = frame
+        .tools
+        .iter()
+        .take(config.max_tool_lines.max(1))
+        .collect();
+    // Account for every name cell up front so the first tool's target
+    // budget already reserves room for the cells that follow it.
+    for t in &shown {
+        used += ITEM_GAP_W + arrow_w + t.name.chars().count();
+    }
+    for (i, t) in shown.iter().enumerate() {
+        let arrow = colorize(arrow_glyph, p.tool_blue(), color);
+        let name = colorize(&t.name, p.tool_blue(), color);
+        let target = match (&t.target, i) {
+            (Some(tgt), 0) => {
+                let safe = crate::render::fmt::sanitize_single_line(tgt);
+                let budget = max_width.saturating_sub(used + ITEM_GAP_W + RIGHT_MARGIN);
+                let (strategy, _ideal) = target_strategy_for(&t.name);
+                let truncated = truncate::apply(strategy, &safe, budget);
+                format!("{ITEM_GAP}{}", colorize(&truncated, &p.secondary, color))
+            }
+            _ => String::new(),
+        };
+        parts.push(format!("{arrow} {name}{target}"));
+    }
+
+    if parts.is_empty() {
+        Vec::new()
+    } else {
+        vec![parts.join(ITEM_GAP)]
+    }
 }
 
 /// Build per-row strings for the AGENT block by delegating to
@@ -727,8 +800,14 @@ fn build_agent_rows(
         .collect()
 }
 
-fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<String> {
+fn todo_row_body(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p: &ThemePalette,
+    color: bool,
+) -> Option<String> {
     let todo = frame.todo.as_ref()?;
+    let spec = TodoVisualSpec::parse(config.effective_todo_visual());
     let agent_suffix =
         crate::render::fmt::sub_agent_suffix(todo.sub_agent_count, &p.structural, color);
     if todo.all_done {
@@ -740,9 +819,25 @@ fn todo_row_body(frame: &RenderFrame, p: &ThemePalette, color: bool) -> Option<S
         ));
     }
     let done = todo.completed.max(todo.total.saturating_sub(todo.pending));
-    let body = format!("{}/{} done · {} pending", done, todo.total, todo.pending);
+    // `bar` atom: same 5-cell completed/total gauge as the flat builder.
+    let bar = if spec.show_bar && todo.total > 0 {
+        let pct = (done as u64) * 100 / (todo.total as u64);
+        let g = widgets::gauge::render(pct, 5, &[], p.todo_teal(), p, config.glyph_mode, color);
+        if g.is_empty() {
+            String::new()
+        } else {
+            format!("{g} ")
+        }
+    } else {
+        String::new()
+    };
+    let body = if spec.show_text {
+        format!("{}/{} done · {} pending", done, todo.total, todo.pending)
+    } else {
+        format!("{}/{}", done, todo.total)
+    };
     Some(format!(
-        "{}{}",
+        "{bar}{}{}",
         colorize(&body, p.todo_teal(), color),
         agent_suffix
     ))

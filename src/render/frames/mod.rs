@@ -35,6 +35,11 @@ pub struct SegmentVisualDefaults {
     /// agent name is always rendered; `description` adds the body line
     /// and `model` adds a `[haiku]`-style slack tail.
     pub agents_visual: &'static str,
+    /// Tools visual spec — atoms `counts` (completed-count rows),
+    /// `targets` (running tools row), `ticker` (both fused on one row).
+    pub tools_visual: &'static str,
+    /// Todo visual spec — atoms `text`, `bar` (5-cell progress gauge).
+    pub todo_visual: &'static str,
 }
 
 /// Per-layout default visual specs.
@@ -52,6 +57,19 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",
             agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "text",
+        },
+        // Compact fuses everything onto 1–2 rows — every cell competes
+        // for the same row, so agents show their name only. The tools
+        // spec is informational here: compact always renders the fused
+        // inline activity row.
+        LayoutStyle::Compact => SegmentVisualDefaults {
+            context_visual: "text",
+            quota_visual: "text",
+            agents_visual: "name",
+            tools_visual: "ticker",
+            todo_visual: "text",
         },
         // Framed layouts — quota bar appears by default; CTX bar still
         // opt-in (CTX has more competing data — adding the bar there
@@ -60,6 +78,8 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "gauge",
             agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "text",
         },
         // Ledger ships sparkline on the CTX row + bar on the quota row.
         // The TAG-column rhythm has natural space for both.
@@ -67,6 +87,8 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             context_visual: "text+sparkline",
             quota_visual: "gauge",
             agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "text",
         },
     }
 }

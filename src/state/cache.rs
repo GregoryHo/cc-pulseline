@@ -34,6 +34,8 @@ pub struct SessionCache {
     pub active_agents: Vec<AgentSummary>,
     pub completed_agents: Vec<AgentSummary>,
     pub completed_tool_counts: HashMap<String, (u32, u64)>,
+    #[serde(default)]
+    pub completed_tool_failures: HashMap<String, u32>,
     pub todo: Option<TodoSummary>,
     // Agent linking
     #[serde(default)]
@@ -60,6 +62,11 @@ pub struct SessionCache {
     // Per-sub-agent tail offsets + task state.
     #[serde(default)]
     pub sub_agents: HashMap<String, SubAgentTranscriptState>,
+    // Compaction and API-error state
+    #[serde(default)]
+    pub compact_count: u32,
+    #[serde(default)]
+    pub last_api_error_ms: Option<u64>,
     // Env/Git with timestamps
     pub env: Option<CacheEntry<EnvSnapshot>>,
     pub git: Option<CacheEntry<GitSnapshot>>,

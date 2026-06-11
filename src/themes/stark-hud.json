@@ -80,7 +80,10 @@
     "aurora_low": 59,
     "aurora_mid": 74,
     "aurora_high": 214,
-    "tag_label": 238
+    "tag_label": 238,
+    "active_cyan": 38,
+    "indicator_skills": 75,
+    "indicator_duration": 75
   },
 
   "design_notes": {

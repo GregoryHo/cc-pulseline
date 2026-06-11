@@ -173,6 +173,7 @@ fn ledger_renders_tools_with_one_running_per_row() {
         name: "Read".to_string(),
         count: 2,
         last_completed_at: None,
+        failed: 0,
     }];
     let mut c = cfg(140);
     c.max_tool_lines = 4; // raise so both running tools show
@@ -198,6 +199,9 @@ fn ledger_renders_agent_block() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -222,6 +226,9 @@ fn ledger_completed_single_agent_renders_done_check() {
         completed_at: Some(2000),
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
     let blob = lines.join("\n");
@@ -247,6 +254,9 @@ fn ledger_respects_agents_visual_name_only() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut c = cfg(140);
     c.agents_visual = "name".to_string();
@@ -286,6 +296,9 @@ fn ledger_keeps_newest_active_under_cap() {
             completed_at: None,
             message_id: Some(format!("msg_{id}")), // unique → stays Single,
             agent_id: None,
+            total_duration_ms: None,
+            total_tokens: None,
+            total_tool_use_count: None,
         });
     }
     let mut c = cfg(140);
@@ -583,6 +596,7 @@ fn ledger_no_trailing_blank_when_tools_last() {
         name: "Read".to_string(),
         count: 3,
         last_completed_at: None,
+        failed: 0,
     }];
     let mut c = cfg(140);
     c.show_agents = false;
@@ -620,6 +634,9 @@ fn ledger_dense_drops_all_inter_group_blanks() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let mut c = cfg(140);
     c.pane_ledger_dense = true;
@@ -662,6 +679,9 @@ fn ledger_dense_false_preserves_legacy_spacing() {
         completed_at: None,
         message_id: None,
         agent_id: None,
+        total_duration_ms: None,
+        total_tokens: None,
+        total_tool_use_count: None,
     });
     let lines = render_frame(&f, &cfg(140));
 
@@ -678,4 +698,83 @@ fn ledger_dense_false_preserves_legacy_spacing() {
         !is_blank_inner_row(above_bottom),
         "row above bottom frame must NOT be blank: {above_bottom:?}"
     );
+}
+
+// ── tools_visual / todo_visual spec compliance ───────────────────────
+
+#[test]
+fn ledger_tools_ticker_fuses_to_one_tool_row() {
+    let mut f = frame_basic();
+    f.completed_tools = vec![
+        cc_pulseline::types::CompletedToolCount {
+            name: "Bash".to_string(),
+            count: 12,
+            last_completed_at: None,
+            failed: 0,
+        },
+        cc_pulseline::types::CompletedToolCount {
+            name: "Read".to_string(),
+            count: 8,
+            last_completed_at: None,
+            failed: 0,
+        },
+    ];
+    f.tools = vec![cc_pulseline::types::ToolSummary {
+        id: "t1".to_string(),
+        name: "Bash".to_string(),
+        target: Some("cargo test".to_string()),
+    }];
+    let config = RenderConfig {
+        tools_visual: "ticker".to_string(),
+        ..cfg(120)
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&f, &config);
+    let tool_rows: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains("TOOL") || l.contains("20 tools"))
+        .collect();
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("20 tools"),
+        "ticker grand total expected: {blob}"
+    );
+    assert!(
+        blob.contains("cargo test"),
+        "first running tool keeps target: {blob}"
+    );
+    // Grand total and running tool share ONE row.
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("20 tools") && l.contains("Bash")),
+        "ticker must fuse onto one row: {blob}"
+    );
+    drop(tool_rows);
+}
+
+#[test]
+fn ledger_todo_bar_renders_progress_gauge() {
+    let mut f = frame_basic();
+    f.todo = Some(cc_pulseline::types::TodoSummary {
+        text: String::new(),
+        pending: 3,
+        completed: 2,
+        total: 5,
+        in_progress_items: vec![],
+        all_done: false,
+        is_task_api: true,
+        sub_agent_count: None,
+    });
+    let config = RenderConfig {
+        todo_visual: "bar+text".to_string(),
+        ..cfg(120)
+    };
+    let lines = cc_pulseline::render::layout::render_frame(&f, &config);
+    let blob = lines.join("\n");
+    // 2/5 = 40% on a 5-cell icon gauge → ▰▰───.
+    assert!(
+        blob.contains("\u{25B0}\u{25B0}"),
+        "todo gauge expected in ledger: {blob}"
+    );
+    assert!(blob.contains("2/5 done"), "text atom kept: {blob}");
 }
