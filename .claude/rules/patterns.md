@@ -75,7 +75,7 @@ RenderConfig.context_visual ("gauge+sparkline")
 - **Layouts never call `widgets::*::render` directly** — always go through the hub. Direct calls bypass user override capability for that segment.
 - **Layout-specific decoration** (e.g. console's `/ <total>` after CTX) is composed *around* the hub output, not inside any widget.
 - **Width budgeting** stays in the layout. The layout passes its preferred sizing (e.g. `FULL_GAUGE_WIDTH`) into the hub; the hub passes it through to widgets unchanged.
-- **Layout-internal width gates** (e.g. cockpit drops sparkline below 100 cols) act on the spec *before* dispatch, not by branching on widget output.
+- **Layout-internal width gates** (e.g. a layout dropping sparkline below 100 cols) act on the spec *before* dispatch, not by branching on widget output.
 
 ### Adding a hub for a new segment
 

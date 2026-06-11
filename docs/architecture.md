@@ -114,7 +114,7 @@ Persists `SessionState` across process invocations:
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
-- Per-segment visual specs (`context_visual`, `quota_visual`, `agents_visual`) — see `docs/layouts.md`
+- Per-segment visual specs for context, quota, agents, tools, and todo — see `docs/layouts.md` for the full set
 
 Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pulseline.toml` (project override).
 
@@ -143,13 +143,13 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/widgets/` -- Atomic Widgets
 
-`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======...:--:--` in Ascii) and `sparkline` (braille, icon-only). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
+`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======:::--:--` in Ascii) and `sparkline` (braille, icon-only). Signatures differ per widget — see the doc comments in `widgets/*.rs`. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
-## Transcript Three-Path Dispatcher
+## Transcript Two-Path Dispatcher
 
-The transcript collector uses a three-path dispatcher to handle different JSONL formats from Claude Code:
+Before JSON parsing, a byte-level pre-filter (`is_ignored_metadata_line`) skips metadata lines (`attachment`/bookkeeping payloads) — these are disproportionately the largest lines, and skipping them roughly halves parse cost on busy sessions. Surviving lines flow through a two-path dispatcher (`apply_transcript_event`):
 
 ```
     Transcript Line Dispatcher
@@ -162,10 +162,6 @@ The transcript collector uses a three-path dispatcher to handle different JSONL 
     |         |               |
     |   type == "progress"?   +--yes--> Path 2: Agent Progress
     |         |               |         * agent_progress -> upsert/remove
-    |         no              |
-    |         |               |
-    |   type == "tool_use"?   +--yes--> Path 3: Flat Fallback
-    |         |               |         * old-style tool lifecycle
     |         no              |
     |         v               |
     |      (skip line)        |
@@ -185,12 +181,6 @@ Agent lifecycle events arrive as progress-type messages:
 
 - `{type: "progress", data: {type: "agent_progress", agentId, status, prompt, agentType}}`
 - Status transitions: `started` -> upsert agent, `completed` -> remove and record
-
-### Path 3: Flat Format Fallback
-
-Backward compatibility with older transcript formats and test fixtures:
-
-- `{type: "tool_use", name, tool_use_id}` -- Simple tool lifecycle without nested content
 
 ## Session State Lifecycle
 

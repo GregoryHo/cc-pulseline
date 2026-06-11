@@ -183,8 +183,9 @@ rows separate logical groups. Tallest layout.
 ╰─────────────────────────────────────────────────────────────────────────╯
 ```
 
-The CTX row is the only row with a sparkline (and the only place in the
-codebase the sparkline is rendered). Its color carries CTX consumption
+The CTX row is the only row with a sparkline (ledger is the only layout
+that ships the sparkline by default — any layout can opt in via
+`context_visual`). Its color carries CTX consumption
 **velocity**, picked from the aurora palette stops:
 
 | Velocity (% / min) | Color |
@@ -233,13 +234,13 @@ TOOL, and AGENT+TODO groups).
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
-context, cost, quota, and tools segments live on a separate axis: the
+context, quota, tools, and todo segments live on a separate axis: the
 `*_visual` config fields. The user's TOML overrides the layout's
 default; otherwise the layout's default applies.
 
 This is **Variation B** from the design process: each layout asserts a
 tasteful default so the out-of-the-box experience preserves its
-identity (cockpit looks like cockpit, none looks like none), but every
+identity (ledger looks like ledger, none looks like none), but every
 visual decision is overridable per segment.
 
 ### Spec syntax
@@ -259,7 +260,7 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |

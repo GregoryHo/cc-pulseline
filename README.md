@@ -37,7 +37,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ## Features
 
-- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity (6 layouts from flat to label-value `ledger`)
+- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity (layouts from flat to label-value `ledger` — see [docs/layouts.md](docs/layouts.md) for the catalog)
 - **Incremental transcript parsing** — Seek-based JSONL parsing with per-session offsets
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
@@ -118,6 +118,7 @@ show_project = true
 show_git = true
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
+enabled = true          # L2 row is opt-in (off by default)
 show_claude_md = true
 show_rules = true
 show_memory = true
@@ -135,7 +136,7 @@ show_cost = true
 enabled = true
 max_lines = 2           # max running tools shown
 max_completed = 4       # max completed tool counts
-max_completed_lines = 2 # max rows of completed tools (overflow → `… + N more tools`)
+max_completed_lines = 1 # max rows of completed tools (overflow folds into a ` +N` tail)
 
 [segments.agents]
 enabled = true
@@ -170,51 +171,18 @@ Recognized widgets: `gauge`, `sparkline`, `text` for context; `gauge`, `text` fo
 
 ## CLI Usage
 
+```bash
+cc-pulseline                    # render statusline from stdin JSON (empty stdin = {})
+cc-pulseline --init             # create user config (--init --project for project config)
+cc-pulseline --check            # validate config files
+cc-pulseline --print            # show effective merged config
+cc-pulseline --preview          # preview themes (optional theme names)
+cc-pulseline --preview-layouts  # preview every layout (optional widths)
+cc-pulseline --select-theme     # interactively select and apply a theme (--project for project config)
+cc-pulseline --palette-map      # show palette field → UI element mapping (optional theme)
 ```
-cc-pulseline 1.1.5 - High-performance Claude Code statusline
 
-USAGE:
-    cc-pulseline [OPTIONS]
-    echo '{"model":...}' | cc-pulseline
-
-OPTIONS:
-    -h, --help       Show this help message
-    -V, --version    Show version
-    --init           Create user config (~/.claude/pulseline/config.toml)
-    --init --project Create project config (.claude/pulseline.toml)
-    --check          Validate config files
-    --print          Show effective merged config
-    --preview [THEME ...] Preview theme(s). No args = all presets.
-                     Example: --preview tokyo-night echo-sub-zero
-    --select-theme   Interactively select and apply a theme
-    --select-theme --project  Select theme for project config
-    --palette-map [THEME]  Show palette field → UI element mapping
-                     Example: --palette-map echo-sub-zero
-
-RUNTIME:
-    Reads Claude Code statusline JSON from stdin, outputs formatted lines.
-    Empty stdin defaults to {}.
-
-CONFIG FILES:
-    User:    ~/.claude/pulseline/config.toml
-    Project: {project}/.claude/pulseline.toml
-
-ENVIRONMENT:
-    NO_COLOR    Disable color output
-    COLUMNS     Terminal width for layout degradation
-
-THEMES:
-    tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
-    pulseline-aurora    Aurora-pulse flagship: 3-stop velocity gradient
-    echo-sub-zero       Mono-accent minimalist, 3-stage signaling
-    titanium-precision  Industrial steel blues, amber warnings, brick reds
-    cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
-    cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
-    stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
-    mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
-    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
-    matte-carbon-neon   Industrial tech: grayscale chrome, piercing neon accents
-```
+Run `cc-pulseline --help` for the full option reference and the built-in theme list.
 
 ## Environment Variables
 
@@ -285,7 +253,7 @@ Run `cc-pulseline --check` to validate your config files and `cc-pulseline --pri
 
 | Guide                                          | Description                                                                            |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [Architecture](docs/architecture.md)           | Pipeline design, module responsibilities, transcript three-path dispatcher             |
+| [Architecture](docs/architecture.md)           | Pipeline design, module responsibilities, transcript two-path event dispatcher         |
 | [Metrics Reference](docs/metrics-reference.md) | Per-metric data sources, parsing methods, cache strategies, and output examples        |
 | [Theme & Palette](docs/theme-palette.md)       | 256-color system specification, emphasis tiers, and color-annotated rendering examples |
 | [Benchmarks](docs/benchmarks.md)               | Performance methodology and Criterion benchmark results                                |

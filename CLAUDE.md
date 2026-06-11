@@ -28,6 +28,7 @@ cc-pulseline --init --project # Create project config (.claude/pulseline.toml)
 cc-pulseline --check          # Validate config files
 cc-pulseline --print          # Show effective merged config
 cc-pulseline --preview        # Preview all themes (or --preview theme1 theme2)
+cc-pulseline --preview-layouts # Preview all layouts (optional widths, default 140)
 cc-pulseline --select-theme   # Interactively select and apply a theme
 cc-pulseline --palette-map    # Show palette field → UI element mapping
 ```
@@ -70,7 +71,7 @@ stdin JSON → StdinPayload (deserialize)
   - `layout.rs` — Assembles the `RenderFrame` into output lines (L1: identity, L2: config counts — opt-in, L3: budget, L4+: activity). Applies `WidthDegradeStrategy` when `terminal_width` is set: drop activity lines → compress line 2 → truncate core lines. When `max_total_lines` is set (integer or `"auto"` = ~25% of terminal height from `LINES`/ioctl), a `HeightDegradeStrategy` ladder re-assembles with cumulative collapses (drop running tools → completed/agents/todo to 1 row each → fuse activity into one row → quota into L3 → drop L2 → fuse-core: identity+budget+quota into the compact head row → hard truncate); chrome rows count against the cap; Ledger is exempt (use `ledger_dense`). Note compact ≠ none + `max_total_lines = 2`: idle, the ladder stops early (L1 / L3+quota on separate rows) and FuseCore is never reached. Single pipeline: every layout except `Ledger` flows through here and is decorated by `apply_pane()`; `Ledger` owns its full pipeline because the TAG-column rhythm doesn't compose via `apply_pane`; `Compact` short-circuits to its own 2–3 row assembly inside the flat pipeline.
   - `pane.rs` — `LayoutStyle` enum (4 variants: `None`/`Compact`/`Console`/`Ledger`) + `PaneConfig` chrome wrapper. `apply_pane()` decorates the assembled lines with frame chrome.
   - `frames/` — Per-layout `render()` fns: `console`, `ledger`. `console` renders the single outer `╭─...─╮` frame with `├─┼─┤` group separators and the Identity row hoisted into the top frame title. `frames/shared.rs` holds the box-drawing glyphs, label/content padding, identity headline, config row, and the per-segment dispatch hubs (`render_context_visual` and `render_quota_visual` — each maps a `+`-joined visual spec onto `widgets::gauge::render` / `widgets::sparkline::render` / inline text cells). `frames/mod.rs::default_visuals_for(LayoutStyle)` is the per-layout `*_visual` defaults table.
-  - `widgets/` — Atomic widget renderers: `gauge` (bracketless marks-on-track — `▰` filled / `─` empty / `·` threshold marks in Icon mode, `=` / `-` / `:` in Ascii) and `sparkline` (braille, icon-only — caller picks the fill color). Both take `(data, …, marks, mode, palette, color)` shape; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly. `gauge`'s `width` is the visible cell count (no frame); caller supplies threshold marks (CTX → `ThemePalette::ctx_marks()` = `[55, 70]`; quota → `[50, 85]`).
+  - `widgets/` — Atomic widget renderers: `gauge` (bracketless marks-on-track — `▰` filled / `─` empty / `·` threshold marks in Icon mode, `=` / `-` / `:` in Ascii) and `sparkline` (braille, icon-only — caller picks the fill color). Signatures differ per widget — see `widgets/*.rs`; ascii-incompatible widgets return `""` so dispatch hubs drop them cleanly. `gauge`'s `width` is the visible cell count (no frame); caller supplies threshold marks (CTX → `ThemePalette::ctx_marks()` = `[55, 70]`; quota → `[50, 85]`).
   - `color.rs` — `ThemePalette` struct (34 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
@@ -106,7 +107,7 @@ Tests are integration-level in `tests/` and use `tempfile::TempDir` for filesyst
 - **`core_metrics.rs`** — Creates a real git repo + config files in a tempdir, calls `run_from_str()`, asserts output content
 - **`activity_pipeline.rs`** — Uses `PulseLineRunner` with incremental transcript appending to test tool/agent/todo lifecycle
 - **`adaptive_performance.rs`** — Tests width degradation and rendering performance budgets
-- **`height_degrade.rs`** — Tests `max_total_lines` + the `HeightDegradeStrategy` ladder and the `compact` layout's 1–2 row contract
+- **`height_degrade.rs`** — Tests `max_total_lines` + the `HeightDegradeStrategy` ladder and the `compact` layout's 2–3 row contract (idle = 2)
 - **`smoke_cli.rs`** — Spawns the actual binary with `CARGO_BIN_EXE_cc-pulseline`, pipes fixture JSON via stdin
 - **`cli_flags.rs`** — Tests `--init`, `--check`, `--print` CLI flag behavior
 - **`config_merge.rs`** — Tests user + project config deep merge logic

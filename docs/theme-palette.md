@@ -145,7 +145,7 @@ For backward compatibility, old names map to the new tier system:
 
 **Removed**: `PROJECT_CYAN` (51), `COST_GOLD` (220), `RATE_YELLOW` (226) -- replaced by emphasis tiers and rate-based cost coloring.
 
-## Tier Summary (8 types, 34 unique fields)
+## Tier Summary (34 fields — the `ThemePalette` struct in `src/render/color.rs` is the source of truth)
 
 | Tier | Colors | Purpose | Status |
 |------|--------|---------|--------|
@@ -154,9 +154,11 @@ For backward compatibility, old names map to the new tier system:
 | STABLE | 2 (111/71) | Static identity | Unchanged |
 | INDICATOR | 7 (109/108/182/179/139/73/174) | L2 metric-specific anchoring | Unchanged |
 | Emphasis | 4x2 themes | Gray hierarchy | Unchanged |
+| Completed | 1 (67) | `✓` completed tools/agents/todos | Unchanged |
 | Cost | 4 (222/186/221/201) | Rate-based | Unchanged |
 | Strata | 2x2 themes (state/activity) | Per-row separator chrome | Added in 1.1.0 |
 | Aurora | 3 (low/mid/high) | Sparkline velocity gradient on ledger CTX | **Added in 1.1.0** |
+| Ledger/head accents | 3 (tag_label/head_agent/head_thinking) | Ledger TAG column, L1 `AG:` pill, `[T]` thinking pill | Added in 1.1.1 |
 
 ## Element Mapping
 
@@ -224,7 +226,7 @@ ASCII mode — L1 through L5 with every color annotated:
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
 [primary(251)]1 [structural(103)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
 [STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
-[structural(103)]Q:[secondary(146)]Pro [secondary]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(103)]resets 2h 0m[separator])
+[structural(103)]Q: [secondary(146)]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(103)]resets 2h 0m[separator])
 [COMPLETED_CHECK(67)]✓ Read [secondary(146)]×12 [separator(238)]| [COMPLETED_CHECK]✓ Bash [secondary]×5 [separator]| [COMPLETED_CHECK]✓ Edit [secondary]×3
 [ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test
 [ACTIVE_PURPLE(183)]A:Explore [structural(103)][haiku][ACTIVE_PURPLE]: [secondary(146)]Investigating auth logic [separator(238)]([structural]2m[separator])
@@ -566,7 +568,7 @@ Set all 7 `indicator_*` fields to `emphasis_structural`. Icons blend with labels
 **Rainbow icons** (tokyo-night):
 Each `indicator_*` gets a unique muted accent color for fast visual scanning.
 
-**Invisible "good" state** (cyberdeck-hud, cc-vanguard-telemetry):
+**Invisible "good" state** (cyberdeck-hud, cnc-telemetry):
 Set `stable_green` very dark. "Good" context percentage vanishes — only warnings and critical states draw attention.
 
 3. Optionally add `light_emphasis` for light terminal backgrounds. The four
