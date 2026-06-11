@@ -877,6 +877,19 @@ fn print_palette_map(theme_arg: Option<&str>) {
 }
 
 fn print_help() {
+    // Generated from theme_descriptions() so new themes can't be forgotten.
+    let themes = theme_descriptions()
+        .into_iter()
+        .map(|(name, desc)| {
+            let tag = if name == "tokyo-night" {
+                " (default)"
+            } else {
+                ""
+            };
+            format!("    {name:<20}{desc}{tag}").trim_end().to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     println!(
         "cc-pulseline {VERSION} - High-performance Claude Code statusline
 
@@ -912,14 +925,6 @@ ENVIRONMENT:
     COLUMNS     Terminal width for layout degradation
 
 THEMES:
-    tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
-    echo-sub-zero       Mono-accent minimalist, 3-stage signaling
-    titanium-precision  Industrial steel blues, amber warnings, brick reds
-    cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
-    cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
-    stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
-    mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
-    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
-    matte-carbon-neon   Industrial tech: grayscale chrome, piercing neon accents"
+{themes}"
     );
 }

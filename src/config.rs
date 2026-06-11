@@ -359,7 +359,7 @@ pub struct BudgetSegmentConfig {
     /// CTX visual spec — `"+"` separated widget names. Recognized:
     /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
     /// (see `frames::default_visuals_for`).
-    /// Examples: `"gauge+sparkline"` (cockpit default), `"text"` (flat
+    /// Examples: `"text+sparkline"` (ledger default), `"text"` (flat
     /// layouts default), `"gauge"` (text-free dashboard).
     #[serde(default)]
     pub context_visual: String,
@@ -1195,12 +1195,6 @@ pub fn default_project_config_toml() -> &'static str {
 pub enum GlyphMode {
     Ascii,
     Icon,
-}
-
-impl GlyphMode {
-    pub fn is_icon(self) -> bool {
-        matches!(self, GlyphMode::Icon)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

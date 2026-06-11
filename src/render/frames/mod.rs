@@ -89,13 +89,3 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
         },
     }
 }
-
-/// Resolve a user's `*_visual` config string against the layout default:
-/// empty user value → use the default; otherwise the user value wins.
-pub fn resolve_visual<'a>(user_value: &'a str, default_value: &'a str) -> &'a str {
-    if user_value.is_empty() {
-        default_value
-    } else {
-        user_value
-    }
-}

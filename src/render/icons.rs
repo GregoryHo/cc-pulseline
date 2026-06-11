@@ -20,7 +20,6 @@ pub const ICON_AGENT_DONE: &str = "✓";
 pub const ICON_GROUP_PARALLEL: (&str, &str) = ("\u{2016}", "||");
 pub const ICON_TODO: &str = "\u{f0c8}";
 pub const ICON_QUOTA: &str = "\u{f080}"; // nf-fa-bar_chart (usage/quota)
-pub const ICON_SPEED: &str = "\u{f0e4}"; // nf-fa-tachometer (output speed)
 
 // Token type icons
 pub const ICON_TOKEN_INPUT: &str = "\u{f093}";
