@@ -73,7 +73,7 @@ fn version_flag_shows_version() {
         stdout.contains("cc-pulseline"),
         "should contain binary name"
     );
-    assert!(stdout.contains("1.1.5"), "should contain version number");
+    assert!(stdout.contains("1.2.0"), "should contain version number");
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn short_version_flag_works() {
     assert!(output.status.success(), "should exit 0");
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
-        stdout.contains("cc-pulseline 1.1.5"),
+        stdout.contains("cc-pulseline 1.2.0"),
         "should show name and version"
     );
 }
@@ -239,6 +239,38 @@ fn palette_map_with_theme_arg() {
         "should show requested theme name"
     );
     assert!(stdout.contains("emphasis_primary"), "should list fields");
+}
+
+#[test]
+fn preview_layouts_renders_every_layout_with_body() {
+    let tmp = tempfile::TempDir::new().expect("tempdir");
+    let fake_home = tmp.path().to_str().unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_cc-pulseline"))
+        .args(["--preview-layouts", "100"])
+        .env("HOME", fake_home)
+        .env("NO_COLOR", "1")
+        .current_dir(tmp.path())
+        .output()
+        .expect("failed to run binary");
+
+    assert!(output.status.success(), "should exit 0");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    for layout in ["none", "compact", "console", "ledger"] {
+        for variant in ["busy", "idle"] {
+            let header = format!("── {layout} @ 100 cols ({variant}) ──");
+            let idx = lines
+                .iter()
+                .position(|l| *l == header)
+                .unwrap_or_else(|| panic!("missing header {header:?} in:\n{stdout}"));
+            assert!(
+                lines.get(idx + 1).is_some_and(|l| !l.trim().is_empty()),
+                "empty body under {header:?} in:\n{stdout}"
+            );
+        }
+    }
 }
 
 #[test]

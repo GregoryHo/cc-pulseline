@@ -183,9 +183,20 @@ pub struct Line1Metrics {
     pub thinking_enabled: Option<bool>,
 }
 
+impl Line1Metrics {
+    /// True when a real branch was resolved. `"unknown"` is the
+    /// `GitSnapshot::default()` sentinel produced outside a repository —
+    /// the git segment is hidden rather than rendering a literal "unknown".
+    pub fn has_git_branch(&self) -> bool {
+        !self.git_branch.is_empty() && self.git_branch != "unknown"
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Line2Metrics {
     pub claude_md_count: u32,
+    /// Root-level AGENTS.md presence (repo-root only, see `count_agents_md`).
+    pub agents_md_count: u32,
     pub rules_count: u32,
     pub hooks_count: u32,
     pub mcp_count: u32,
@@ -214,6 +225,21 @@ pub struct Line3Metrics {
 }
 
 impl Line3Metrics {
+    /// Cache hit rate as a percentage: `read / (input + creation + read)`.
+    ///
+    /// `None` means no cache signal at all (including the first-tick
+    /// `current_usage: null` case) — callers render dashes rather than a
+    /// misleading 0%.
+    pub fn cache_hit_pct(&self) -> Option<f64> {
+        let read = self.cache_read_tokens.unwrap_or(0);
+        let creation = self.cache_creation_tokens.unwrap_or(0);
+        if read + creation == 0 {
+            return None;
+        }
+        let denom = self.input_tokens.unwrap_or(0) + creation + read;
+        Some(read as f64 * 100.0 / denom as f64)
+    }
+
     /// Returns true if any field has a value (not all None).
     pub fn has_data(&self) -> bool {
         self.context_window_size.is_some()
@@ -452,6 +478,7 @@ impl RenderFrame {
             },
             line2: Line2Metrics {
                 claude_md_count: 0,
+                agents_md_count: 0,
                 rules_count: 0,
                 memory_count: 0,
                 hooks_count: 0,

@@ -69,6 +69,36 @@ fn ledger_renders_framed_at_140_cols() {
 }
 
 #[test]
+fn ledger_tok_row_appends_hit_rate() {
+    // frame_basic: read=114.5k, creation=5.7k, input=1
+    // → hit = 114_500 / (1 + 5_700 + 114_500) ≈ 95%.
+    let f = frame_basic();
+    let lines = render_frame(&f, &cfg(140));
+    let tok_row = lines.iter().find(|l| l.contains("TOK")).expect("TOK row");
+    assert!(
+        tok_row.contains("% hit"),
+        "TOK row should append the cache hit rate: {tok_row}"
+    );
+    assert!(
+        tok_row.contains("cache"),
+        "TOK row should keep the raw create/read pair: {tok_row}"
+    );
+}
+
+#[test]
+fn ledger_tok_row_omits_hit_when_no_cache() {
+    let mut f = frame_basic();
+    f.line3.cache_creation_tokens = Some(0);
+    f.line3.cache_read_tokens = Some(0);
+    let lines = render_frame(&f, &cfg(140));
+    let tok_row = lines.iter().find(|l| l.contains("TOK")).expect("TOK row");
+    assert!(
+        !tok_row.contains("hit"),
+        "TOK row should omit the hit rate without cache signal: {tok_row}"
+    );
+}
+
+#[test]
 fn ledger_drops_groups_when_no_data() {
     // With no quota / tools / agents / todo, those groups are skipped.
     let f = frame_basic();
@@ -87,18 +117,18 @@ fn ledger_drops_groups_when_no_data() {
 }
 
 #[test]
-fn ledger_falls_back_to_sections_below_90_cols() {
+fn ledger_falls_back_to_console_below_90_cols() {
     let f = frame_basic();
     let lines = render_frame(&f, &cfg(80));
-    // Sections fallback uses the same `╭` glyph for the top border but the
-    // body has labelled rows (`│ Identity │`, `│ Budget │`). Ledger's
-    // own body uses the TAG column (no `Identity` label since identity is
-    // in the title). At <90 cols we expect the sections fallback to put
-    // identity back into a body row.
+    // Console fallback uses the same `╭` glyph for the top border but the
+    // body has labelled rows (`│ Budget │`, `│ Activity │`). Ledger's
+    // own body uses the TAG column (no group labels — metrics anchor on
+    // TAGs like CTX / TOK / COST instead). At <90 cols we expect the
+    // console fallback to render group-labelled body rows.
     let blob = lines.join("\n");
     assert!(
         blob.contains("Identity") || blob.contains("Budget"),
-        "below-90 fallback should render sections labels: {blob}"
+        "below-90 fallback should render console group labels: {blob}"
     );
 }
 

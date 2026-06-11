@@ -126,7 +126,7 @@ fn console_renders_seven_day_alongside_five_hour() {
     let lines = render_frame(&f, &cfg);
     let blob = lines.join("\n");
     // Console now uses the flat `5h: 75% (resets ...)` format inside its
-    // Budget group (sections + identity-in-title), not the cluster-style
+    // Budget group (framed + identity-in-title), not the cluster-style
     // `5h ` cells. Assert on the stable label substrings.
     assert!(blob.contains("5h"), "5h missing in console: {blob}");
     assert!(blob.contains("7d"), "7d missing in console: {blob}");
@@ -178,9 +178,7 @@ const UNICODE_BLOCKS: &[char] = &[
 
 const ALL_LAYOUTS: &[LayoutStyle] = &[
     LayoutStyle::None,
-    LayoutStyle::Zones,
-    LayoutStyle::Grid,
-    LayoutStyle::Sections,
+    LayoutStyle::Compact,
     LayoutStyle::Console,
     LayoutStyle::Ledger,
 ];

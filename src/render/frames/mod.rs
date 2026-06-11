@@ -3,8 +3,8 @@
 //! All frames here decorate the flat-row pipeline assembled in
 //! `layout::render_frame`: `apply_pane` hands `(lines, groups)` to the
 //! frame's `render` fn, which wraps it in box-drawing chrome. Console
-//! is a thin variant of Sections (identity hoisted into the top frame
-//! title).
+//! is the only such frame (single outer frame, identity hoisted into
+//! the top frame title).
 //!
 //! `Ledger` is the lone exception — it owns its full pipeline because
 //! the TAG-column rhythm doesn't compose cleanly via `apply_pane`. See
@@ -15,11 +15,8 @@
 //! frames.
 
 pub mod console;
-pub mod grid;
 pub mod ledger;
-pub mod sections;
 pub mod shared;
-pub mod zones;
 
 use super::pane::LayoutStyle;
 
@@ -46,24 +43,24 @@ pub struct SegmentVisualDefaults {
 ///
 /// CTX bar (`context_visual = "gauge"`) is opt-in across all layouts —
 /// the existing `text` / `text+sparkline` defaults stay. Quota bar
-/// (`quota_visual = "gauge"`) defaults ON in framed layouts (sections,
-/// console, ledger) where there is room for the bar; the flat layouts
-/// (none, zones, grid) keep `quota_visual = "text"` to preserve their
-/// minimalism. Users can override either field per-segment via TOML.
+/// (`quota_visual = "gauge"`) defaults ON in framed layouts (console,
+/// ledger) where there is room for the bar; the flat layouts (none,
+/// compact) keep `quota_visual = "text"` to preserve their minimalism.
+/// Users can override either field per-segment via TOML.
 pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
     match layout {
-        // Minimalist flat layouts — no bars by default.
-        LayoutStyle::None | LayoutStyle::Zones | LayoutStyle::Grid => SegmentVisualDefaults {
+        // Minimalist flat layout — no bars by default.
+        LayoutStyle::None => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
             todo_visual: "text",
         },
-        // Compact fuses everything onto 1–2 rows — every cell competes
-        // for the same row, so agents show their name only. The tools
-        // spec is informational here: compact always renders the fused
-        // inline activity row.
+        // Compact packs everything onto 2–3 rows — activity cells all
+        // compete for one ticker row, so agents show their name only.
+        // The tools spec is informational here: compact always renders
+        // the fused inline activity row.
         LayoutStyle::Compact => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",
@@ -71,10 +68,10 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             tools_visual: "ticker",
             todo_visual: "text",
         },
-        // Framed layouts — quota bar appears by default; CTX bar still
+        // Framed layout — quota bar appears by default; CTX bar still
         // opt-in (CTX has more competing data — adding the bar there
         // by default would saturate the row).
-        LayoutStyle::Sections | LayoutStyle::Console => SegmentVisualDefaults {
+        LayoutStyle::Console => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "gauge",
             agents_visual: "name+description+model",
@@ -90,15 +87,5 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             tools_visual: "counts+targets",
             todo_visual: "text",
         },
-    }
-}
-
-/// Resolve a user's `*_visual` config string against the layout default:
-/// empty user value → use the default; otherwise the user value wins.
-pub fn resolve_visual<'a>(user_value: &'a str, default_value: &'a str) -> &'a str {
-    if user_value.is_empty() {
-        default_value
-    } else {
-        user_value
     }
 }

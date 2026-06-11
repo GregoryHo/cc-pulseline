@@ -65,14 +65,16 @@ pub fn format_speed(toks_per_sec: f64) -> String {
     }
 }
 
-/// Format elapsed seconds for agent/todo display.
+/// Format elapsed seconds for agent/todo display. Sub-minute values render
+/// as seconds; everything above delegates to `format_duration` so long
+/// runs roll into h/d tiers instead of accumulating minutes.
 pub fn format_agent_elapsed(secs: u64) -> String {
     if secs == 0 {
         "<1s".to_string()
     } else if secs < 60 {
         format!("{secs}s")
     } else {
-        format!("{}m", secs / 60)
+        format_duration(secs / 60)
     }
 }
 
@@ -210,6 +212,38 @@ mod tests {
     #[test]
     fn speed_small_value() {
         assert_eq!(format_speed(42.0), "↗42/s");
+    }
+
+    // format_agent_elapsed tests
+
+    #[test]
+    fn agent_elapsed_zero() {
+        assert_eq!(format_agent_elapsed(0), "<1s");
+    }
+
+    #[test]
+    fn agent_elapsed_under_minute() {
+        assert_eq!(format_agent_elapsed(59), "59s");
+    }
+
+    #[test]
+    fn agent_elapsed_floor_minutes() {
+        assert_eq!(format_agent_elapsed(150), "2m");
+    }
+
+    #[test]
+    fn agent_elapsed_exact_hour() {
+        assert_eq!(format_agent_elapsed(3600), "1h");
+    }
+
+    #[test]
+    fn agent_elapsed_rolls_hours_minutes() {
+        assert_eq!(format_agent_elapsed(3700), "1h 1m");
+    }
+
+    #[test]
+    fn agent_elapsed_rolls_to_days() {
+        assert_eq!(format_agent_elapsed(90000), "1d 1h");
     }
 
     // format_reset_duration tests

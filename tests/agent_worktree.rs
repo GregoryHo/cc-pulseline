@@ -127,7 +127,7 @@ fn console_title_agent_uses_head_agent_color() {
     // Console / Ledger hoist Identity into the frame title via a separate
     // formatter (`identity_headline`); guard that path too.
     use cc_pulseline::config::GlyphMode;
-    use cc_pulseline::render::pane::{LayoutStyle, PaneWidth};
+    use cc_pulseline::render::pane::LayoutStyle;
 
     let payload = make_payload_with_agent("design-advisor");
     let frame = RenderFrame::from_payload(&payload);
@@ -136,7 +136,6 @@ fn console_title_agent_uses_head_agent_color() {
         color_enabled: true,
         glyph_mode: GlyphMode::Ascii,
         pane_style: LayoutStyle::Console,
-        pane_width_mode: PaneWidth::Auto,
         ..Default::default()
     };
     let lines = cc_pulseline::render::layout::render_frame(&frame, &config);
@@ -154,7 +153,11 @@ fn console_title_agent_uses_head_agent_color() {
 #[test]
 fn worktree_indicator_appended_to_git() {
     let payload = make_payload_with_worktree();
-    let frame = RenderFrame::from_payload(&payload);
+    // `from_payload` leaves the "unknown" branch sentinel (the git provider
+    // fills it in later); the git cell — and the (WT) indicator riding it —
+    // only renders with a resolved branch, as in any real worktree session.
+    let mut frame = RenderFrame::from_payload(&payload);
+    frame.line1.git_branch = "fix-auth".to_string();
     let config = RenderConfig {
         show_worktree: true,
         show_git: true,
@@ -261,7 +264,8 @@ fn agent_and_worktree_from_stdin() {
     })
     .to_string();
     let payload: StdinPayload = serde_json::from_str(&input).unwrap();
-    let frame = RenderFrame::from_payload(&payload);
+    let mut frame = RenderFrame::from_payload(&payload);
+    frame.line1.git_branch = "epic-branch".to_string();
 
     assert_eq!(frame.line1.agent_name.as_deref(), Some("feature-dev"));
     assert!(frame.line1.in_worktree);
@@ -304,7 +308,8 @@ fn make_payload_with_passive_worktree(value: serde_json::Value) -> StdinPayload 
 #[test]
 fn passive_git_worktree_bool_true_triggers_indicator() {
     let payload = make_payload_with_passive_worktree(json!(true));
-    let frame = RenderFrame::from_payload(&payload);
+    let mut frame = RenderFrame::from_payload(&payload);
+    frame.line1.git_branch = "feature".to_string();
     let config = RenderConfig {
         show_worktree: true,
         show_git: true,
@@ -323,7 +328,8 @@ fn passive_git_worktree_bool_true_triggers_indicator() {
 fn passive_git_worktree_object_triggers_indicator() {
     // CC schema may evolve to emit an object; any non-null value counts.
     let payload = make_payload_with_passive_worktree(json!({"branch": "feature"}));
-    let frame = RenderFrame::from_payload(&payload);
+    let mut frame = RenderFrame::from_payload(&payload);
+    frame.line1.git_branch = "feature".to_string();
     let config = RenderConfig {
         show_worktree: true,
         show_git: true,
@@ -352,7 +358,8 @@ fn passive_git_worktree_null_does_not_trigger() {
 fn explicit_worktree_overrides_absent_passive_field() {
     // --worktree session still works when workspace.git_worktree is absent.
     let payload = make_payload_with_worktree();
-    let frame = RenderFrame::from_payload(&payload);
+    let mut frame = RenderFrame::from_payload(&payload);
+    frame.line1.git_branch = "fix-auth".to_string();
     let config = RenderConfig {
         show_worktree: true,
         show_git: true,

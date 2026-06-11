@@ -6,29 +6,30 @@ rows. The shipping layouts:
 | Layout | What it does |
 |---|---|
 | `none` | Flat output, no chrome. Default. |
-| `zones` | Inserts a single `─── activity ───` rule between state and activity rows. |
-| `grid` | Fixed label column + `│` divider + right-padded content. |
-| `sections` | Single `╭─┬─╮` outer frame with `├─┼─┤` between groups. |
-| `console` | `sections` with the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
+| `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
+| `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
-All six share the same theme palette, segment toggles, and per-segment
+All four share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
 TOML strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
 
 > **Removed in v1.1.0:** `cards`, `cockpit`, `flightstrip`, `auto` —
-> consolidated into the surviving six above. User configs naming any of
-> the removed layouts fall back to `console` with a stderr warning.
+> user configs naming any of these fall back to `console` with a stderr
+> warning.
+>
+> **Removed in the 7→4 consolidation:** `zones` and `grid` fall back to
+> `none` (they shared its visual defaults); `sections` falls back to
+> `console` (its identity-in-title sibling). Each emits a stderr
+> warning.
 
 ```toml
 [layout]
 name        = "none"     # see catalog below
-width_mode  = "auto"     # "auto" | "terminal" | "fixed"
-fixed_width = 100        # only used when width_mode = "fixed"
 min_width   = 60         # skip framing when terminal can't fit this many cols
 max_width   = 160        # clamp auto-sized frames to this many cols
-cc_margin   = 4          # cols subtracted from detected width in "terminal" mode
+cc_margin   = 4          # cols subtracted from the detected terminal width
 tonal_strata = true      # 2-tier separator tint (see docs/theme-palette.md)
 ```
 
@@ -92,94 +93,47 @@ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
 **Pick when** you want the minimal status line and care about screen real
 estate above all else.
 
-### `compact` — 1–2 row micro layout
+### `compact` — 2–3 row micro layout
 
-Everything fuses onto at most two rows, no chrome. Row 1 joins the
-identity cells, the budget (L3) cells, and a compact quota
-(`5h:62%` — threshold-colored percentage, reset time dropped) with the
-standard ` | ` separator; which cells appear is still governed by the
-`show_*` toggles. Row 2 is a single packed activity ticker (completed
-grand total → first running tool → agent groups → todo counts) and only
-appears while there is activity — idle footprint is exactly **1 row**.
-L2 config counts have no home here by design (reference data — flip to
-another layout when you need them).
+Everything packs onto at most three rows, no chrome. Row 1 packs the
+identity (L1) cells; row 2 packs the budget (L3) cells plus a compact
+quota (`5h:62%` — threshold-colored percentage, reset time dropped) with
+the standard ` | ` separator; which cells appear is still governed by
+the `show_*` toggles. Each row packs width-aware independently: the
+identity row drops its reference cells (path, version, style) first,
+and the budget row drops the TOK cell (including the `C:%` cache hit
+rate) before CTX/cost/quota — so the hit-rate survives much narrower
+terminals than the old single fused row. Row 3 is a single packed
+activity ticker (completed grand total → first running tool → agent
+groups → todo counts) and only appears while there is activity — idle
+footprint is exactly **2 rows**. L2 config counts have no home here by
+design (reference data — flip to another layout when you need them).
 
 ```
-M:Opus 4.7 | G:feat/x * | CTX:43% (86.0k/200.0k) | $3.50 | 5h:62%
+M:Opus 4.7 | S:concise | CC:2.2.0 | P:~/proj | G:feat/x *
+CTX:43% (86.0k/200.0k) | TOK I:10 O:20 C:50% | $3.50 | 5h:62%
 ✓ 25 tools | T:Bash: cargo test | A:Explore (2m) | TODO:1/3
 ```
 
-**Cost:** 1–2 rows total — the smallest possible footprint.
+**Cost:** 2–3 rows total. (Absolute minimum footprint: `none` +
+`max_total_lines = 1–2`, which lands on the FuseCore 1-row fused head.)
 **Pick when** the statusline keeps squeezing Claude Code's footer or the
 in-terminal agents panel; pairs well with trimming L1 via
 `[segments.identity]` toggles (e.g. `show_style = false`,
 `show_version = false`, `show_project = false`).
 
-### `zones` — single labelled rule between state and activity
+The height-degradation ladder (`max_total_lines`) reuses this fused head
+as its final rung: running tools → completed tools → agents → todo →
+merged activity row → quota into L3 → drop config row → **fuse-core**
+(identity + budget + compact quota fused into the row above). But note
+that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
+ladder stops early at the quota merge — L1 and L3+quota keep separate
+rows and fuse-core is never reached — while compact always fuses.
 
-Inserts one horizontal rule (`─── activity ───`) between the **state**
-rows (Identity / ENV / Budget) and the **activity** rows (Tools /
-Agents / Todos). Echoes Claude Code's own input-box rules so the
-statusline reads as a continuation of CC chrome.
+### `console` — framed dashboard with identity-in-title
 
-```
-M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline | G:feat/x *
-1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs | 4 skills | 1h 22m
-CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
-─── activity ─────────────────────────────────────────────
-T:Read main.rs | T:Bash cargo test
-A:Explore [haiku]: Investigate logic (2m)
-TODO:Fixing auth bug (1/3)
-```
-
-**Cost:** +1 row when activity present; degrades to flat otherwise.
-**Pick when** you want a single visual cue marking "this is what's
-happening" without introducing borders.
-
-### `grid` — fixed label column + divider
-
-Table layout with a fixed-width label column, a `│` divider, and
-right-padded content. Every line begins and ends at the same visual
-position. Activity continuation rows blank the label so the divider
-lines up.
-
-```
-Identity  │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline
-ENV       │ 1 CLAUDE.md | 5 rules | 2 memories | 1 hooks | 2 MCPs
-Budget    │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
-Activity  │ T:Read main.rs | T:Bash cargo test
-          │ A:Explore [haiku]: Investigate logic (2m)
-          │ TODO:Fixing auth bug (1/3)
-```
-
-**Cost:** 0 rows; ~12 cols on the left.
-**Pick when** you want explicit group labels and aligned right edges
-without row overhead.
-
-### `sections` — single outer frame with internal separators
-
-One outer `╭─┬─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
-between every pair of non-empty groups. Reads as one container.
-
-```
-╭──────────┬───────────────────────────────────────────────────────────╮
-│ Identity │ M:Opus 4.7 | S:explanatory | CC:2.1.119 | P:~/cc-pulseline │
-├──────────┼───────────────────────────────────────────────────────────┤
-│ Budget   │ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50            │
-├──────────┼───────────────────────────────────────────────────────────┤
-│ Activity │ T:Read main.rs | T:Bash cargo test                        │
-╰──────────┴───────────────────────────────────────────────────────────╯
-```
-
-**Cost:** +2 rows + 1 per gap between non-empty groups.
-**Pick when** you want the framed dashboard feel AND the identity as a
-labelled body row. `sections` and `console` are one family sharing one
-implementation (`sections::render_with_options`) — console is the
-primary pick; sections is the no-title variant of it.
-
-### `console` — sections + identity-in-title
-
-`console` is structurally just `sections` with the Identity row hoisted
+One outer `╭─...─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
+between every pair of non-empty groups, and the Identity row hoisted
 into the top frame border:
 
 ```
@@ -197,11 +151,11 @@ The title separator is ` · ` (middle dot) in `structural` color. Identity
 fields keep their existing semantic colors (model → `stable_blue`, branch
 → `stable_green` / `alert_orange` for dirty, etc.).
 
-**Cost:** 1 row saved over `sections` (Identity is in the title, not a
-labelled row).
+**Cost:** +2 rows + 1 per gap between non-empty groups (Identity is in
+the title, not a labelled row).
 **Pick when** terminal is ≥ 110 cols and you want a polished framed
-presentation. Below ~90 cols the frame chrome gets cramped — `sections`
-or `none` is friendlier there.
+presentation. Below ~90 cols the frame chrome gets cramped — `none` is
+friendlier there.
 
 ### `ledger` — TAG-column typographic rhythm
 
@@ -229,8 +183,9 @@ rows separate logical groups. Tallest layout.
 ╰─────────────────────────────────────────────────────────────────────────╯
 ```
 
-The CTX row is the only row with a sparkline (and the only place in the
-codebase the sparkline is rendered). Its color carries CTX consumption
+The CTX row is the only row with a sparkline (ledger is the only layout
+that ships the sparkline by default — any layout can opt in via
+`context_visual`). Its color carries CTX consumption
 **velocity**, picked from the aurora palette stops:
 
 | Velocity (% / min) | Color |
@@ -247,7 +202,7 @@ delta label remains).
 **Cost:** 12-15 rows when fully populated.
 **Pick when** the statusline pane has plenty of vertical room and you
 want to scan metrics by group rather than density. Below 90 cols falls
-back to `sections`.
+back to `console`.
 
 #### Spacing: `ledger_dense`
 
@@ -279,13 +234,13 @@ TOOL, and AGENT+TODO groups).
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
-context, cost, quota, and tools segments live on a separate axis: the
+context, quota, tools, and todo segments live on a separate axis: the
 `*_visual` config fields. The user's TOML overrides the layout's
 default; otherwise the layout's default applies.
 
 This is **Variation B** from the design process: each layout asserts a
 tasteful default so the out-of-the-box experience preserves its
-identity (cockpit looks like cockpit, none looks like none), but every
+identity (ledger looks like ledger, none looks like none), but every
 visual decision is overridable per segment.
 
 ### Spec syntax
@@ -305,7 +260,7 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======...:--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |
@@ -319,9 +274,9 @@ paths (mostly tests) that construct `RenderConfig` directly.
 
 | Layout | `context_visual` | `quota_visual` | `tools_visual` | `todo_visual` |
 |--------|------------------|----------------|----------------|---------------|
-| `none`, `zones`, `grid` | `text` | `text` | `counts+targets` | `text` |
+| `none` | `text` | `text` | `counts+targets` | `text` |
 | `compact` | `text` | `text` | `ticker`¹ | `text` |
-| `sections`, `console` | `text` | `gauge` | `counts+targets` | `text` |
+| `console` | `text` | `gauge` | `counts+targets` | `text` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `text` |
 
 ¹ Informational: compact always renders the fused inline activity row,
@@ -336,9 +291,9 @@ benefits more from the bar's spatial signal.
 ### Composability examples
 
 ```toml
-# Sections layout, but with a CTX gauge added (default is text-only).
+# Console layout, but with a CTX gauge added (default is text-only).
 [layout]
-name = "sections"
+name = "console"
 [segments.budget]
 context_visual = "gauge"
 
@@ -416,15 +371,12 @@ is narrower than `layout.min_width`, the active frame is bypassed
 entirely and rows render flat — the binary will not output a half-
 collapsed frame.
 
-`width_mode = "terminal"` makes framed styles span the detected
-terminal width minus `cc_margin` cols. The default `cc_margin = 4` is
-the empirically verified safe value for Claude Code 2.1.119; CC
-allocates the statusline a sub-region ~1–4 cols narrower than the raw
-terminal, and lines at exactly the raw width trigger wrap and collapse
-the multi-line render to a single visible line.
-
-`width_mode = "fixed"` pins a frame to `fixed_width` cols regardless of
-terminal size — useful for screenshot fixtures and reproducible mockups.
+`cc_margin` cols are subtracted from the detected terminal width before
+layout. The default `cc_margin = 4` is the empirically verified safe
+value for Claude Code 2.1.119; CC allocates the statusline a sub-region
+~1–4 cols narrower than the raw terminal, and lines at exactly the raw
+width trigger wrap and collapse the multi-line render to a single
+visible line.
 
 Layouts may apply additional per-segment width gating inside their
 dispatch (e.g. dropping `sparkline` from the spec below a threshold).

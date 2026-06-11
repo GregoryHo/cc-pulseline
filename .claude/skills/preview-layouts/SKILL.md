@@ -56,7 +56,7 @@ The fixture preserves the user's currently-selected `theme = "..."` so theme exp
 ### Adding a new layout
 
 ```bash
-LAYOUTS=(none zones grid sections console ledger)
+LAYOUTS=(none compact console ledger)
 ```
 
 Add the new name to the array. Keep ordering meaningful (group related layouts so visual diff is easy — current order is minimal → maximal density).

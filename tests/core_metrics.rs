@@ -147,9 +147,76 @@ fn renders_core_metrics_from_stdin_and_local_sources() {
     );
     // L3 context cell: `<icon> <pct>% <used> <total>` — `CTX` is the
     // ASCII fallback for the Nerd Font icon (test runs without icons).
+    // Cache cell is the hit rate: read / (input + creation + read)
+    // = 40 / (10 + 30 + 40) = 50%.
     assert_eq!(
         lines[2],
-        "CTX 43% 86.0k/200.0k | TOK I:10 O:20 C:30/40 | $3.50 ($3.50/h)"
+        "CTX 43% 86.0k/200.0k | TOK I:10 O:20 C:50% | $3.50 ($3.50/h)"
+    );
+}
+
+#[test]
+fn agents_md_cell_renders_when_present() {
+    let workspace = build_core_fixture_workspace();
+    let root = workspace.path();
+    fs::write(root.join("AGENTS.md"), "# Agents\n").expect("agents md");
+
+    let input = json!({
+        "session_id": "agents-md-session",
+        "cwd": root,
+        "workspace": {"current_dir": root},
+        "model": {"display_name": "Opus 4.6"},
+        "version": "2.1.37"
+    })
+    .to_string();
+
+    let fake_home = root.join("fake_home");
+    let mut runner = PulseLineRunner::default().with_user_home(fake_home);
+    let lines = runner
+        .run_from_str(&input, RenderConfig::default())
+        .expect("render should succeed");
+
+    assert!(
+        lines[1].contains("1 AGENTS.md"),
+        "line2 should show root AGENTS.md count, got: {}",
+        lines[1]
+    );
+    assert!(
+        lines[1].contains("1 CLAUDE.md"),
+        "AGENTS.md cell must not fold into the CLAUDE.md count"
+    );
+}
+
+#[test]
+fn hides_git_segment_when_not_a_repo() {
+    // TempDir WITHOUT git init — the git collector resolves no branch and
+    // the entire G: cell must disappear instead of printing "G:unknown".
+    let workspace = TempDir::new().expect("tempdir should be created");
+    let cwd = workspace
+        .path()
+        .to_str()
+        .expect("workspace path should be utf-8")
+        .to_string();
+
+    let input = json!({
+        "session_id": "no-repo-session",
+        "cwd": cwd,
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus 4.6"},
+        "output_style": {"name": "explanatory"},
+        "version": "2.1.37"
+    })
+    .to_string();
+
+    let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
+    assert!(
+        !lines[0].contains("G:"),
+        "L1 should hide the git segment outside a repository, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("M:Opus 4.6"),
+        "L1 should still show the other identity segments"
     );
 }
 
@@ -262,9 +329,72 @@ fn formats_large_numbers_with_suffixes() {
         lines[2].contains("250.0k"),
         "output_tokens should use k suffix"
     );
+    // Hit rate: 75_000 / (1_500_000 + 500 + 75_000) ≈ 4.76% → rounds to 5%.
     assert!(
-        lines[2].contains("C:500/75.0k"),
-        "cache should show create/read as combined pair"
+        lines[2].contains("C:5%"),
+        "cache should show hit-rate percentage"
+    );
+}
+
+#[test]
+fn cache_hit_dashes_when_no_cache_activity() {
+    let input = json!({
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.0.0",
+        "context_window": {
+            "context_window_size": 200000,
+            "used_percentage": 50,
+            "current_usage": {
+                "input_tokens": 100,
+                "output_tokens": 200,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0
+            }
+        },
+        "cost": {
+            "total_cost_usd": 1.0,
+            "total_duration_ms": 3600000
+        }
+    })
+    .to_string();
+
+    let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
+    assert!(
+        lines[2].contains("C:--"),
+        "no cache signal should render dashes, got: {}",
+        lines[2]
+    );
+}
+
+#[test]
+fn cache_hit_zero_pct_on_cold_start() {
+    let input = json!({
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.0.0",
+        "context_window": {
+            "context_window_size": 200000,
+            "used_percentage": 50,
+            "current_usage": {
+                "input_tokens": 100,
+                "output_tokens": 200,
+                "cache_creation_input_tokens": 300,
+                "cache_read_input_tokens": 0
+            }
+        },
+        "cost": {
+            "total_cost_usd": 1.0,
+            "total_duration_ms": 3600000
+        }
+    })
+    .to_string();
+
+    let lines = run_from_str(&input, RenderConfig::default()).expect("render should succeed");
+    assert!(
+        lines[2].contains("C:0%"),
+        "cold start (creation only, no reads) should render a real 0%, got: {}",
+        lines[2]
     );
 }
 
@@ -347,9 +477,13 @@ fn falls_back_when_stdin_fields_are_missing() {
         lines[1].contains("0 skills"),
         "missing env should render zero skills"
     );
+    assert!(
+        !lines[1].contains("AGENTS.md"),
+        "AGENTS.md cell is zero-suppressed when no root AGENTS.md exists"
+    );
     assert_eq!(
         lines[2],
-        "CTX --% --/-- | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)"
+        "CTX --% --/-- | TOK I:-- O:-- C:-- | $0.00 ($0.00/h)"
     );
 }
 

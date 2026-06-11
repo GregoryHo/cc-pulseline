@@ -114,7 +114,7 @@ Persists `SessionState` across process invocations:
 - Transcript windowing and poll throttle
 - Terminal width and width degradation strategy order
 - Segment toggles for each line
-- Per-segment visual specs (`context_visual`, `quota_visual`, `agents_visual`) — see `docs/layouts.md`
+- Per-segment visual specs for context, quota, agents, tools, and todo — see `docs/layouts.md` for the full set
 
 Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pulseline.toml` (project override).
 
@@ -139,17 +139,17 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/pane.rs` + `render/frames/` -- Layouts
 
-`pane.rs::LayoutStyle` enumerates the 6 layouts (`None` / `Zones` / `Grid` / `Sections` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (zones rule, grid divider, sections borders, console = sections + identity-in-title). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`zones.rs`, `grid.rs`, `sections.rs`, `console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
+`pane.rs::LayoutStyle` enumerates the 4 layouts (`None` / `Compact` / `Console` / `Ledger`). `apply_pane()` decorates the flat-pipeline output with frame chrome (console = single outer frame + identity-in-title; `None` / `Compact` pass through undecorated). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per chrome variant (`console.rs`, `ledger.rs`) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
 
 ### `render/widgets/` -- Atomic Widgets
 
-`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======...:--:--` in Ascii) and `sparkline` (braille, icon-only). All take a uniform `(data, …, mode, palette, color)` signature. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
+`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======:::--:--` in Ascii) and `sparkline` (braille, icon-only). Signatures differ per widget — see the doc comments in `widgets/*.rs`. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
-## Transcript Three-Path Dispatcher
+## Transcript Two-Path Dispatcher
 
-The transcript collector uses a three-path dispatcher to handle different JSONL formats from Claude Code:
+Before JSON parsing, a byte-level pre-filter (`is_ignored_metadata_line`) skips metadata lines (`attachment`/bookkeeping payloads) — these are disproportionately the largest lines, and skipping them roughly halves parse cost on busy sessions. Surviving lines flow through a two-path dispatcher (`apply_transcript_event`):
 
 ```
     Transcript Line Dispatcher
@@ -162,10 +162,6 @@ The transcript collector uses a three-path dispatcher to handle different JSONL 
     |         |               |
     |   type == "progress"?   +--yes--> Path 2: Agent Progress
     |         |               |         * agent_progress -> upsert/remove
-    |         no              |
-    |         |               |
-    |   type == "tool_use"?   +--yes--> Path 3: Flat Fallback
-    |         |               |         * old-style tool lifecycle
     |         no              |
     |         v               |
     |      (skip line)        |
@@ -186,12 +182,6 @@ Agent lifecycle events arrive as progress-type messages:
 - `{type: "progress", data: {type: "agent_progress", agentId, status, prompt, agentType}}`
 - Status transitions: `started` -> upsert agent, `completed` -> remove and record
 
-### Path 3: Flat Format Fallback
-
-Backward compatibility with older transcript formats and test fixtures:
-
-- `{type: "tool_use", name, tool_use_id}` -- Simple tool lifecycle without nested content
-
 ## Session State Lifecycle
 
 1. **First invocation**: `PulseLineRunner` creates a new `SessionState`, attempts to load cached state from disk
@@ -206,7 +196,7 @@ Backward compatibility with older transcript formats and test fixtures:
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
-- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:30.0k/40.0k | $3.50 ($3.50/h)`
+- **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:50% | $3.50 ($3.50/h)`
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)`
 - **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, capped by `max_completed_lines` rows)
 - **L4b**: `T:Read: .../main.rs | T:Bash: cargo test` (recent/running tools)

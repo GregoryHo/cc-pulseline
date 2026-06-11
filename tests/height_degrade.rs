@@ -231,7 +231,7 @@ fn cap_counts_frame_chrome_rows() {
     let config = RenderConfig {
         max_total_lines: Some(6),
         terminal_width: Some(120),
-        pane_style: cc_pulseline::render::pane::LayoutStyle::Sections,
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Console,
         ..cfg()
     };
     let lines = render_frame(&busy_frame(), &config);
@@ -245,16 +245,134 @@ fn cap_counts_frame_chrome_rows() {
 
 #[test]
 fn ladder_exhausted_hard_truncates_from_bottom() {
+    // cap=1 exhausts even the FuseCore rung (fused head + ticker = 2 rows);
+    // the hard truncate then cuts from the bottom, leaving the fused head —
+    // identity AND budget survive on the single remaining row.
+    let config = RenderConfig {
+        max_total_lines: Some(1),
+        ..cfg()
+    };
+    let lines = render_frame(&busy_frame(), &config);
+    assert_eq!(lines.len(), 1, "hard cap: {}", lines.join("\n"));
+    assert!(
+        lines[0].contains("M:Opus"),
+        "identity survives on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("CTX"),
+        "budget survives on the fused head: {:?}",
+        lines[0]
+    );
+}
+
+#[test]
+fn fuse_core_rung_fuses_head_when_ladder_exhausts() {
+    // cap=2 busy: the earlier rungs leave 3 rows (L1 / L3+quota / merged
+    // activity); FuseCore folds the core into the compact head so the
+    // activity ticker survives instead of being hard-truncated.
     let config = RenderConfig {
         max_total_lines: Some(2),
         ..cfg()
     };
     let lines = render_frame(&busy_frame(), &config);
-    assert_eq!(lines.len(), 2, "hard cap: {}", lines.join("\n"));
+    assert_eq!(lines.len(), 2, "cap=2 busy: {}", lines.join("\n"));
     assert!(
         lines[0].contains("M:Opus"),
-        "identity row survives at the top: {:?}",
+        "identity on the fused head: {:?}",
         lines[0]
+    );
+    assert!(
+        lines[0].contains("CTX"),
+        "budget on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[0].contains("5h:62%"),
+        "compact quota on the fused head: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("75 tools"),
+        "activity ticker survives on row 2: {:?}",
+        lines[1]
+    );
+}
+
+#[test]
+fn fuse_core_not_reached_when_idle_ladder_stops_early() {
+    // compact ≠ none + max_total_lines=2: idle, the ladder stops at
+    // MergeQuotaIntoL3 (L1 / L3+quota fits cap=2) — the head never fuses.
+    let mut frame = busy_frame();
+    frame.completed_tools.clear();
+    frame.tools.clear();
+    frame.agents.clear();
+    frame.todo = None;
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        ..cfg()
+    };
+    let lines = render_frame(&frame, &config);
+    assert_eq!(lines.len(), 2, "cap=2 idle: {}", lines.join("\n"));
+    assert!(
+        lines[0].contains("M:Opus") && !lines[0].contains("CTX"),
+        "L1 keeps its own row when idle: {:?}",
+        lines[0]
+    );
+    assert!(
+        lines[1].contains("CTX") && lines[1].contains("5h:62%"),
+        "L3 carries compact quota when idle: {:?}",
+        lines[1]
+    );
+}
+
+#[test]
+fn fuse_core_head_packs_width_aware() {
+    // The fused rung inherits the compact head's priority packing: under
+    // width pressure the Optional reference cells (path, version) drop
+    // first while cost/quota — the right-side essentials — survive.
+    let mut frame = busy_frame();
+    frame.line1.project_path = "~/GitHub/AI/cc-pulseline".to_string();
+    frame.line1.claude_code_version = "2.1.170".to_string();
+    frame.line1.output_style = "default".to_string();
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        terminal_width: Some(80),
+        ..cfg()
+    };
+    let lines = render_frame(&frame, &config);
+    let head = &lines[0];
+    assert!(
+        cc_pulseline::render::color::visible_width(head) <= 80,
+        "fused head must fit width 80: {head:?}"
+    );
+    assert!(
+        head.contains("5h:62%"),
+        "quota must survive width pressure: {head:?}"
+    );
+    assert!(
+        !head.contains("cc-pulseline") && !head.contains("2.1.170"),
+        "Optional reference cells must drop first: {head:?}"
+    );
+}
+
+#[test]
+fn framed_layout_tiny_cap_hard_truncates_without_panic() {
+    // Frame chrome counts against the cap even past the FuseCore rung: a
+    // framed fused head still needs border rows, so a tiny cap ends in the
+    // hard truncate — the cap is a hard contract, never a panic.
+    let config = RenderConfig {
+        max_total_lines: Some(2),
+        terminal_width: Some(120),
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Console,
+        ..cfg()
+    };
+    let lines = render_frame(&busy_frame(), &config);
+    assert!(
+        lines.len() <= 2,
+        "tiny cap on a framed layout must hard-truncate: {} rows\n{}",
+        lines.len(),
+        lines.join("\n")
     );
 }
 
@@ -272,7 +390,7 @@ fn cap_larger_than_render_is_a_no_op() {
 // ── Compact layout ───────────────────────────────────────────────────
 
 #[test]
-fn compact_layout_is_two_rows_when_busy() {
+fn compact_layout_is_three_rows_when_busy() {
     let config = RenderConfig {
         pane_style: cc_pulseline::render::pane::LayoutStyle::Compact,
         ..cfg()
@@ -280,32 +398,38 @@ fn compact_layout_is_two_rows_when_busy() {
     let lines = render_frame(&busy_frame(), &config);
     assert_eq!(
         lines.len(),
-        2,
-        "compact busy frame must be exactly 2 rows:\n{}",
+        3,
+        "compact busy frame must be exactly 3 rows:\n{}",
         lines.join("\n")
     );
-    // Row 1 fuses identity + budget + compact quota.
+    // Row 1 is the packed identity row (no budget cells).
     assert!(
         lines[0].contains("M:Opus"),
         "identity on row 1: {:?}",
         lines[0]
     );
-    assert!(lines[0].contains("CTX"), "budget on row 1: {:?}", lines[0]);
     assert!(
-        lines[0].contains("5h:62%"),
-        "compact quota on row 1: {:?}",
+        !lines[0].contains("CTX"),
+        "budget must NOT be on row 1: {:?}",
         lines[0]
     );
-    // Row 2 is the packed activity ticker.
+    // Row 2 packs budget + compact quota.
+    assert!(lines[1].contains("CTX"), "budget on row 2: {:?}", lines[1]);
     assert!(
-        lines[1].contains("75 tools") && lines[1].contains("TODO:1/5"),
-        "ticker on row 2: {:?}",
+        lines[1].contains("5h:62%"),
+        "compact quota on row 2: {:?}",
         lines[1]
+    );
+    // Row 3 is the packed activity ticker.
+    assert!(
+        lines[2].contains("75 tools") && lines[2].contains("TODO:1/5"),
+        "ticker on row 3: {:?}",
+        lines[2]
     );
 }
 
 #[test]
-fn compact_layout_is_one_row_when_idle() {
+fn compact_layout_is_two_rows_when_idle() {
     let mut frame = busy_frame();
     frame.completed_tools.clear();
     frame.tools.clear();
@@ -318,8 +442,8 @@ fn compact_layout_is_one_row_when_idle() {
     let lines = render_frame(&frame, &config);
     assert_eq!(
         lines.len(),
-        1,
-        "idle compact frame must be exactly 1 row:\n{}",
+        2,
+        "idle compact frame must be exactly 2 rows (identity / budget):\n{}",
         lines.join("\n")
     );
 }
@@ -342,35 +466,40 @@ fn compact_layout_fits_terminal_width() {
 
 #[test]
 fn compact_head_keeps_cost_and_quota_under_width_pressure() {
-    // Regression for the PR-review screenshot: row 1 used to be a blind
-    // right-tail truncation, cutting cost/quota (the right-side
-    // essentials) while style/version/path survived. The packed form
-    // must drop Optional reference cells first.
+    // Regression for the PR-review screenshot: the head used to be a
+    // blind right-tail truncation, cutting cost/quota (the right-side
+    // essentials) while style/version/path survived. With the split
+    // head, each row packs independently: the identity row drops its
+    // Optional reference cells (path) first, and the budget row keeps
+    // CTX/quota by dropping its own Optional (TOK) first.
     let mut frame = busy_frame();
     frame.line1.project_path = "~/GitHub/AI/cc-pulseline".to_string();
     frame.line1.claude_code_version = "2.1.170".to_string();
     frame.line1.output_style = "default".to_string();
     let config = RenderConfig {
         pane_style: cc_pulseline::render::pane::LayoutStyle::Compact,
-        terminal_width: Some(80),
+        terminal_width: Some(60),
         ..cfg()
     };
     let lines = render_frame(&frame, &config);
-    let head = &lines[0];
+    let identity = &lines[0];
+    let budget = &lines[1];
+    for row in [identity, budget] {
+        assert!(
+            cc_pulseline::render::color::visible_width(row) <= 60,
+            "row must fit width 60: {row:?}"
+        );
+    }
     assert!(
-        cc_pulseline::render::color::visible_width(head) <= 80,
-        "head must fit width 80: {head:?}"
+        !identity.contains("cc-pulseline"),
+        "Optional reference cells must drop first on the identity row: {identity:?}"
     );
     assert!(
-        head.contains("$") || head.contains("CTX"),
-        "budget cells must survive: {head:?}"
+        budget.contains("CTX"),
+        "budget cells must survive: {budget:?}"
     );
     assert!(
-        head.contains("5h:62%"),
-        "quota must survive width pressure: {head:?}"
-    );
-    assert!(
-        !head.contains("cc-pulseline") && !head.contains("2.1.170"),
-        "Optional reference cells must drop first: {head:?}"
+        budget.contains("5h:62%"),
+        "quota must survive width pressure: {budget:?}"
     );
 }

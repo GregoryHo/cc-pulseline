@@ -6,6 +6,7 @@ use cc_pulseline::{
         default_project_config_toml, load_merged_config, project_config_path,
         update_theme_in_config, ColorsConfig,
     },
+    preview::preview_layouts,
     render::color::{
         available_presets, colorize, extract_ansi_code, light_contrast_failures, resolve_palette,
         theme_descriptions, ThemePalette, RESET,
@@ -44,6 +45,9 @@ fn main() {
     let has_project = args.iter().any(|a| a == "--project");
     let has_check = args.iter().any(|a| a == "--check");
     let has_print = args.iter().any(|a| a == "--print");
+    // Exact-equality match, checked before "--preview" below, so the two
+    // flags can't collide.
+    let has_preview_layouts = args.iter().any(|a| a == "--preview-layouts");
     let has_preview = args.iter().any(|a| a == "--preview");
     let has_select_theme = args.iter().any(|a| a == "--select-theme");
     let has_palette_map = args.iter().any(|a| a == "--palette-map");
@@ -69,6 +73,23 @@ fn main() {
 
     if has_print {
         print_config(cwd.as_deref());
+        return;
+    }
+
+    if has_preview_layouts {
+        let mut widths: Vec<usize> = Vec::new();
+        for arg in args
+            .iter()
+            .skip_while(|a| a.as_str() != "--preview-layouts")
+            .skip(1)
+            .filter(|a| !a.starts_with('-'))
+        {
+            match arg.parse::<usize>() {
+                Ok(w) => widths.push(w),
+                Err(_) => eprintln!("warning: ignoring invalid width {arg:?}"),
+            }
+        }
+        preview_layouts(&widths);
         return;
     }
 
@@ -856,6 +877,19 @@ fn print_palette_map(theme_arg: Option<&str>) {
 }
 
 fn print_help() {
+    // Generated from theme_descriptions() so new themes can't be forgotten.
+    let themes = theme_descriptions()
+        .into_iter()
+        .map(|(name, desc)| {
+            let tag = if name == "tokyo-night" {
+                " (default)"
+            } else {
+                ""
+            };
+            format!("    {name:<20}{desc}{tag}").trim_end().to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     println!(
         "cc-pulseline {VERSION} - High-performance Claude Code statusline
 
@@ -872,6 +906,7 @@ OPTIONS:
     --print          Show effective merged config
     --preview [THEME ...] Preview theme(s). No args = all presets.
                      Example: --preview tokyo-night echo-sub-zero
+    --preview-layouts [WIDTH ...] Preview every layout at the given width(s). Default: 140
     --select-theme   Interactively select and apply a theme
     --select-theme --project  Select theme for project config
     --palette-map [THEME]  Show palette field → UI element mapping
@@ -890,14 +925,6 @@ ENVIRONMENT:
     COLUMNS     Terminal width for layout degradation
 
 THEMES:
-    tokyo-night         Blue-tinted grays, 25+ semantic colors (default)
-    echo-sub-zero       Mono-accent minimalist, 3-stage signaling
-    titanium-precision  Industrial steel blues, amber warnings, brick reds
-    cnc-telemetry       Hardware telemetry: anodized teal, matte copper, rust red
-    cyberdeck-hud       Sci-Fi HUD: neon cyan, cyber orange, laser crimson
-    stark-hud           Iron Man: Arc Reactor cyan, Armor red, Faceplate gold
-    mako-reactor        FFVII: Shinra steel, Mako cyan-green, Materia accents
-    aburaya-twilight    Spirited Away: bathhouse red, dragon teal, spirit blues
-    matte-carbon-neon   Industrial tech: grayscale chrome, piercing neon accents"
+{themes}"
     );
 }

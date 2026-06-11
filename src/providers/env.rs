@@ -15,6 +15,9 @@ pub struct EnvSnapshot {
     /// Count of enabled Claude Code plugins (CC 2.0.12+).
     #[serde(default)]
     pub plugins_count: u32,
+    /// Root-level AGENTS.md presence (the agents.md convention is repo-root only).
+    #[serde(default)]
+    pub agents_md_count: u32,
 }
 
 pub trait EnvCollector {
@@ -92,6 +95,7 @@ impl EnvCollector for FileSystemEnvCollector {
             mcp_count,
             skills_count,
             plugins_count: plugin_paths.len() as u32,
+            agents_md_count: count_agents_md(root),
         }
     }
 }
@@ -118,6 +122,12 @@ fn count_claude_md(root: &Path, user_home: Option<&Path>) -> u32 {
     }
 
     paths.iter().filter(|path| path.is_file()).count() as u32
+}
+
+/// The agents.md convention is repo-root only — deliberately non-recursive,
+/// mirroring `count_claude_md`.
+fn count_agents_md(root: &Path) -> u32 {
+    u32::from(root.join("AGENTS.md").is_file())
 }
 
 /// Recursively visit every `.md` file under `root`, summing the callback's return value.
@@ -535,6 +545,18 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("CLAUDE.md"), "").unwrap();
         assert_eq!(count_claude_md(root, None), 1);
+    }
+
+    #[test]
+    fn count_agents_md_root_only() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".claude")).unwrap();
+        fs::write(root.join(".claude/AGENTS.md"), "").unwrap();
+        assert_eq!(count_agents_md(root), 0, "nested AGENTS.md must not count");
+
+        fs::write(root.join("AGENTS.md"), "").unwrap();
+        assert_eq!(count_agents_md(root), 1, "root AGENTS.md counts once");
     }
 
     #[test]

@@ -33,7 +33,7 @@
 //! ledger default). Sparkline color tracks CTX consumption *velocity*
 //! via `widgets::sparkline::aurora_for_velocity`.
 //!
-//! Below 90 cols ledger falls back to `sections` so the user gets
+//! Below 90 cols ledger falls back to `console` so the user gets
 //! readable output rather than a mangled frame.
 
 use crate::config::{GlyphMode, RenderConfig};
@@ -100,7 +100,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         .map(|w| w.min(config.pane_max_width))
         .unwrap_or(config.pane_max_width);
     if width < 90 {
-        return fallback_to_sections(frame, config);
+        return fallback_to_console(frame, config);
     }
 
     let inner = width.saturating_sub(FRAME_INNER_PAD);
@@ -228,10 +228,10 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
 }
 
 /// Drop down to the next-best layout when ledger can't fit (or width
-/// detection failed). Console (sections + identity-in-title) preserves
+/// detection failed). Console (framed, identity-in-title) preserves
 /// the title-in-frame look and is content-sized — never overflows the
 /// terminal even when `terminal_width` is `None`.
-fn fallback_to_sections(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
+fn fallback_to_console(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut shrunk = config.clone();
     shrunk.pane_style = crate::render::pane::LayoutStyle::Console;
     // The outer `render_frame` call already subtracted `pane_cc_margin` from
@@ -550,8 +550,18 @@ fn tok_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
         val_color,
         color,
     );
+    // Cache hit rate appended after the raw pair — `50% hit`,
+    // threshold-colored; omitted entirely when there is no cache signal.
+    let hit_part = line3
+        .cache_hit_pct()
+        .map(|pct| {
+            let pct_v = colorize(&format!("{pct:.0}%"), p.color_for_cache_hit_pct(pct), color);
+            let hit_lbl = colorize("hit", &p.structural, color);
+            format!("  {pct_v} {hit_lbl}")
+        })
+        .unwrap_or_default();
     format!(
-        "{in_v} {in_lbl}{ITEM_GAP}{out_v} {out_lbl}{ITEM_GAP}{create_v} {slash} {read_v} {cache_lbl}"
+        "{in_v} {in_lbl}{ITEM_GAP}{out_v} {out_lbl}{ITEM_GAP}{create_v} {slash} {read_v} {cache_lbl}{hit_part}"
     )
 }
 

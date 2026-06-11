@@ -5,6 +5,134 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.2.0] - 2026-06-11
+
+> **⚠ Breaking changes** are clearly marked below. Three layouts
+> (`zones`, `grid`, `sections`) and the `[layout] width_mode` /
+> `fixed_width` keys are removed. Configs naming a removed layout fall
+> back with a stderr warning (`zones`/`grid` → `none`, `sections` →
+> `console`); the removed keys are parse-ignored, so old TOML keeps
+> loading. Also note two visible default changes: the L2 config-counts
+> row is now opt-in, and activity groups default to one row each.
+
+Feature release on three axes: vertical height discipline (the
+statusline could reach 13–18 rows and squeeze Claude Code's own footer
+and agents view), a transcript signal upgrade that surfaces measured
+usage data instead of approximations, and a 7→4 layout consolidation —
+with light-variant theme legibility fixes riding along.
+
+### Added
+
+- **`compact` layout** — 2–3 row micro layout, no chrome. Row 1 packs
+  the identity (L1) cells; row 2 packs the budget (L3) cells plus a
+  merged quota (`5h:62%` — threshold-colored percentage, reset time
+  dropped); row 3 is a single packed activity ticker (completed grand
+  total → first running tool → agent groups → todo counts) that only
+  appears while there is activity — idle footprint is exactly 2 rows.
+  Each row packs width-aware independently: reference cells (TOK
+  breakdown, project, version, style, effort, agent pill) drop first,
+  rightmost first, so model / git / CTX / cost / quota survive narrow
+  terminals.
+- **`[layout] max_total_lines` + height-degrade ladder** — Hard cap on
+  total rendered rows (frame chrome counts against it), the vertical
+  twin of width degradation. Accepts an integer or `"auto"` (terminal
+  height ÷ 4 clamped to 4–10, detected via `LINES` env (CC 2.1.153+) →
+  ioctl → `/dev/tty`). The `HeightDegradeStrategy` ladder applies
+  cumulative collapses until the render fits: drop running tools →
+  collapse completed / agents / todo to one row each → fuse all
+  activity into one packed row → merge quota into L3 → drop L2 → fuse
+  identity+budget+quota into the compact head row (`FuseCore`) → hard
+  truncate. Ledger is exempt — `ledger_dense` is its height lever.
+  Note `none` + `max_total_lines = 2` ≠ `compact`: idle, the ladder
+  stops early at the quota merge and `FuseCore` never fires.
+- **`tools_visual` / `todo_visual` specs** — Two new per-segment
+  composable specs, parsed inline like `agents_visual`. `tools_visual`
+  composes `counts` (completed-count rows) / `targets` (running-tools
+  row) / `ticker` (fuses grand total + running tools onto one row);
+  `todo_visual` composes `text` / `bar` (5-cell progress gauge).
+  Honored by every layout including ledger; per-layout defaults live
+  in `default_visuals_for`.
+- **Richer transcript signals** — Completed tool counts gain red `✘N`
+  failure marks (from `tool_result.is_error`, e.g. `✓ Bash ×8 ✘2`);
+  `system.compact_boundary` events render a CTX `⟳N` marker (`~N` in
+  ascii) and reset the CTX sparkline; `system.api_error` shows a
+  transient `⚠API` badge (30s TTL, self-clearing); completed agents
+  pin a terminal-stats tail `(2m · 14 tools · 38.0k tok)` extracted
+  from `toolUseResult`.
+- **Light-variant full-field theme overrides** — `light_emphasis` in
+  theme JSON may now override *any* of the 34 palette fields, not just
+  the four emphasis tiers; absent fields keep falling back to the dark
+  `palette_mapping`, so existing custom themes inherit unchanged.
+  Eight built-in themes gain light overrides for semantic colors that
+  were near-illegible on light backgrounds (pale golds, neon cyans,
+  lime greens → darker shades of the same hue). A table-driven
+  contrast-floor test pins every built-in light variant, and
+  `--preview` warns on stderr when a custom theme's light variant
+  fails the same floor.
+- **`--preview-layouts [WIDTH ...]` CLI flag** — Renders every layout
+  against a synthetic fixture at the given width(s) (default 140)
+  without touching the live Claude Code session.
+- **Root `AGENTS.md` count on L2** — The env row now counts a
+  repo-root `AGENTS.md` (the agents.md convention is root-only)
+  alongside CLAUDE.md; rides the `show_claude_md` toggle.
+- **`[performance]` TOML section** — `transcript_window_events` and
+  `transcript_poll_throttle_ms` are now reachable from config
+  (previously documented but unwired).
+
+### Changed
+
+- **L2 config-counts row demoted to opt-in** — `[segments.config]
+  enabled` defaults to `false`: the counts rarely change in-session
+  and the row costs a full line (plus an ENV group in framed layouts).
+  One toggle restores it; the individual `show_*` toggles apply once
+  enabled.
+- **Default activity diet** — `max_completed_lines` /
+  `max_agent_lines` / `max_todo_lines` default 2 → 1; overflow folds
+  into a ` +N` tail on the last visible row instead of a dedicated
+  summary row; empty L1/L2/L3 no longer emit blank rows.
+- **L3 cache cell shows hit rate** — `C:50%` (threshold-colored,
+  computed as `read / (input + creation + read)`) replaces the raw
+  creation/read token pair; renders a structural `C:--` when there is
+  no cache signal rather than a misleading red 0%.
+- **Output tok/s is measured, not approximated** — Assistant
+  `message.usage` events feed a ring buffer; the L3 `↗1.5K/s` speed
+  cell now reports real output throughput, replacing the prior
+  stdin-delta approximation.
+- **Transcript metadata pre-filter** — A byte-level, string-aware
+  depth-1 pre-filter skips attachment/metadata lines before
+  `serde_json` ever runs (34–67% of lines in large transcripts), and
+  event windowing now applies before parsing instead of after.
+
+### Removed
+
+- **BREAKING: `zones`, `grid`, and `sections` layouts** — Consolidated
+  7→4; the survivors are `none`, `compact`, `console`, and `ledger`.
+  Configs naming a removed layout fall back with a stderr warning:
+  `zones` and `grid` → `none` (they shared none's visual defaults),
+  `sections` → `console` (its identity-in-title sibling, same frame
+  chrome).
+- **BREAKING: `[layout] width_mode` / `fixed_width`** — Only the
+  removed `zones` layout read them. The keys are now parse-ignored in
+  existing TOML (no `deny_unknown_fields`), so old configs keep
+  loading; `min_width`, `max_width`, and `cc_margin` are unchanged.
+- **Path-3 flat-event transcript fallback** — ~162 lines deleted; real
+  Claude Code transcripts never emit the flat shape. All fixtures
+  migrated to the nested `message.content[]` format the two-path
+  dispatcher consumes.
+
+### Fixed
+
+- **Git segment rendered `G:unknown` outside repositories** — When no
+  branch resolves (non-repo cwd), the git segment — and the `(WT)`
+  worktree indicator that rides it — is now hidden entirely instead of
+  printing the `unknown` sentinel, on both the flat L1 and the framed
+  identity headline.
+- **Agent elapsed time accumulated minutes forever** —
+  `format_agent_elapsed` now delegates to the h/d duration tiers above
+  60s, so a long-running agent shows `1h 1m` instead of `61m`.
+
 ## [1.1.5] - 2026-05-19
 
 Feature release on two axes: sub-agent TODO visibility from dispatched
@@ -481,6 +609,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.2.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.3...v1.1.4
 [1.1.3]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.2...v1.1.3

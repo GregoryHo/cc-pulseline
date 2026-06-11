@@ -4,16 +4,20 @@ Detailed reference for every metric rendered by cc-pulseline, covering data sour
 
 ## Line 1: Identity
 
-Seven segments providing session identity at a glance.
+Session identity at a glance (see `IdentitySegmentConfig` in `src/config.rs` for the segment list).
 
 | Metric | Prefix | Data Source | Parsing Method | Cache | Color |
 |--------|--------|-------------|----------------|-------|-------|
 | Model | `M:` | `payload.model` | JSON field extraction | None | STABLE_BLUE (111) |
+| Agent | `AG:` | `payload.agent.name` | JSON field extraction | None | head_agent (183) |
 | Style | `S:` | `payload.output_style.name` | JSON field extraction | None | tier.secondary (146/240) |
 | Version | `CC:` | `payload.version` | JSON field extraction | None | tier.secondary (146/240) |
 | Project | `P:` | `payload.workspace.current_dir` | HOME replaced with `~` via `resolve_project_path_display()` | None | tier.secondary (146/240) |
 | Git | `G:` | `git status --porcelain=v2 --branch` | Shell out, parse branch/dirty/ahead/behind | 10s TTL | STABLE_GREEN (71) / ALERT_ORANGE (214) / ACTIVE_CORAL (209) |
 | Git File Stats | (inline) | `git status --porcelain=v2` | Classify entries: `!` modified, `+` added, `✘` deleted, `?` untracked | 10s TTL | GIT_MODIFIED (214) / GIT_ADDED (71) / GIT_DELETED (196) / ACTIVE_PURPLE (183) |
+| Worktree | `(WT)` | `payload.worktree` / `payload.workspace.git_worktree` | Presence check (`is_in_worktree()`) | None | tier.structural (103/245) |
+| Effort | `E:` (effort pill) | `payload.effort.level` | JSON field extraction | None | level-driven (`color_for_effort_level`) |
+| Thinking | `[T]` (thinking pill) | `payload.thinking.enabled` | Rendered only when `true` | None | head_thinking (178) |
 
 ### Git State Details
 
@@ -35,7 +39,7 @@ Seven segments providing session identity at a glance.
 
 Zero-count categories are omitted. Stats appear after branch/ahead/behind. Toggled via `show_git_stats` (default: false).
 
-All L1 segments are individually togglable via config: `show_model`, `show_style`, `show_version`, `show_project`, `show_git`, `show_git_stats`, `show_agent`, `show_worktree`.
+All L1 segments are individually togglable via config: `show_model`, `show_style`, `show_version`, `show_project`, `show_git`, `show_git_stats`, `show_agent`, `show_worktree`, `show_effort`, `show_thinking`.
 
 ### Example Output
 
@@ -65,7 +69,7 @@ M:Opus 4.6 | S:concise | CC:2.2.0 | P:~/projects/myapp | G:feature/auth* ↑3 !3
 
 ## Line 2: Config Counts
 
-Seven segments showing the project's Claude Code configuration.
+Counts of the project's Claude Code configuration. **The whole row is opt-in** — `[segments.config] enabled` defaults to `false`; the individual `show_*` toggles apply once enabled.
 
 | Metric | Data Source | Parsing Method | Cache | Icon Color |
 |--------|-------------|----------------|-------|------------|
@@ -75,7 +79,8 @@ Seven segments showing the project's Claude Code configuration.
 | Hooks | settings.json `hooks` keys | JSON parse of hooks object keys in settings.json (project + local + user) | 10s TTL | INDICATOR_HOOKS (179) |
 | MCPs | Multiple config files | Scoped dedup -- user scope (settings.json + .claude.json - disabled) + project scope (.mcp.json + settings.json + settings.local.json - disabledMcpjsonServers) | 10s TTL | INDICATOR_MCP (139) |
 | Skills | Skills directories | Count directories in `{root}/.claude/skills/` + `~/.claude/skills/` (excludes .codex/) | 10s TTL | INDICATOR_SKILLS (73) |
-| Duration | `payload.conversation.created_at` | Elapsed time since conversation start | None | INDICATOR_DURATION (174) |
+| Plugins | `installed_plugins.json` + settings.json | Count enabled Claude Code plugins (CC 2.0.12+) | 10s TTL | INDICATOR_MCP (139, reused) |
+| Duration | `payload.cost.total_duration_ms` | Elapsed session duration | None | INDICATOR_DURATION (174) |
 
 ### L2 Color Hierarchy
 
@@ -84,7 +89,7 @@ Each L2 segment uses three color layers:
 - **Count**: tier.secondary (146/240) -- the actual data value
 - **Label**: tier.structural (103/245) -- descriptive text
 
-All L2 segments are individually togglable via config: `show_claude_md`, `show_rules`, `show_memory`, `show_hooks`, `show_mcp`, `show_skills`, `show_duration`.
+The L2 row has a master `enabled` toggle (default `false`); segments are then individually togglable via config: `show_claude_md`, `show_rules`, `show_memory`, `show_hooks`, `show_mcp`, `show_skills`, `show_plugins`, `show_duration`.
 
 ### Duration Display Format
 
@@ -121,9 +126,9 @@ Three segments tracking resource consumption.
 
 | Metric | Prefix | Data Source | Parsing Method | Cache | Color |
 |--------|--------|-------------|----------------|-------|-------|
-| Context | `CTX:` | `payload.conversation.context_window.*` | Percentage = used/total, formatted as `pct% (used/total)` | L3 all-or-nothing fallback | State-driven (see below) |
-| Tokens | `TOK:` | `payload.conversation.usage.*` | Four sub-fields: I (input), O (output), C (cache_creation), R (cache_read) | L3 all-or-nothing fallback | tier.structural labels, tier.secondary values |
-| Cost | `$` | `payload.conversation.usage.costUSD` + elapsed time | Total cost + computed burn rate ($/h) | L3 all-or-nothing fallback | COST_BASE (222) + rate-based gradient |
+| Context | `CTX:` | `payload.context_window.*` | Percentage = used/total, formatted as `pct% (used/total)` | L3 all-or-nothing fallback | State-driven (see below) |
+| Tokens | `TOK:` | `payload.context_window.current_usage.*` | Three sub-fields: I (input), O (output), C (cache hit-rate = `cache_read / (input + cache_creation + cache_read)`, `--` when no cache signal) | L3 all-or-nothing fallback | tier.structural labels, tier.secondary values; C value colored by hit-rate (≥80% green, ≥40% neutral, else warn) |
+| Cost | `$` | `payload.cost.total_cost_usd` + `payload.cost.total_duration_ms` | Total cost + computed burn rate ($/h) | L3 all-or-nothing fallback | COST_BASE (222) + rate-based gradient |
 | Speed | `↗N/s` (inline in TOK) | Computed from successive output token snapshots | Delta-based tok/s with 2s window; holds last known value when idle | SessionState in-memory | tier.primary when data exists, tier.structural when absent (matches token values) |
 
 ### Context Color States
@@ -165,31 +170,31 @@ All L3 segments are individually togglable via config: `show_context`, `show_tok
 Normal (context <55%, speed enabled):
 
 ```
-CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:30.0k/40.0k | $3.50 ($3.50/h)
+CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:50% | $3.50 ($3.50/h)
 ```
 
 Context warning (55-69%):
 
 ```
-CTX:62% (124.0k/200.0k) | TOK I:35.0k O:8.0k C:45.0k/68.0k | $5.80 ($2.90/h)
+CTX:62% (124.0k/200.0k) | TOK I:35.0k O:8.0k C:46% | $5.80 ($2.90/h)
 ```
 
 Context critical (≥70%):
 
 ```
-CTX:75% (150.0k/200.0k) | TOK I:45.0k O:12.0k C:50.0k/77.0k | $8.20 ($4.10/h)
+CTX:75% (150.0k/200.0k) | TOK I:45.0k O:12.0k C:45% | $8.20 ($4.10/h)
 ```
 
 High burn rate (>$50/h):
 
 ```
-CTX:15% (30.0k/200.0k) | TOK I:8.0k O:3.0k C:10.0k/9.0k | $12.50 ($75.00/h)
+CTX:15% (30.0k/200.0k) | TOK I:8.0k O:3.0k C:33% | $12.50 ($75.00/h)
 ```
 
 Missing data fallback:
 
 ```
-CTX:--% (--/--) | TOK I:-- O:-- C:--/-- | $0.00 ($0.00/h)
+CTX:--% (--/--) | TOK I:-- O:-- C:-- | $0.00 ($0.00/h)
 ```
 
 ## Quota Line
@@ -251,7 +256,7 @@ Capped by `max_completed_tools` config value.
 
 **Hybrid scoring**: Tools ranked by `score = count + recency_bonus` where `recency_bonus = 3.0 × max(0, 1 − age_ms / 120,000)`. Recently used tools (within 2 minutes) get up to 3 bonus points, floating up even with low counts. After decay, pure count dominates. Ties broken alphabetically.
 
-**Multi-line wrapping**: Completed tools span up to `max_completed_lines` rows (default: 2). Overflow surfaces as `… + N more tools` at the end of the last row.
+**Multi-line wrapping**: Completed tools span up to `max_completed_lines` rows (default: 1). Overflow folds into a ` +N` tail on the last visible row.
 
 ### Running/Recent Tools (L4b)
 
@@ -259,7 +264,7 @@ Dedicated line for running and recently used tools with targets — volatile, ch
 
 | Component | Data Source | Parsing Method | Color |
 |-----------|-------------|----------------|-------|
-| Running/recent tools | Transcript JSONL (Path 1 or 3) | `tool_use` events -> upsert with target extraction | ACTIVE_CYAN (117) |
+| Running/recent tools | Transcript JSONL (nested content blocks) | `tool_use` events -> upsert with target extraction | ACTIVE_CYAN (117) |
 
 **Display format**: `T:Read: .../main.rs | T:Bash: cargo test`
 
@@ -308,7 +313,7 @@ Completed agents are stored in a FIFO buffer (max 10), pruned when exceeded.
 - All done: `✓ All todos complete (3/3)` — celebration line using COMPLETED_CHECK color
 - Legacy (TodoWrite): `TODO:1/3 done, 2 pending`
 
-Multi-line todo display is capped by `max_todo_lines` config value (default: 2).
+Multi-line todo display is capped by `max_todo_lines` config value (default: 1).
 
 ### Example Output
 

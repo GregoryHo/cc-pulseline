@@ -306,10 +306,6 @@ impl SessionState {
         }
     }
 
-    pub fn remove_tool(&mut self, id: &str, event_ts: Option<u64>) {
-        self.remove_tool_with_error(id, event_ts, false);
-    }
-
     pub fn remove_tool_with_error(&mut self, id: &str, event_ts: Option<u64>, is_error: bool) {
         if let Some(tool) = self.active_tools.iter().find(|t| t.id == id) {
             self.record_tool_completion(&tool.name.clone(), event_ts, is_error);

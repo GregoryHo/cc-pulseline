@@ -26,6 +26,8 @@ StdinPayload {
     rate_limits: Option<RateLimits>,    // CC 2.1.80+: subscription usage limits (5h/7d windows)
     agent: Option<AgentInfo>,           // CC 2.1.69+: active session agent (--agent)
     worktree: Option<WorktreeInfo>,     // CC 2.1.69+: worktree session info (--worktree)
+    effort: Option<EffortInfo>,         // CC 2.1.119+: effort level
+    thinking: Option<ThinkingInfo>,     // CC 2.1.119+: thinking mode toggle
 }
 ```
 
@@ -34,7 +36,7 @@ StdinPayload {
 ```
 ModelInfo          { id, display_name }
 OutputStyleInfo    { name }
-WorkspaceInfo      { current_dir }
+WorkspaceInfo      { current_dir, git_worktree }                // git_worktree (CC 2.1.97+) is presence-checked only
 ContextWindow      { context_window_size, used_percentage, current_usage }
 CurrentUsage       { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens }
 CostInfo           { total_cost_usd, total_duration_ms }
@@ -42,13 +44,15 @@ RateLimits         { five_hour, seven_day }                    // each is Option
 RateLimitWindow    { used_percentage (f64), resets_at (u64) }  // resets_at = epoch seconds
 AgentInfo          { name, type }                              // session agent identity
 WorktreeInfo       { name, path, branch, original_cwd, original_branch }
+EffortInfo         { level }                                    // effort level (e.g., "high")
+ThinkingInfo       { enabled }                                  // thinking mode on/off
 ```
 
 ### Important Behaviors
 
 - `current_usage` is `null` before the first API call in a session
 - `used_percentage` is input-only (excludes output tokens from the percentage)
-- Project path: `workspace.current_dir` is preferred; `cwd` is the fallback
+- Project path: `worktree.original_cwd` (worktree sessions) → `workspace.current_dir` → `cwd`
 - Empty stdin (`""`) is treated as `{}` — all fields default gracefully
 
 ## Transcript File
