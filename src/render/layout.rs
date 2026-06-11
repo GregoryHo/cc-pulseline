@@ -136,7 +136,7 @@ fn assemble_flat(
     let p_state = tinted_palette(base_palette, false, tonal);
     let p_activity = tinted_palette(base_palette, true, tonal);
 
-    // Compact is permanently "fully squeezed": it never grows past 2 rows,
+    // Compact is permanently "fully squeezed": it never grows past 3 rows,
     // so the ladder flags have nothing left to collapse.
     if matches!(config.pane_style, LayoutStyle::Compact) {
         return assemble_compact(frame, config, &p_state, &p_activity);
@@ -302,26 +302,44 @@ fn assemble_flat(
     lines
 }
 
-/// The `compact` layout: everything on 1–2 rows, no chrome.
+/// The `compact` layout: everything on 2–3 rows, no chrome.
 ///
-/// Row 1 fuses identity, budget (L3), and compact quota with the standard
-/// ` | ` separator; which identity/budget cells appear is still governed
-/// by the user's `show_*` toggles. Row 2 is the single packed activity
-/// ticker (`build_activity_inline_row`) and is emitted only when there is
-/// activity — idle footprint is exactly 1 row. L2 config counts have no
-/// home here by design (reference data; see `docs/layouts.md`).
+/// Row 1 packs the identity (L1) cells; row 2 packs budget (L3) plus the
+/// compact quota — which cells appear is still governed by the user's
+/// `show_*` toggles. Splitting identity from budget gives the budget row
+/// its own width budget: the TOK cell (incl. the `C:%` hit-rate) only
+/// competes with other budget cells, so it survives much narrower
+/// terminals than the old single fused row. Row 3 is the single packed
+/// activity ticker (`build_activity_inline_row`) and is emitted only when
+/// there is activity — idle footprint is exactly 2 rows. L2 config counts
+/// have no home here by design (reference data; see `docs/layouts.md`).
+///
+/// The fully-fused 1-row form lives on as the `FuseCore` height-degrade
+/// floor (`fused_head_row`), not as this layout.
 fn assemble_compact(
     frame: &RenderFrame,
     config: &RenderConfig,
     p_state: &ThemePalette,
     p_activity: &ThemePalette,
 ) -> Vec<String> {
+    use crate::render::activity::cell::CellPriority;
+
     let color = config.color_enabled;
 
     let mut lines: Vec<String> = Vec::new();
-    let head = fused_head_row(frame, config, p_state);
-    if !head.is_empty() {
-        lines.push(head);
+    let identity = packed_parts_row(line1_parts(frame, config, p_state), config, p_state);
+    if !identity.is_empty() {
+        lines.push(identity);
+    }
+    let mut budget_parts = line3_parts(frame, config, p_state);
+    if config.show_quota {
+        if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
+            budget_parts.push((quota, CellPriority::Required));
+        }
+    }
+    let budget = packed_parts_row(budget_parts, config, p_state);
+    if !budget.is_empty() {
+        lines.push(budget);
     }
 
     let activity_width = config.terminal_width.unwrap_or(usize::MAX);
@@ -332,7 +350,7 @@ fn assemble_compact(
         activity_width,
     ));
 
-    // Single-pass width fit: no compress/drop ladder needed at 1–2 rows.
+    // Single-pass width fit: no compress/drop ladder needed at 2–3 rows.
     if let Some(width) = config.terminal_width {
         lines = lines
             .into_iter()
@@ -342,41 +360,54 @@ fn assemble_compact(
     lines
 }
 
-/// The fused head row shared by the `compact` layout and the `FuseCore`
-/// height-degradation rung: identity (L1) and budget (L3) cells joined
-/// with the standard ` | ` separator, plus the compact quota when shown.
+/// Packs `(text, priority)` parts into one row joined with the standard
+/// ` | ` separator, width-aware: Optional cells drop first, rightmost
+/// first — never a blind right-tail truncation. Returns `""` when there
+/// are no parts.
+fn packed_parts_row(
+    parts: Vec<(String, crate::render::activity::cell::CellPriority)>,
+    config: &RenderConfig,
+    p_state: &ThemePalette,
+) -> String {
+    use crate::render::activity::budget::pack_with_separator;
+    use crate::render::activity::cell::Cell;
+
+    let color = config.color_enabled;
+    let sep = colorize(" | ", &p_state.separator, color);
+
+    let cells: Vec<Cell> = parts
+        .into_iter()
+        .map(|(part, priority)| {
+            let w = visible_width(&part);
+            Cell::label(part, w, priority)
+        })
+        .collect();
+    if cells.is_empty() {
+        return String::new();
+    }
+    let row_width = config.terminal_width.unwrap_or(usize::MAX);
+    pack_with_separator(&cells, row_width, &sep, 3, color)
+}
+
+/// The fused head row used by the `FuseCore` height-degradation rung:
+/// identity (L1) and budget (L3) cells joined with the standard ` | `
+/// separator, plus the compact quota when shown.
 ///
 /// The row packs width-aware so the RIGHT-side essentials (cost, quota)
 /// survive narrow terminals: Optional reference cells (TOK breakdown,
 /// project path, version, style, …) drop first, rightmost first —
 /// never a blind right-tail truncation that would cut the budget area.
 fn fused_head_row(frame: &RenderFrame, config: &RenderConfig, p_state: &ThemePalette) -> String {
-    use crate::render::activity::budget::pack_with_separator;
-    use crate::render::activity::cell::{Cell, CellPriority};
+    use crate::render::activity::cell::CellPriority;
 
-    let color = config.color_enabled;
-    let sep = colorize(" | ", &p_state.separator, color);
-
-    let mut cells: Vec<Cell> = Vec::new();
-    for (part, priority) in line1_parts(frame, config, p_state)
-        .into_iter()
-        .chain(line3_parts(frame, config, p_state))
-    {
-        let w = visible_width(&part);
-        cells.push(Cell::label(part, w, priority));
-    }
+    let mut parts = line1_parts(frame, config, p_state);
+    parts.extend(line3_parts(frame, config, p_state));
     if config.show_quota {
         if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
-            let w = visible_width(&quota);
-            cells.push(Cell::label(quota, w, CellPriority::Required));
+            parts.push((quota, CellPriority::Required));
         }
     }
-
-    if cells.is_empty() {
-        return String::new();
-    }
-    let head_width = config.terminal_width.unwrap_or(usize::MAX);
-    pack_with_separator(&cells, head_width, &sep, 3, color)
+    packed_parts_row(parts, config, p_state)
 }
 
 fn pane_config_from(config: &RenderConfig) -> PaneConfig {

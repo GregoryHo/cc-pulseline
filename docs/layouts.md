@@ -6,7 +6,7 @@ rows. The shipping layouts:
 | Layout | What it does |
 |---|---|
 | `none` | Flat output, no chrome. Default. |
-| `compact` | 1–2 row micro layout: identity + budget + quota fused on row 1, packed activity ticker on row 2 (only when active). |
+| `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
@@ -93,26 +93,30 @@ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 | $3.50
 **Pick when** you want the minimal status line and care about screen real
 estate above all else.
 
-### `compact` — 1–2 row micro layout
+### `compact` — 2–3 row micro layout
 
-Everything fuses onto at most two rows, no chrome. Row 1 joins the
-identity cells, the budget (L3) cells, and a compact quota
-(`5h:62%` — threshold-colored percentage, reset time dropped) with the
-standard ` | ` separator; which cells appear is still governed by the
-`show_*` toggles. Under width pressure the TOK cell (including the
-`C:%` cache hit rate) drops first by design — it is reference data, not
-alert-bearing. Row 2 is a single packed activity ticker (completed
-grand total → first running tool → agent groups → todo counts) and only
-appears while there is activity — idle footprint is exactly **1 row**.
-L2 config counts have no home here by design (reference data — flip to
-another layout when you need them).
+Everything packs onto at most three rows, no chrome. Row 1 packs the
+identity (L1) cells; row 2 packs the budget (L3) cells plus a compact
+quota (`5h:62%` — threshold-colored percentage, reset time dropped) with
+the standard ` | ` separator; which cells appear is still governed by
+the `show_*` toggles. Each row packs width-aware independently: the
+identity row drops its reference cells (path, version, style) first,
+and the budget row drops the TOK cell (including the `C:%` cache hit
+rate) before CTX/cost/quota — so the hit-rate survives much narrower
+terminals than the old single fused row. Row 3 is a single packed
+activity ticker (completed grand total → first running tool → agent
+groups → todo counts) and only appears while there is activity — idle
+footprint is exactly **2 rows**. L2 config counts have no home here by
+design (reference data — flip to another layout when you need them).
 
 ```
-M:Opus 4.7 | G:feat/x * | CTX:43% (86.0k/200.0k) | $3.50 | 5h:62%
+M:Opus 4.7 | S:concise | CC:2.2.0 | P:~/proj | G:feat/x *
+CTX:43% (86.0k/200.0k) | TOK I:10 O:20 C:50% | $3.50 | 5h:62%
 ✓ 25 tools | T:Bash: cargo test | A:Explore (2m) | TODO:1/3
 ```
 
-**Cost:** 1–2 rows total — the smallest possible footprint.
+**Cost:** 2–3 rows total. (Absolute minimum footprint: `none` +
+`max_total_lines = 1–2`, which lands on the FuseCore 1-row fused head.)
 **Pick when** the statusline keeps squeezing Claude Code's footer or the
 in-terminal agents panel; pairs well with trimming L1 via
 `[segments.identity]` toggles (e.g. `show_style = false`,

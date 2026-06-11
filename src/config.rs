@@ -611,9 +611,10 @@ visual = ""
 #
 # Plain / decorated:
 #   "none"     — flat output, no grouping markers
-#   "compact"  — 1–2 rows total: identity+budget+quota fused on row 1,
-#                packed activity ticker on row 2 (only when active).
-#                Smallest footprint — never squeezes CC's footer.
+#   "compact"  — 2–3 rows total: packed identity row, packed budget+quota
+#                row, activity ticker on row 3 (only when active).
+#                Small but readable — never squeezes CC's footer.
+#                (Absolute minimum: "none" + max_total_lines = 1–2.)
 #   "console"  — single outer ╭─...─╮ frame with ├─┼─┤ between groups and
 #                the identity row hoisted into the top frame title (best
 #                ≥110 cols)

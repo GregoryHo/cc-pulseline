@@ -15,9 +15,9 @@ use super::frames;
 pub enum LayoutStyle {
     /// Flat output, no decoration. Default.
     None,
-    /// 1–2 row micro layout: identity + budget + compact quota fused on
-    /// row 1; row 2 is a single packed activity ticker that only appears
-    /// when there is activity (idle footprint = 1 row). No chrome.
+    /// 2–3 row micro layout: packed identity row, packed budget + compact
+    /// quota row, and a single packed activity ticker that only appears
+    /// when there is activity (idle footprint = 2 rows). No chrome.
     Compact,
     /// Single outer `╭─...─╮` wrapper with a `├─┼─┤` separator emitted
     /// between every pair of non-empty groups, and the Identity row

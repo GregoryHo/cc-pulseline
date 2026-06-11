@@ -57,10 +57,10 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             tools_visual: "counts+targets",
             todo_visual: "text",
         },
-        // Compact fuses everything onto 1–2 rows — every cell competes
-        // for the same row, so agents show their name only. The tools
-        // spec is informational here: compact always renders the fused
-        // inline activity row.
+        // Compact packs everything onto 2–3 rows — activity cells all
+        // compete for one ticker row, so agents show their name only.
+        // The tools spec is informational here: compact always renders
+        // the fused inline activity row.
         LayoutStyle::Compact => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",
