@@ -157,6 +157,10 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.last_output_token_time_ms = None;
             state.output_speed_toks_per_sec = None;
             state.ctx_history.clear();
+            // File replaced → re-reading from 0 would double-count usage.
+            state.cache_history.clear();
+            state.cache_read_total = 0;
+            state.last_usage_message_id = None;
             state.compact_count = 0;
             state.last_api_error_ms = None;
         }
@@ -351,6 +355,8 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     // disambiguate `async_launched` (agent still running) from terminal.
     let tool_use_result = raw_event.get("toolUseResult");
 
+    accumulate_usage(state, raw_event, &message_id);
+
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
     // Or:           { "role": "user", "content": [{...}] }
@@ -385,6 +391,9 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
                 "compact_boundary" => {
                     state.compact_count = state.compact_count.saturating_add(1);
                     state.ctx_history.clear();
+                    // `cache_read_total` is session-cumulative and survives
+                    // compaction — only the trend window resets.
+                    state.cache_history.clear();
                     return;
                 }
                 "api_error" => {
@@ -413,6 +422,25 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
             state.last_api_error_ms = Some(cache::now_epoch_ms());
         }
     }
+}
+
+/// Accumulate cache_read_input_tokens from assistant usage events,
+/// deduped per API call by `message.id` (streaming chunks of one call
+/// repeat the same id with byte-identical usage, contiguously).
+fn accumulate_usage(state: &mut SessionState, raw_event: &Value, message_id: &Option<String>) {
+    let Some(id) = message_id else { return };
+    if state.last_usage_message_id.as_deref() == Some(id.as_str()) {
+        return;
+    }
+    let Some(usage) = raw_event.get("message").and_then(|m| m.get("usage")) else {
+        return;
+    };
+    let read = usage
+        .get("cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    state.cache_read_total = state.cache_read_total.saturating_add(read);
+    state.last_usage_message_id = Some(id.clone());
 }
 
 /// Extract content[] blocks from nested transcript events.
