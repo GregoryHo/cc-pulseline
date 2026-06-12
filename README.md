@@ -11,7 +11,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ### What You'll See
 
-**Core Metrics** — L1-L3 always visible
+**Core Metrics** — identity (L1) and budget (L3) always visible; config counts (L2) opt-in via `[segments.config] enabled`
 
 ![Core metrics](docs/assets/core-metrics.png)
 
@@ -117,7 +117,7 @@ show_version = true
 show_project = true
 show_git = true
 
-[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
+[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, plugins, duration
 enabled = true          # L2 row is opt-in (off by default)
 show_claude_md = true
 show_rules = true
@@ -125,6 +125,7 @@ show_memory = true
 show_hooks = true
 show_mcp = true
 show_skills = true
+show_plugins = true
 show_duration = true
 
 [segments.budget]       # Line 3 — context, tokens, cost
@@ -151,7 +152,7 @@ max_lines = 2
 
 `[layout].name` picks how rows are arranged and decorated. Four layouts ship: `none` (flat default), `compact` (2–3 row micro layout), `console` (single outer frame + identity-in-frame-title, recommended ≥110 cols), and `ledger` (label-value pairs in a fixed-width TAG column with sparkline + delta-time on CTX).
 
-Each layout asserts a tasteful default for the four widget-bearing segments. The user can override per segment via `*_visual` strings — same widget, any layout:
+Each layout asserts a tasteful default for every widget-bearing segment — see [docs/layouts.md](docs/layouts.md) for the per-segment reference. The user can override per segment via `*_visual` strings — same widget, any layout:
 
 ```toml
 # Console layout, but with a CTX gauge added (default is text-only).

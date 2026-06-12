@@ -256,8 +256,9 @@ TOOL, and AGENT+TODO groups).
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
-context, quota, tools, and todo segments live on a separate axis: the
-`*_visual` config fields. The user's TOML overrides the layout's
+context, quota, tools, agents, and todo segments live on a separate
+axis: the `*_visual` config fields (`agents_visual` is covered
+separately [below](#why-agents_visual-has-no-symmetric-dispatch-hub)). The user's TOML overrides the layout's
 default; otherwise the layout's default applies.
 
 This is **Variation B** from the design process: each layout asserts a
@@ -294,12 +295,12 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
-| Layout | `context_visual` | `quota_visual` | `tools_visual` | `todo_visual` |
-|--------|------------------|----------------|----------------|---------------|
-| `none` | `text` | `text` | `counts+targets` | `text` |
-| `compact` | `text` | `text` | `ticker`¹ | `text` |
-| `console` | `text` | `gauge` | `counts+targets` | `text` |
-| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `text` |
+| Layout | `context_visual` | `quota_visual` | `tools_visual` | `agents_visual` | `todo_visual` |
+|--------|------------------|----------------|----------------|-----------------|---------------|
+| `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` |
+| `compact` | `text` | `text` | `ticker`¹ | `name` | `text` |
+| `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` |
+| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
@@ -351,7 +352,7 @@ For contributors:
 
 ### Why `agents_visual` has no symmetric dispatch hub
 
-The four `*_visual` segments aren't fully symmetric. `context_visual`
+The `*_visual` segments aren't fully symmetric. `context_visual`
 and `quota_visual` flow through `render_context_visual` /
 `render_quota_visual` hubs; `agents_visual` doesn't. Its spec parser
 (`AgentVisualSpec::parse`) is called inline from

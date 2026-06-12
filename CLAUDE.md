@@ -58,7 +58,7 @@ stdin JSON → StdinPayload (deserialize)
 - **`types.rs`** — All data structures: `StdinPayload` (input deserialization), `RenderFrame` and its line metrics (`Line1Metrics`, `Line2Metrics`, `Line3Metrics`), plus activity summaries (`ToolSummary`, `AgentSummary`, `TodoSummary`). `RenderFrame::from_payload()` does the initial field extraction.
 
 - **`providers/`** — Trait-based collectors that gather data from external sources. Each has a real implementation and a `Stub*` for testing:
-  - `env.rs` — `EnvCollector` scans for CLAUDE.md files, rules, memories, hooks, MCP servers, and skills. MCP parsing uses scoped dedup: user scope (`~/.claude/settings.json` + `~/.claude.json` minus `disabledMcpServers`) and project scope (`.mcp.json` + `.claude/settings.json` + `.claude/settings.local.json` minus `disabledMcpjsonServers`). Memory files are counted from `~/.claude/projects/{encoded-path}/memory/` (flat `.md` scan).
+  - `env.rs` — `EnvCollector` scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills, and enabled plugins. MCP parsing uses scoped dedup: user scope (`~/.claude/settings.json` + `~/.claude.json` minus `disabledMcpServers`) and project scope (`.mcp.json` + `.claude/settings.json` + `.claude/settings.local.json` minus `disabledMcpjsonServers`). Memory files are counted from `~/.claude/projects/{encoded-path}/memory/` (flat `.md` scan).
   - `git.rs` — `GitCollector` shells out to `git` for branch, dirty state, ahead/behind, file stats
   - `transcript.rs` — `TranscriptCollector` does incremental JSONL parsing of the Claude Code transcript file with seek-based offsets and poll throttling. This is the most complex provider — it maintains active tool/agent/todo state via `SessionState`
 
@@ -80,7 +80,7 @@ stdin JSON → StdinPayload (deserialize)
 
 ### Layouts & Visual Composition
 
-`pane.rs::LayoutStyle` enumerates the layouts (`None` / `Compact` (2–3 rows, idle = 2) / `Console` (framed, identity-in-title) / `Ledger`; treat the enum as the source of truth). Each layout asserts a default `(context, cost, quota, tools)` visual tuple via `frames::default_visuals_for(LayoutStyle)`. The user's TOML `*_visual` strings override per segment when non-empty; otherwise `effective_*_visual()` falls back to the layout default.
+`pane.rs::LayoutStyle` enumerates the layouts (`None` / `Compact` (2–3 rows, idle = 2) / `Console` (framed, identity-in-title) / `Ledger`; treat the enum as the source of truth). Each layout asserts per-segment visual defaults via `frames::default_visuals_for(LayoutStyle)` — the `SegmentVisualDefaults` struct is the field list of record. The user's TOML `*_visual` strings override per segment when non-empty; otherwise `effective_*_visual()` falls back to the layout default.
 
 CTX widget composition runs through the dispatch hub `render_context_visual` in `frames/shared.rs`. Layouts call the hub with their preferred gauge sizing; the hub parses the `+`-joined spec (e.g. `"text+sparkline"`) and composes widget outputs. **New widgets must register with the hub** — never call `widgets::*::render` directly from a layout, or the user loses composability for that segment. (Ledger renders the sparkline directly because it picks the aurora fill color from CTX consumption velocity.)
 
@@ -89,7 +89,7 @@ Full layout × visual reference: `docs/layouts.md`.
 ### Output Line Format
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
-- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)
+- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10 O:20 ↗1.5K/s C:50% | $3.50 ($3.50/h)` (default `text` form; opt in to gauge or sparkline via `context_visual`). The `C:%` value is colored by the creation-aware ladder: ≥80% green; ≥40% neutral; <40% with creation share ≥50% warn "rebuilding"; <40% with low creation neutral "cold start".
 - **Cache trend (opt-in, `show_cache_trend`)**: compact appends a braille hit-rate sparkline after the TOK cell (Optional — drops first under width pressure); ledger adds a `CACHE` TAG row between TOK and COST (`CACHE   ⣀⣄⣦   4.4M read total   5% create` — cumulative cache read total deduped per `message.id`, survives compaction).
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)` (single `Q:` group prefix). Driven by CC's native `rate_limits` field.

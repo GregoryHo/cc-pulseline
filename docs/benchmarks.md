@@ -20,7 +20,7 @@
 
 1. **Baseline render** -- Static JSON payload with no transcript activity. Measures pure render pipeline latency.
 2. **Active session render** -- 10 active tools + 5 agents + todo items. Measures activity rendering cost.
-3. **Large transcript render** -- 2500 events simulating a real transcript. Uses real payload fixture (`tests/fixtures/core_metrics_complete.json`).
+3. **Large transcript render** -- 2500 events simulating a real transcript. Payload and transcript are synthesized inline by the benchmark (`benches/render_pipeline.rs`).
 
 ## Results
 
