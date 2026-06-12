@@ -33,6 +33,10 @@
 //! ledger default). Sparkline color tracks CTX consumption *velocity*
 //! via `widgets::sparkline::aurora_for_velocity`.
 //!
+//! With `show_cache_trend` on, a CACHE row (hit-rate sparkline +
+//! cumulative cache read total + creation share) packs between TOK
+//! and COST inside the Budget group.
+//!
 //! Below 90 cols ledger falls back to `console` so the user gets
 //! readable output rather than a mangled frame.
 
@@ -150,6 +154,19 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> V
         let body = tok_row_body(&frame.line3, p, ctx.color);
         if !body.is_empty() {
             budget_quota.push(framed_tag_row("TOK", &body, &ctx));
+        }
+    }
+    if config.show_cache_trend {
+        let body = cache_row_body(
+            &frame.line3,
+            &frame.cache_history,
+            frame.cache_read_total,
+            config.glyph_mode,
+            p,
+            ctx.color,
+        );
+        if !body.is_empty() {
+            budget_quota.push(framed_tag_row("CACHE", &body, &ctx));
         }
     }
     if config.show_cost {
@@ -567,6 +584,47 @@ fn tok_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
     format!(
         "{in_v} {in_lbl}{ITEM_GAP}{out_v} {out_lbl}{ITEM_GAP}{create_v} {slash} {read_v} {cache_lbl}{hit_part}"
     )
+}
+
+/// Knob-gated CACHE row: hit-rate trend sparkline, cumulative cache read
+/// total, and creation share. Empty when there is no cache signal at all
+/// (no reads accumulated AND no hit rate on the frame) — caller drops
+/// the row.
+fn cache_row_body(
+    line3: &Line3Metrics,
+    history: &[(u8, u64)],
+    read_total: u64,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color: bool,
+) -> String {
+    if read_total == 0 && line3.cache_hit_pct().is_none() {
+        return String::new(); // no cache signal at all → row dropped
+    }
+    let mut cells: Vec<String> = Vec::with_capacity(3);
+    // Sparkline filled with the creation-aware cache color of the LATEST
+    // hit rate (per-row rule; ledger CTX uses velocity aurora instead).
+    if !history.is_empty() {
+        let window = sparkline_window(history);
+        let latest = window.last().map(|(pct, _)| *pct as f64);
+        let fill = match latest {
+            Some(pct) => p.color_for_cache_hit_pct(pct, line3.cache_creation_share()),
+            None => p.structural.as_str(),
+        };
+        let glyph = widgets::sparkline::render(window, fill, mode, color);
+        if !glyph.is_empty() {
+            cells.push(glyph); // "" under Ascii — text below still carries the row
+        }
+    }
+    let total_v = colorize(&format_number(read_total), &p.primary, color);
+    let total_lbl = colorize("read total", &p.structural, color);
+    cells.push(format!("{total_v} {total_lbl}"));
+    if let Some(share) = line3.cache_creation_share() {
+        let share_v = colorize(&format!("{share:.0}%"), &p.primary, color);
+        let share_lbl = colorize("create", &p.structural, color);
+        cells.push(format!("{share_v} {share_lbl}"));
+    }
+    cells.join(ITEM_GAP)
 }
 
 fn cost_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {

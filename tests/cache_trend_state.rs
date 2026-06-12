@@ -259,3 +259,97 @@ fn runner_persists_cache_trend_to_disk_cache() {
     assert_eq!(cache.cache_history.len(), 2, "changed hit rate appends");
     assert_eq!(cache.cache_history[1].0, 57);
 }
+
+#[test]
+fn cumulative_total_survives_process_reload_and_renders_in_ledger() {
+    // End-to-end pipeline evidence: transcript usage events → SessionState
+    // accumulator → disk cache → FRESH process → ledger CACHE row.
+    use cc_pulseline::config::GlyphMode;
+    use cc_pulseline::render::color::resolve_palette;
+    use cc_pulseline::render::pane::LayoutStyle;
+
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("reload.jsonl");
+    let session_id = "cache-trend-reload-ledger-2026";
+
+    // Two usage events with distinct message ids: 1000 + 500 = 1.5k.
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
+    append_line(&transcript, &usage_line("msg_2", 500, "u2"));
+
+    let payload_json = json!({
+        "session_id": session_id,
+        "transcript_path": transcript,
+        "workspace": {"current_dir": workspace.path()},
+    })
+    .to_string();
+
+    let ledger_cfg = || RenderConfig {
+        pane_style: LayoutStyle::Ledger,
+        glyph_mode: GlyphMode::Icon,
+        color_enabled: false,
+        terminal_width: Some(144), // ledger sees 140 after cc_margin
+        pane_cc_margin: 4,
+        palette: resolve_palette("tokyo-night", Some("dark"), &Default::default()),
+        show_cache_trend: true,
+        transcript_poll_throttle_ms: 0,
+        ..RenderConfig::default()
+    };
+
+    // Process 1: reads both usage events, persists to disk cache, dies.
+    {
+        let mut runner1 = PulseLineRunner::default();
+        let lines = runner1
+            .run_from_str(&payload_json, ledger_cfg())
+            .expect("first process renders");
+        let blob = lines.join("\n");
+        assert!(blob.contains("CACHE"), "CACHE row in process 1: {blob}");
+        assert!(
+            blob.contains("1.5k"),
+            "cumulative 1.5k in process 1: {blob}"
+        );
+    } // runner1 dropped — simulates process exit
+
+    // FRESH process, same payload, no new transcript bytes: the cumulative
+    // must come back from the disk cache (offset persisted → no re-read,
+    // no double-count).
+    let mut runner2 = PulseLineRunner::default();
+    let lines = runner2
+        .run_from_str(&payload_json, ledger_cfg())
+        .expect("fresh process renders");
+    let blob = lines.join("\n");
+    assert!(blob.contains("CACHE"), "CACHE row after reload: {blob}");
+    assert!(
+        blob.contains("1.5k"),
+        "cumulative total must survive process reload (not double-count): {blob}"
+    );
+
+    // compact_boundary clears the trend window but NOT the cumulative.
+    append_line(
+        &transcript,
+        &json!({
+            "type": "system",
+            "subtype": "compact_boundary",
+            "timestamp": "2026-06-12T00:01:00.000Z"
+        })
+        .to_string(),
+    );
+    let lines = runner2
+        .run_from_str(&payload_json, ledger_cfg())
+        .expect("post-compaction render");
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("1.5k"),
+        "compaction must not clear the cumulative total: {blob}"
+    );
+
+    // A third usage event (new message id) increments: 1500 + 500 = 2.0k.
+    append_line(&transcript, &usage_line("msg_3", 500, "u3"));
+    let lines = runner2
+        .run_from_str(&payload_json, ledger_cfg())
+        .expect("post-append render");
+    let blob = lines.join("\n");
+    assert!(
+        blob.contains("2.0k"),
+        "new usage event must increment the cumulative: {blob}"
+    );
+}

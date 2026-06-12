@@ -120,6 +120,7 @@ impl PulseLineRunner {
         // knob-gated; skip the copy otherwise — tight allocation hot path.
         if config.show_cache_trend {
             frame.cache_history = state.cache_history.iter().copied().collect();
+            frame.cache_read_total = state.cache_read_total;
         }
 
         let lines = render::layout::render_frame(&frame, &config);

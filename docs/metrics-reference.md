@@ -127,7 +127,7 @@ Three segments tracking resource consumption.
 | Metric | Prefix | Data Source | Parsing Method | Cache | Color |
 |--------|--------|-------------|----------------|-------|-------|
 | Context | `CTX:` | `payload.context_window.*` | Percentage = used/total, formatted as `pct% (used/total)` | L3 all-or-nothing fallback | State-driven (see below) |
-| Tokens | `TOK:` | `payload.context_window.current_usage.*` | Three sub-fields: I (input), O (output), C (cache hit-rate = `cache_read / (input + cache_creation + cache_read)`, `--` when no cache signal) | L3 all-or-nothing fallback | tier.structural labels, tier.secondary values; C value colored by hit-rate (≥80% green, ≥40% neutral, else warn) |
+| Tokens | `TOK:` | `payload.context_window.current_usage.*` | Three sub-fields: I (input), O (output), C (cache hit-rate = `cache_read / (input + cache_creation + cache_read)`, `--` when no cache signal) | L3 all-or-nothing fallback | tier.structural labels, tier.secondary values; C value colored by the creation-aware ladder (≥80% green warm; ≥40% neutral; <40% with creation share ≥50% warn "rebuilding"; <40% with low creation share neutral "cold start") |
 | Cost | `$` | `payload.cost.total_cost_usd` + `payload.cost.total_duration_ms` | Total cost + computed burn rate ($/h) | L3 all-or-nothing fallback | COST_BASE (222) + rate-based gradient |
 | Speed | `↗N/s` (inline in TOK) | Computed from successive output token snapshots | Delta-based tok/s with 2s window; holds last known value when idle | SessionState in-memory | tier.primary when data exists, tier.structural when absent (matches token values) |
 
@@ -164,6 +164,15 @@ Speed is displayed inline within the TOK segment after output tokens: `O:20.0k �
 Speed is computed via delta-based tracking: successive output token values are compared with a 2s window. Not included in `has_data()` to avoid interfering with L3 cache logic. When `current_tokens` is `None`, state is preserved (no time anchor corruption).
 
 All L3 segments are individually togglable via config: `show_context`, `show_tokens`, `show_cost`, `show_speed`.
+
+### Cache Trend (opt-in)
+
+Gated by `show_cache_trend` (`[segments.budget]`, default `false`). This is a segment toggle, not a `*_visual` spec widget. The creation-aware C-cell coloring above is NOT gated — it applies in default mode. The knob gates:
+
+- **Hit-rate history**: per-tick cache hit-rate samples `(pct, epoch_ms)`, FIFO-capped at 30 entries, consecutive-duplicate deduped. Cleared on transcript path change, transcript truncation, and `compact_boundary`. Persisted in the session disk cache with `#[serde(default)]` so older cache files load cleanly.
+- **Cumulative cache read total**: honest raw sum of `cache_read_input_tokens` from transcript `message.usage` events, deduped per API call by `message.id` (streaming chunks of one call count once). NOT cleared by `compact_boundary` — session-cumulative, survives compaction. Cleared on transcript path change.
+- **Compact C-cell sparkline**: 6-cell braille trend appended after the TOK cell as an Optional-priority cell — under width pressure it drops FIRST (before TOK; the Required CTX/cost/quota cells always survive). Icon-only: empty under `display.icons = false`.
+- **Ledger CACHE row**: `CACHE   ⣀⣄⣦   4.4M read total   5% create` — hit-rate sparkline (filled with the creation-aware color of the latest sample), cumulative read total, creation share. Renders between TOK and COST; dropped entirely when there is no cache signal. Under Ascii the sparkline vanishes but the text cells remain.
 
 ### Example Output
 

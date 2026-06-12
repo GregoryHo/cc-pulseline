@@ -437,6 +437,11 @@ pub struct RenderFrame {
     /// `SessionState.cache_history` only when `show_cache_trend` is on
     /// (allocation discipline — the copy is skipped otherwise).
     pub cache_history: Vec<(u8, u64)>,
+    /// Cumulative cache_read tokens from transcript usage events
+    /// (session-cumulative; survives compaction). Populated by
+    /// `PulseLineRunner` from `SessionState.cache_read_total` only when
+    /// `show_cache_trend` is on.
+    pub cache_read_total: u64,
     /// Number of `compact_boundary` events seen this session.
     pub compact_count: u32,
     /// Epoch-ms of the most recent `api_error` event (if within 30s TTL).
@@ -535,6 +540,7 @@ impl RenderFrame {
                 .unwrap_or_default(),
             ctx_history: Vec::new(),
             cache_history: Vec::new(),
+            cache_read_total: 0,
             compact_count: 0,
             last_api_error_ms: None,
         }
