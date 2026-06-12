@@ -26,7 +26,8 @@ Semantic colors are fields on `ThemePalette` (e.g., `p.stable_blue`, `p.alert_re
 
 ## Line Layout
 
-- **L1-L3**: always render (identity, config, budget) — core metrics
+- **L1 + L3**: always render (identity, budget) — core metrics
+- **L2** config counts: opt-in — gated by `[segments.config] enabled` (default off)
 - **L4**: tool activity line (running + completed counts)
 - **L5+**: agent activity lines (active first, then recent completed)
 

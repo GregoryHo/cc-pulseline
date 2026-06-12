@@ -356,6 +356,10 @@ pub struct BudgetSegmentConfig {
     pub show_cost: bool,
     #[serde(default)]
     pub show_speed: bool,
+    /// Opt-in cache trend — compact C-cell mini sparkline + ledger CACHE
+    /// row. The creation-aware C coloring is always on regardless.
+    #[serde(default)]
+    pub show_cache_trend: bool,
     /// CTX visual spec — `"+"` separated widget names. Recognized:
     /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
     /// (see `frames::default_visuals_for`).
@@ -372,6 +376,7 @@ impl Default for BudgetSegmentConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            show_cache_trend: false,
             context_visual: String::new(),
         }
     }
@@ -555,6 +560,7 @@ show_context = true
 show_tokens = true
 show_cost = true
 show_speed = false          # output tok/s rate
+show_cache_trend = false      # cache trend: compact C-cell sparkline + ledger CACHE row (opt-in)
 # context_visual: per-segment widget composition. `+`-joined widget names.
 # Empty (the default) defers to the layout's choice — most layouts use
 # "text", ledger uses "text+sparkline". Examples:
@@ -734,6 +740,7 @@ pub struct ProjectBudgetOverride {
     pub show_tokens: Option<bool>,
     pub show_cost: Option<bool>,
     pub show_speed: Option<bool>,
+    pub show_cache_trend: Option<bool>,
     /// CTX visual spec — see `BudgetSegmentConfig::context_visual`.
     pub context_visual: Option<String>,
 }
@@ -933,6 +940,9 @@ pub fn merge_configs(
             }
             if let Some(v) = budget.show_speed {
                 user.segments.budget.show_speed = v;
+            }
+            if let Some(v) = budget.show_cache_trend {
+                user.segments.budget.show_cache_trend = v;
             }
             if let Some(v) = &budget.context_visual {
                 user.segments.budget.context_visual = v.clone();
@@ -1153,6 +1163,7 @@ pub fn default_project_config_toml() -> &'static str {
 # [segments.budget]
 # show_tokens = false
 # show_speed = true
+# show_cache_trend = true
 
 # [segments.quota]
 # enabled = true
@@ -1267,6 +1278,9 @@ pub struct RenderConfig {
     pub show_tokens: bool,
     pub show_cost: bool,
     pub show_speed: bool,
+    /// Opt-in cache trend — compact C-cell mini sparkline + ledger CACHE
+    /// row. The creation-aware C coloring is always on regardless.
+    pub show_cache_trend: bool,
     /// Effective CTX visual spec — already resolved against the layout
     /// default if the user TOML left it empty. See
     /// `frames::default_visuals_for` for the per-layout defaults and
@@ -1391,6 +1405,7 @@ impl Default for RenderConfig {
             show_tokens: true,
             show_cost: true,
             show_speed: false,
+            show_cache_trend: false,
             context_visual: String::new(),
             show_quota: false,
             show_quota_five_hour: true,
@@ -1649,6 +1664,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_tokens: pulseline.segments.budget.show_tokens,
         show_cost: pulseline.segments.budget.show_cost,
         show_speed: pulseline.segments.budget.show_speed,
+        show_cache_trend: pulseline.segments.budget.show_cache_trend,
         // Visual specs: empty user value defers to layout default. Resolved
         // here so the rest of the pipeline reads a fully-specified string.
         context_visual: resolve_visual_field(

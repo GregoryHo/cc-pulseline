@@ -153,6 +153,29 @@ impl SubAgentTranscriptState {
 /// the adaptive 1-minute window expand when samples arrive in bursts.
 pub const MAX_CTX_HISTORY: usize = 30;
 
+/// Maximum number of cache hit-rate samples retained for the cache-trend
+/// sparkline. Same rationale as `MAX_CTX_HISTORY`: the sparkline widget
+/// draws 12 samples (6 braille cells × 2); the surplus absorbs bursts.
+pub const MAX_CACHE_HISTORY: usize = 30;
+
+/// FIFO-push a `(pct, ts_ms)` sample into a capped buffer, evicting the
+/// oldest at capacity. `pct` clamps to 100. Shared by the CTX and
+/// cache-trend histories so cap/clamp behavior cannot drift between them.
+fn push_capped_sample(history: &mut VecDeque<(u8, u64)>, cap: usize, pct: u8, ts_ms: u64) {
+    if history.len() == cap {
+        history.pop_front();
+    }
+    history.push_back((pct.min(100), ts_ms));
+}
+
+/// Defensive trim after cache hydration: a future cap reduction must not
+/// over-restore from an older, larger on-disk history.
+fn trim_to_cap(history: &mut VecDeque<(u8, u64)>, cap: usize) {
+    while history.len() > cap {
+        history.pop_front();
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SessionState {
     pub last_transcript_offset: u64,
@@ -183,6 +206,23 @@ pub struct SessionState {
     /// Timestamps drive the ledger's adaptive 1-minute window + velocity-
     /// based aurora coloring.
     pub ctx_history: VecDeque<(u8, u64)>,
+    /// Cache-trend source: rolling window of `(cache_hit_pct, epoch_ms)`
+    /// samples, oldest→newest.
+    pub cache_history: VecDeque<(u8, u64)>,
+    /// Cumulative `cache_read_input_tokens` accumulated from transcript
+    /// usage events. Session-cumulative: NOT cleared by `compact_boundary`.
+    pub cache_read_total: u64,
+    /// Dedupe key: the Anthropic `message.id` of the last usage event
+    /// accumulated. Streaming chunks of one API call repeat the same id
+    /// with identical usage; chunks are contiguous, so one remembered id
+    /// suffices.
+    pub last_usage_message_id: Option<String>,
+    /// Replay guard: highest line timestamp (epoch ms) among accumulated
+    /// usage events and processed `compact_boundary` events. Session
+    /// resume re-appends the full history into the SAME transcript file
+    /// with ORIGINAL timestamps — anything at or below this high-water
+    /// mark is a replay, not a new event.
+    pub replay_guard_ts_ms: u64,
     /// Per-sub-agent transcript tail state, keyed by runtime `agentId`.
     /// Populated when the parent transcript surfaces a `toolUseResult` with
     /// `status == "async_launched"`; pruned when the corresponding agent
@@ -218,6 +258,7 @@ impl SessionState {
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
             self.ctx_history.clear();
+            self.reset_cache_trend();
             self.sub_agents.clear();
             self.compact_count = 0;
             self.last_api_error_ms = None;
@@ -227,10 +268,24 @@ impl SessionState {
     /// Push a fresh CTX% sample stamped with `ts_ms`, discarding the oldest
     /// when at capacity.
     pub fn push_ctx_sample(&mut self, pct: u8, ts_ms: u64) {
-        if self.ctx_history.len() == MAX_CTX_HISTORY {
-            self.ctx_history.pop_front();
-        }
-        self.ctx_history.push_back((pct.min(100), ts_ms));
+        push_capped_sample(&mut self.ctx_history, MAX_CTX_HISTORY, pct, ts_ms);
+    }
+
+    /// Push a fresh cache hit-rate sample stamped with `ts_ms`, discarding
+    /// the oldest when at capacity.
+    pub fn push_cache_sample(&mut self, pct: u8, ts_ms: u64) {
+        push_capped_sample(&mut self.cache_history, MAX_CACHE_HISTORY, pct, ts_ms);
+    }
+
+    /// Clear all cache-trend accumulation state: the trend window, the
+    /// cumulative read total, and both replay-dedupe guards. For transcript
+    /// replacement (path change) and truncation — NOT for
+    /// `compact_boundary`, which clears only the trend window.
+    pub fn reset_cache_trend(&mut self) {
+        self.cache_history.clear();
+        self.cache_read_total = 0;
+        self.last_usage_message_id = None;
+        self.replay_guard_ts_ms = 0;
     }
 
     /// Compute output token speed from successive payload snapshots.
@@ -624,11 +679,13 @@ impl SessionState {
         self.last_output_token_time_ms = cache.last_output_token_time_ms;
         self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
         // Defensive trim: a future cap reduction must not over-restore here.
-        let mut history = cache.ctx_history;
-        while history.len() > MAX_CTX_HISTORY {
-            history.pop_front();
-        }
-        self.ctx_history = history;
+        self.ctx_history = cache.ctx_history;
+        trim_to_cap(&mut self.ctx_history, MAX_CTX_HISTORY);
+        self.cache_history = cache.cache_history;
+        trim_to_cap(&mut self.cache_history, MAX_CACHE_HISTORY);
+        self.cache_read_total = cache.cache_read_total;
+        self.last_usage_message_id = cache.last_usage_message_id;
+        self.replay_guard_ts_ms = cache.replay_guard_ts_ms;
         self.sub_agents = cache.sub_agents;
         self.compact_count = cache.compact_count;
         self.last_api_error_ms = cache.last_api_error_ms;
@@ -668,6 +725,10 @@ impl SessionState {
             last_output_token_time_ms: self.last_output_token_time_ms,
             output_speed_toks_per_sec: self.output_speed_toks_per_sec,
             ctx_history: self.ctx_history.clone(),
+            cache_history: self.cache_history.clone(),
+            cache_read_total: self.cache_read_total,
+            last_usage_message_id: self.last_usage_message_id.clone(),
+            replay_guard_ts_ms: self.replay_guard_ts_ms,
             sub_agents: self.sub_agents.clone(),
             compact_count: self.compact_count,
             last_api_error_ms: self.last_api_error_ms,
@@ -832,5 +893,99 @@ mod tests {
             "alphabetical tiebreak: Bash before Edit"
         );
         assert_eq!(top[1].name, "Edit");
+    }
+
+    // ── Cache-trend state ─────────────────────────────────────────────
+
+    #[test]
+    fn push_cache_sample_caps_at_max_cache_history() {
+        let mut state = SessionState::default();
+        for i in 0..(MAX_CACHE_HISTORY + 5) {
+            state.push_cache_sample((i % 100) as u8, i as u64);
+        }
+        assert_eq!(state.cache_history.len(), MAX_CACHE_HISTORY);
+        // 35 pushes into a 30-slot FIFO: samples 0-4 dropped, front is the
+        // 6th sample (index 5).
+        assert_eq!(state.cache_history.front(), Some(&(5u8, 5u64)));
+    }
+
+    #[test]
+    fn reset_transcript_path_change_clears_cache_trend_state() {
+        let mut state = SessionState {
+            last_transcript_path: Some("/old/transcript.jsonl".to_string()),
+            cache_read_total: 12_345,
+            last_usage_message_id: Some("msg_old".to_string()),
+            ..SessionState::default()
+        };
+        state.push_cache_sample(50, 1);
+        state.push_cache_sample(60, 2);
+
+        state.reset_transcript_if_path_changed("/new/transcript.jsonl");
+
+        assert!(state.cache_history.is_empty());
+        assert_eq!(state.cache_read_total, 0);
+        assert_eq!(state.last_usage_message_id, None);
+    }
+
+    #[test]
+    fn cache_trend_state_survives_cache_round_trip() {
+        let mut state = SessionState {
+            cache_read_total: 9_876,
+            last_usage_message_id: Some("msg_rt".to_string()),
+            ..SessionState::default()
+        };
+        state.push_cache_sample(42, 100);
+        state.push_cache_sample(84, 200);
+
+        // serde round-trip proves a process reload restores the fields.
+        let serialized = serde_json::to_string(&state.to_cache()).expect("cache should serialize");
+        let cache: SessionCache =
+            serde_json::from_str(&serialized).expect("cache should deserialize");
+
+        let mut fresh = SessionState::default();
+        fresh.load_from_cache(cache);
+
+        assert_eq!(
+            fresh.cache_history,
+            VecDeque::from(vec![(42u8, 100u64), (84u8, 200u64)])
+        );
+        assert_eq!(fresh.cache_read_total, 9_876);
+        assert_eq!(fresh.last_usage_message_id, Some("msg_rt".to_string()));
+    }
+
+    #[test]
+    fn load_from_cache_trims_oversized_cache_history() {
+        let mut oversized = VecDeque::new();
+        for i in 0..40u64 {
+            oversized.push_back((i as u8, i));
+        }
+        let cache = SessionCache {
+            cache_history: oversized,
+            ..SessionCache::default()
+        };
+
+        let mut state = SessionState::default();
+        state.load_from_cache(cache);
+
+        assert_eq!(state.cache_history.len(), MAX_CACHE_HISTORY);
+        // 40 entries trimmed to 30: oldest 10 dropped, front is entry 10.
+        assert_eq!(state.cache_history.front(), Some(&(10u8, 10u64)));
+    }
+
+    #[test]
+    fn session_cache_missing_cache_fields_deserializes_to_defaults() {
+        let mut value =
+            serde_json::to_value(SessionCache::default()).expect("cache should serialize");
+        let map = value.as_object_mut().expect("cache should be an object");
+        map.remove("cache_history");
+        map.remove("cache_read_total");
+        map.remove("last_usage_message_id");
+
+        let cache: SessionCache =
+            serde_json::from_value(value).expect("old-format cache should deserialize");
+
+        assert!(cache.cache_history.is_empty());
+        assert_eq!(cache.cache_read_total, 0);
+        assert_eq!(cache.last_usage_message_id, None);
     }
 }

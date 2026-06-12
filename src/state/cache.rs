@@ -59,6 +59,19 @@ pub struct SessionCache {
     // Sparkline source — last N `(pct, epoch_ms)` samples.
     #[serde(default)]
     pub ctx_history: VecDeque<(u8, u64)>,
+    // Cache-trend source — last N `(cache_hit_pct, epoch_ms)` samples.
+    #[serde(default)]
+    pub cache_history: VecDeque<(u8, u64)>,
+    // Cumulative cache_read_input_tokens from transcript usage events.
+    #[serde(default)]
+    pub cache_read_total: u64,
+    // Dedupe key for usage accumulation (last accumulated `message.id`).
+    #[serde(default)]
+    pub last_usage_message_id: Option<String>,
+    // Replay guard — highest timestamp (epoch ms) among accumulated usage
+    // events and processed compact boundaries.
+    #[serde(default)]
+    pub replay_guard_ts_ms: u64,
     // Per-sub-agent tail offsets + task state.
     #[serde(default)]
     pub sub_agents: HashMap<String, SubAgentTranscriptState>,

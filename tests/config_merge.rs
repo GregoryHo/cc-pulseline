@@ -1,4 +1,6 @@
-use cc_pulseline::config::{merge_configs, ProjectOverrideConfig, PulselineConfig};
+use cc_pulseline::config::{
+    build_render_config, merge_configs, ProjectOverrideConfig, PulselineConfig,
+};
 
 #[test]
 fn merge_with_empty_project_is_noop() {
@@ -277,4 +279,55 @@ fn project_override_config_deserializes_empty() {
     let project: ProjectOverrideConfig = toml::from_str("").unwrap();
     assert!(project.display.is_none());
     assert!(project.segments.is_none());
+}
+
+#[test]
+fn show_cache_trend_parses_and_reaches_render_config() {
+    let user: PulselineConfig = toml::from_str(
+        r#"
+[segments.budget]
+show_cache_trend = true
+"#,
+    )
+    .unwrap();
+
+    let render_cfg = build_render_config(&user);
+    assert!(
+        render_cfg.show_cache_trend,
+        "show_cache_trend = true should reach RenderConfig"
+    );
+}
+
+#[test]
+fn show_cache_trend_defaults_to_false() {
+    let user = PulselineConfig::default();
+    assert!(!user.segments.budget.show_cache_trend);
+
+    let render_cfg = build_render_config(&user);
+    assert!(
+        !render_cfg.show_cache_trend,
+        "show_cache_trend should default to false"
+    );
+}
+
+#[test]
+fn merge_project_overrides_show_cache_trend() {
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[segments.budget]
+show_cache_trend = true
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    assert!(
+        merged.segments.budget.show_cache_trend,
+        "show_cache_trend should be overridden to true"
+    );
+    assert!(
+        !merged.segments.budget.show_speed,
+        "show_speed should inherit default (false)"
+    );
 }

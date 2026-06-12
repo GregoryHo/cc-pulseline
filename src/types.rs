@@ -240,6 +240,18 @@ impl Line3Metrics {
         Some(read as f64 * 100.0 / denom as f64)
     }
 
+    /// Cache creation share as a percentage: `creation / (input + creation + read)`.
+    /// `None` when there is no cache signal at all (same guard as `cache_hit_pct`).
+    pub fn cache_creation_share(&self) -> Option<f64> {
+        let read = self.cache_read_tokens.unwrap_or(0);
+        let creation = self.cache_creation_tokens.unwrap_or(0);
+        if read + creation == 0 {
+            return None;
+        }
+        let denom = self.input_tokens.unwrap_or(0) + creation + read;
+        Some(creation as f64 * 100.0 / denom as f64)
+    }
+
     /// Returns true if any field has a value (not all None).
     pub fn has_data(&self) -> bool {
         self.context_window_size.is_some()
@@ -420,6 +432,16 @@ pub struct RenderFrame {
     /// flat layout opts in to `+sparkline`). Populated by `PulseLineRunner`
     /// from `SessionState.ctx_history`.
     pub ctx_history: Vec<(u8, u64)>,
+    /// Rolling cache hit-rate history (oldest → newest), each entry
+    /// `(pct, epoch_ms)`. Populated by `PulseLineRunner` from
+    /// `SessionState.cache_history` only when `show_cache_trend` is on
+    /// (allocation discipline — the copy is skipped otherwise).
+    pub cache_history: Vec<(u8, u64)>,
+    /// Cumulative cache_read tokens from transcript usage events
+    /// (session-cumulative; survives compaction). Populated by
+    /// `PulseLineRunner` from `SessionState.cache_read_total` only when
+    /// `show_cache_trend` is on.
+    pub cache_read_total: u64,
     /// Number of `compact_boundary` events seen this session.
     pub compact_count: u32,
     /// Epoch-ms of the most recent `api_error` event (if within 30s TTL).
@@ -517,8 +539,52 @@ impl RenderFrame {
                 })
                 .unwrap_or_default(),
             ctx_history: Vec::new(),
+            cache_history: Vec::new(),
+            cache_read_total: 0,
             compact_count: 0,
             last_api_error_ms: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_creation_share_none_without_cache_signal() {
+        // All fields None.
+        assert_eq!(Line3Metrics::default().cache_creation_share(), None);
+        // Explicit zeros for read + creation still mean no signal.
+        let line3 = Line3Metrics {
+            input_tokens: Some(1000),
+            cache_creation_tokens: Some(0),
+            cache_read_tokens: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(line3.cache_creation_share(), None);
+    }
+
+    #[test]
+    fn cache_creation_share_computes_creation_fraction() {
+        let line3 = Line3Metrics {
+            input_tokens: Some(1000),
+            cache_creation_tokens: Some(8000),
+            cache_read_tokens: Some(500),
+            ..Default::default()
+        };
+        let share = line3.cache_creation_share().expect("cache signal present");
+        // 8000 / (1000 + 8000 + 500) ≈ 84.2%
+        assert!((share - 84.2).abs() < 0.1, "share was {share}");
+    }
+
+    #[test]
+    fn cache_creation_share_zero_when_reads_only() {
+        let line3 = Line3Metrics {
+            cache_creation_tokens: Some(0),
+            cache_read_tokens: Some(1000),
+            ..Default::default()
+        };
+        assert_eq!(line3.cache_creation_share(), Some(0.0));
     }
 }

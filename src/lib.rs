@@ -97,6 +97,15 @@ impl PulseLineRunner {
                 state.push_ctx_sample(sample, now_ms);
             }
         }
+        // Cache-trend source: per-tick hit-rate samples, deduped like ctx.
+        if let Some(pct) = frame.line3.cache_hit_pct() {
+            let sample = pct.round() as u8; // f64→u8 `as` saturates; helper clamps to 100
+            let last = state.cache_history.back().map(|(p, _)| *p);
+            if last != Some(sample) {
+                let now_ms = crate::state::cache::now_epoch_ms();
+                state.push_cache_sample(sample, now_ms);
+            }
+        }
         // Sparkline consumers: any layout whose effective `context_visual`
         // spec includes `sparkline` needs the history copy. Skip the copy
         // otherwise — it's a tight allocation hot path.
@@ -106,6 +115,12 @@ impl PulseLineRunner {
             .any(|w| w.trim() == "sparkline");
         if needs_sparkline {
             frame.ctx_history = state.ctx_history.iter().copied().collect();
+        }
+        // Cache-trend consumers (compact C-cell spark, ledger CACHE row) are
+        // knob-gated; skip the copy otherwise — tight allocation hot path.
+        if config.show_cache_trend {
+            frame.cache_history = state.cache_history.iter().copied().collect();
+            frame.cache_read_total = state.cache_read_total;
         }
 
         let lines = render::layout::render_frame(&frame, &config);

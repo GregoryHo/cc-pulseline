@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-06-12
+
+Feature release adding cache observability: an opt-in cache-trend
+instrument on two surfaces (compact budget-row sparkline, ledger
+CACHE row) backed by replay-proof session accumulators, a smarter
+creation-aware default for the C-cell color ladder, and a
+session-resume fix for the `⟳N` compaction marker that the replay
+guard work surfaced.
+
+### Added
+
+- **`[segments.budget] show_cache_trend`** (default `false`) — opt-in
+  cache trend on two surfaces. In `compact`, a 6-cell braille
+  hit-rate sparkline rides the budget row right after the TOK cell;
+  it packs as an Optional cell so under width pressure it drops
+  first (before TOK, never instead of the Required CTX/cost/quota
+  cells) and is icon-only (empty under `display.icons = false`). In
+  `ledger`, a CACHE TAG row renders between TOK and COST —
+  `CACHE ⣀⣄⣦ 4.4M read total 5% create` — hit-rate sparkline (filled
+  with the creation-aware cache color of the latest sample, not the
+  velocity aurora), cumulative cache read total, and creation share;
+  the row drops entirely when there is no cache signal, and under
+  Ascii the sparkline vanishes but the text cells remain. This is a
+  segment toggle, not a `*_visual` spec widget.
+- **Cache-trend session state** — `SessionState` now tracks a
+  rolling cache hit-rate history (FIFO-capped at 30 samples,
+  consecutive-duplicate deduped) and a raw cumulative
+  `cache_read_input_tokens` total summed from transcript
+  `message.usage` events, deduped per API call on two axes: by
+  `message.id` (streaming chunks of one call count once) and by a
+  timestamp high-water mark (session resume re-appends the full
+  history into the same transcript file with original timestamps —
+  replayed events are skipped). The total is session-cumulative and
+  survives `compact_boundary`; only the trend window resets at a
+  compaction. Both clear on transcript path change and truncation,
+  and both persist in the session disk cache with `#[serde(default)]`
+  so older cache files load cleanly.
+
+### Changed
+
+- **C-cell coloring is creation-aware** — the `C:%` hit-rate ladder
+  keeps `≥80% → green` and `≥40% → neutral`, but below 40% the cache
+  *creation share* now decides: ≥50% creation → warn ("rebuilding" —
+  the cache is being rewritten), otherwise neutral ("cold start" —
+  little cache activity is not an alarm). Previously every sub-40%
+  hit rate warned, painting the start of every session amber. Always
+  on — this is the default `C:` cell, not gated by `show_cache_trend`.
+
+### Fixed
+
+- **`⟳N` compaction marker double-counted on session resume** —
+  resuming a session re-appends the full transcript history into the
+  same file with original timestamps, so each replayed
+  `compact_boundary` re-incremented the compaction count and
+  re-cleared the CTX sparkline history. The timestamp high-water-mark
+  replay guard (shared with the cache-read accumulator) now skips
+  replayed boundaries; live boundaries also raise the mark so an
+  immediate resume can't replay them either.
+
+### Internal
+
+- **CI actions bumped to Node 24 runtimes** — `actions/checkout`
+  v4→v6, `setup-node` v4→v6, `upload-artifact` v4→v7,
+  `download-artifact` v4→v8, ahead of runners forcing Node 24 on
+  2026-06-16. `release.yml`'s artifact/setup-node bumps get their
+  first real run on this tag's push.
+- Shared FIFO helpers (`push_capped_sample` / `trim_to_cap`) in
+  `src/state/mod.rs` so the CTX and cache-trend histories cannot
+  drift in cap/clamp behavior.
+- ~1,060 lines of new test coverage: `tests/cache_trend_state.rs`,
+  `tests/cache_trend_compact.rs`, and adversarial dedupe probes in
+  `tests/cache_dedupe_adversarial.rs` (streaming-chunk repeats,
+  process restarts mid-stream, lost-cache recounts, truncation
+  across restarts, session-resume history replay, replayed
+  boundaries).
+- Removed the orphaned `tests/fixtures/core_metrics_complete.json`
+  (zero references; `docs/benchmarks.md` now correctly states the
+  large-transcript bench synthesizes its payload inline).
+
 ## [1.2.0] - 2026-06-11
 
 > **⚠ Breaking changes** are clearly marked below. Three layouts
@@ -609,6 +688,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.2.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.4...v1.1.5
 [1.1.4]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.3...v1.1.4

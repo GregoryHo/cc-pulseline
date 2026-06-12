@@ -157,6 +157,8 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.last_output_token_time_ms = None;
             state.output_speed_toks_per_sec = None;
             state.ctx_history.clear();
+            // File replaced → re-reading from 0 would double-count usage.
+            state.reset_cache_trend();
             state.compact_count = 0;
             state.last_api_error_ms = None;
         }
@@ -351,6 +353,8 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     // disambiguate `async_launched` (agent still running) from terminal.
     let tool_use_result = raw_event.get("toolUseResult");
 
+    accumulate_usage(state, raw_event, &message_id, event_ts);
+
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
     // Or:           { "role": "user", "content": [{...}] }
@@ -383,8 +387,24 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
                 .unwrap_or("");
             match subtype {
                 "compact_boundary" => {
+                    // Session-resume replay guard (same mechanism as
+                    // `accumulate_usage`): a resumed session re-appends the
+                    // full history, so a replayed boundary (original
+                    // timestamp at or below the high-water mark) must not
+                    // re-increment ⟳N or re-clear the trend windows. Live
+                    // boundaries also RAISE the mark so an immediate resume
+                    // can't replay them either.
+                    if let Some(ts) = event_ts {
+                        if state.replay_guard_ts_ms > 0 && ts <= state.replay_guard_ts_ms {
+                            return;
+                        }
+                        state.replay_guard_ts_ms = state.replay_guard_ts_ms.max(ts);
+                    }
                     state.compact_count = state.compact_count.saturating_add(1);
                     state.ctx_history.clear();
+                    // `cache_read_total` is session-cumulative and survives
+                    // compaction — only the trend window resets.
+                    state.cache_history.clear();
                     return;
                 }
                 "api_error" => {
@@ -412,6 +432,47 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
         } else {
             state.last_api_error_ms = Some(cache::now_epoch_ms());
         }
+    }
+}
+
+/// Accumulate cache_read_input_tokens from assistant usage events,
+/// deduped per API call on two axes:
+/// - `message.id` catches streaming chunks of ONE call (same id,
+///   byte-identical usage, contiguous lines — chunk line timestamps may
+///   increase, so the timestamp axis alone cannot catch these);
+/// - the `replay_guard_ts_ms` high-water mark catches session-resume
+///   replays: CC re-appends the FULL history into the same transcript
+///   file with ORIGINAL timestamps, so replayed events are non-contiguous
+///   repeats that the single-id memory misses. Anything at or below the
+///   mark is a replay. (Trade-off: a genuine new call sharing the exact
+///   millisecond of the previous one would be skipped — API calls take
+///   far longer than 1ms, while resume inflation is ~2x per resume.)
+fn accumulate_usage(
+    state: &mut SessionState,
+    raw_event: &Value,
+    message_id: &Option<String>,
+    event_ts: Option<u64>,
+) {
+    let Some(id) = message_id else { return };
+    if state.last_usage_message_id.as_deref() == Some(id.as_str()) {
+        return;
+    }
+    if let Some(ts) = event_ts {
+        if state.replay_guard_ts_ms > 0 && ts <= state.replay_guard_ts_ms {
+            return;
+        }
+    }
+    let Some(usage) = raw_event.get("message").and_then(|m| m.get("usage")) else {
+        return;
+    };
+    let read = usage
+        .get("cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    state.cache_read_total = state.cache_read_total.saturating_add(read);
+    state.last_usage_message_id = Some(id.clone());
+    if let Some(ts) = event_ts {
+        state.replay_guard_ts_ms = state.replay_guard_ts_ms.max(ts);
     }
 }
 

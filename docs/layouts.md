@@ -109,6 +109,13 @@ groups → todo counts) and only appears while there is activity — idle
 footprint is exactly **2 rows**. L2 config counts have no home here by
 design (reference data — flip to another layout when you need them).
 
+With `show_cache_trend = true` (`[segments.budget]`, default off) the
+budget row appends an opt-in C-cell trend sparkline — a 6-cell braille
+strip of the cache hit-rate history — right after the TOK cell. It packs
+as an Optional cell, so under width pressure it drops FIRST (before TOK,
+never instead of the Required CTX/cost/quota cells). Icon-only: empty
+under `display.icons = false`.
+
 ```
 M:Opus 4.7 | S:concise | CC:2.2.0 | P:~/proj | G:feat/x *
 CTX:43% (86.0k/200.0k) | TOK I:10 O:20 C:50% | $3.50 | 5h:62%
@@ -199,6 +206,21 @@ delta-time tail (`30→43% in 5m`) carries the trend in plain text so the
 information survives `display.icons = false` (sparkline disappears,
 delta label remains).
 
+With `show_cache_trend = true` a CACHE TAG row renders between TOK and
+COST:
+
+```
+│  CACHE   ⣀⣄⣦   4.4M read total   5% create                              │
+```
+
+Sparkline of the cache hit-rate history (filled with the creation-aware
+cache color of the latest sample — not the velocity aurora), the
+cumulative cache read total (raw, deduped per API call), and the
+creation share. The row drops entirely when there is no cache signal;
+under Ascii the sparkline vanishes but the text cells remain. Note this
+is gated by the `show_cache_trend` segment toggle, **not** a `*_visual`
+spec widget — there is no `cache` entry in the visual-spec vocabulary.
+
 **Cost:** 12-15 rows when fully populated.
 **Pick when** the statusline pane has plenty of vertical room and you
 want to scan metrics by group rather than density. Below 90 cols falls
@@ -234,8 +256,9 @@ TOOL, and AGENT+TODO groups).
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
-context, quota, tools, and todo segments live on a separate axis: the
-`*_visual` config fields. The user's TOML overrides the layout's
+context, quota, tools, agents, and todo segments live on a separate
+axis: the `*_visual` config fields (`agents_visual` is covered
+separately [below](#why-agents_visual-has-no-symmetric-dispatch-hub)). The user's TOML overrides the layout's
 default; otherwise the layout's default applies.
 
 This is **Variation B** from the design process: each layout asserts a
@@ -272,12 +295,12 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
-| Layout | `context_visual` | `quota_visual` | `tools_visual` | `todo_visual` |
-|--------|------------------|----------------|----------------|---------------|
-| `none` | `text` | `text` | `counts+targets` | `text` |
-| `compact` | `text` | `text` | `ticker`¹ | `text` |
-| `console` | `text` | `gauge` | `counts+targets` | `text` |
-| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `text` |
+| Layout | `context_visual` | `quota_visual` | `tools_visual` | `agents_visual` | `todo_visual` |
+|--------|------------------|----------------|----------------|-----------------|---------------|
+| `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` |
+| `compact` | `text` | `text` | `ticker`¹ | `name` | `text` |
+| `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` |
+| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
@@ -329,7 +352,7 @@ For contributors:
 
 ### Why `agents_visual` has no symmetric dispatch hub
 
-The four `*_visual` segments aren't fully symmetric. `context_visual`
+The `*_visual` segments aren't fully symmetric. `context_visual`
 and `quota_visual` flow through `render_context_visual` /
 `render_quota_visual` hubs; `agents_visual` doesn't. Its spec parser
 (`AgentVisualSpec::parse`) is called inline from

@@ -575,6 +575,27 @@ pub fn ctx_sparkline(
     widgets::sparkline::render(history, fill, mode, color_enabled)
 }
 
+/// Knob-gated cache-trend cell: braille sparkline over the hit-rate
+/// history, filled with the creation-aware cache color of the CURRENT
+/// hit rate. Returns "" when there is no trend to show (fewer than 2
+/// samples) or under Ascii (icon-only widget) — callers drop the cell.
+pub fn cache_trend_sparkline(
+    history: &[(u8, u64)],
+    line3: &Line3Metrics,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    if history.len() < 2 {
+        return String::new();
+    }
+    let fill = match line3.cache_hit_pct() {
+        Some(pct) => p.color_for_cache_hit_pct(pct, line3.cache_creation_share()),
+        None => p.structural.as_str(),
+    };
+    widgets::sparkline::render(history, fill, mode, color_enabled)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -77,7 +77,7 @@ Each provider has a real implementation and a `Stub*` variant for testing:
 
 | Provider | Trait | Real Implementation | Purpose |
 |----------|-------|-------------------|---------|
-| `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills |
+| `env.rs` | `EnvCollector` | `FileSystemEnvCollector` | Scans for CLAUDE.md files, rules, memories, hooks, MCP servers, skills, plugins |
 | `git.rs` | `GitCollector` | `LocalGitCollector` | Shells out to `git` for branch, dirty state, ahead/behind, file stats |
 | `transcript.rs` | `TranscriptCollector` | `FileTranscriptCollector` | Incremental JSONL parsing with seek-based offsets |
 
@@ -123,7 +123,7 @@ Config files: `~/.claude/pulseline/config.toml` (user) and `{project}/.claude/pu
 Formats the `RenderFrame` into output lines:
 
 - **L1**: Identity (model, style, version, project, git + file stats)
-- **L2**: Config counts (CLAUDE.md, rules, memories, hooks, MCPs, skills, duration)
+- **L2**: Config counts (CLAUDE.md, rules, memories, hooks, MCPs, skills, plugins, duration) — opt-in via `[segments.config] enabled` (default off)
 - **L3**: Budget (context, tokens, cost, speed)
 - **Quota**: Usage quota (5-hour and 7-day periods, between L3 and activity)
 - **L4a**: Completed tool counts (stable, accumulates over session)
@@ -195,7 +195,7 @@ Agent lifecycle events arrive as progress-type messages:
 ## Output Line Format
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
-- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1h`
+- **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (opt-in — `[segments.config] enabled`, default off)
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:50% | $3.50 ($3.50/h)`
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)`
 - **L4a**: `✓ Read ×12 | ✓ Bash ×8 | ✓ Edit ×5` (completed counts, capped by `max_completed_lines` rows)

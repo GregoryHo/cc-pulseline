@@ -228,6 +228,38 @@ fn ascii_mode_emits_no_unicode_block_chars_across_every_layout() {
     }
 }
 
+#[test]
+fn ascii_mode_with_cache_trend_emits_no_unicode_blocks() {
+    // Knob-on variant of the catch-net above: the cache-trend widgets
+    // (compact C-cell spark, ledger CACHE row) must also vanish cleanly
+    // under Ascii — no Unicode blocks AND no braille anywhere.
+    let mut frame = frame_with_tools_for_ascii_contract();
+    frame.line3.cache_creation_tokens = Some(500);
+    frame.line3.cache_read_tokens = Some(8_500);
+    frame.cache_history = vec![(40, 1_000), (55, 2_000), (70, 3_000), (85, 4_000)];
+    frame.cache_read_total = 4_400_000;
+    for layout in ALL_LAYOUTS {
+        let mut cfg = cfg_for(*layout, false, 160);
+        cfg.show_cache_trend = true;
+        let lines = render_frame(&frame, &cfg);
+        let blob = lines.join("\n");
+        for c in UNICODE_BLOCKS {
+            assert!(
+                !blob.contains(*c),
+                "{:?} layout (cache trend on) under display.icons=false leaked U+{:04X} (`{c}`):\n{blob}",
+                layout,
+                *c as u32
+            );
+        }
+        assert!(
+            !blob
+                .chars()
+                .any(|ch| (0x2800..=0x28FF).contains(&(ch as u32))),
+            "{layout:?} layout (cache trend on) leaked braille under Ascii:\n{blob}"
+        );
+    }
+}
+
 // ── Composability: per-segment `*_visual` config can override layout default ──
 
 #[test]

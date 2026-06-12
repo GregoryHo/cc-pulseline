@@ -10,7 +10,6 @@ is then the source of truth.
 | Doc | Scope | Status |
 |---|---|---|
 | [`activity-width-budget.md`](activity-width-budget.md) | Architecture spec for the activity-row width-budget allocator (`render/activity/{budget,builder,cell,truncate}.rs`) — every row knows its char budget; truncators (KeepHead / Sentence / CommandSmart) compose | Shipped. Active reference for `render/activity/`. |
-| [`none-layout-redesign.md`](none-layout-redesign.md) | Density + consistency rework of the default `none` layout. Two iterations. | Iteration 2 Must items shipped: bracketed parallel cells, width-adaptive completed-tool rows, verb-first Bash. **Open**: A1 (promote all-done todo), A6 (overflow language), open questions 1–4 |
 
 ## When to add / delete a doc
 

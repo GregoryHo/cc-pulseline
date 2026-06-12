@@ -39,15 +39,12 @@ pub const ICON_COMPACT: &str = "\u{27F3}";
 // API-error badge (⚠ = U+26A0 warning sign; ASCII: !)
 pub const ICON_API_ERROR: &str = "\u{26A0}";
 
-// Box-drawing characters used by every framed layout (Console, Ledger).
-// One source of truth so frame edges stay consistent across layouts and
-// tests can assert against the constants.
+// Frame-corner constants for test assertions (tests/console_layout.rs).
+// The actual frame chrome — full corner/edge/junction set with Ascii
+// variants — lives in `frames::shared::glyphs()`; these two must match
+// its Icon-mode corners.
 pub const FRAME_TL: char = '\u{256D}'; // ╭
-pub const FRAME_TR: char = '\u{256E}'; // ╮
 pub const FRAME_BL: char = '\u{2570}'; // ╰
-pub const FRAME_BR: char = '\u{256F}'; // ╯
-pub const FRAME_H: char = '\u{2500}'; // ─
-pub const FRAME_V: char = '\u{2502}'; // │
 
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
     match mode {

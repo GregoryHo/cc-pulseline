@@ -808,3 +808,127 @@ fn ledger_todo_bar_renders_progress_gauge() {
     );
     assert!(blob.contains("2/5 done"), "text atom kept: {blob}");
 }
+
+// ── CACHE TAG row (knob-gated via `show_cache_trend`) ────────────────
+
+fn has_braille(s: &str) -> bool {
+    s.chars().any(|c| (0x2800..=0x28FF).contains(&(c as u32)))
+}
+
+/// frame_basic + the cache-trend trio: hit-rate history, cumulative read
+/// total, and line3 cache tokens (input 1000 / creation 500 / read 8500
+/// → hit 85%, creation share 5%).
+fn frame_with_cache_trend() -> RenderFrame {
+    let mut f = frame_basic();
+    f.line3.input_tokens = Some(1_000);
+    f.line3.cache_creation_tokens = Some(500);
+    f.line3.cache_read_tokens = Some(8_500);
+    f.cache_history = vec![
+        (30, 1_000),
+        (35, 2_000),
+        (40, 3_000),
+        (43, 65_000), // 64s window — past the 1m floor
+    ];
+    f.cache_read_total = 4_400_000;
+    f
+}
+
+#[test]
+fn ledger_renders_cache_row_with_trend_total_and_share() {
+    use cc_pulseline::render::color::visible_width;
+
+    let f = frame_with_cache_trend();
+    let mut c = cfg(140);
+    c.show_cache_trend = true;
+    let lines = render_frame(&f, &c);
+    let cache_row = lines
+        .iter()
+        .find(|l| l.contains("CACHE"))
+        .expect("CACHE row");
+    assert!(
+        has_braille(cache_row),
+        "hit-rate sparkline on CACHE row: {cache_row:?}"
+    );
+    assert!(
+        cache_row.contains("4.4M"),
+        "cumulative read total formatted via format_number: {cache_row:?}"
+    );
+    assert!(
+        cache_row.contains("read total"),
+        "honest raw label: {cache_row:?}"
+    );
+    assert!(
+        cache_row.contains("% create"),
+        "creation share cell (5% create): {cache_row:?}"
+    );
+    // Frame alignment: the CACHE row's visible width must equal the other
+    // framed rows' (mirror the top/bottom border invariant).
+    let bottom = lines.last().expect("bottom frame line");
+    assert_eq!(
+        visible_width(cache_row),
+        visible_width(bottom),
+        "CACHE row must not break frame alignment\n  cache:  {cache_row}\n  bottom: {bottom}",
+    );
+}
+
+#[test]
+fn ledger_cache_row_ascii_drops_glyph_keeps_text() {
+    let f = frame_with_cache_trend();
+    let mut c = cfg(140);
+    c.show_cache_trend = true;
+    c.glyph_mode = GlyphMode::Ascii;
+    let lines = render_frame(&f, &c);
+    let cache_row = lines
+        .iter()
+        .find(|l| l.contains("CACHE"))
+        .expect("CACHE row");
+    assert!(
+        !has_braille(cache_row),
+        "sparkline is icon-only — no braille under Ascii: {cache_row:?}"
+    );
+    assert!(
+        cache_row.contains("read total"),
+        "text still carries the row under Ascii: {cache_row:?}"
+    );
+    assert!(
+        cache_row.contains("create"),
+        "creation share text survives Ascii: {cache_row:?}"
+    );
+}
+
+#[test]
+fn ledger_omits_cache_row_by_default() {
+    // Knob off (the default) — cache data on the frame must NOT surface.
+    let f = frame_with_cache_trend();
+    let lines = render_frame(&f, &cfg(140));
+    let blob = lines.join("\n");
+    assert!(
+        !blob.contains("CACHE"),
+        "no CACHE tag with the knob off: {blob}"
+    );
+}
+
+#[test]
+fn ledger_cache_row_dropped_when_no_signal() {
+    // Knob on but zero cache signal: no reads accumulated, empty history,
+    // no cache token fields → no CACHE row and no doubled blank rows.
+    let mut f = frame_basic();
+    f.line3.cache_creation_tokens = None;
+    f.line3.cache_read_tokens = None;
+    f.cache_history = Vec::new();
+    f.cache_read_total = 0;
+    let mut c = cfg(140);
+    c.show_cache_trend = true;
+    let lines = render_frame(&f, &c);
+    let blob = lines.join("\n");
+    assert!(
+        !blob.contains("CACHE"),
+        "no-signal frame must drop the CACHE row: {blob}"
+    );
+    for pair in lines.windows(2) {
+        assert!(
+            !(is_blank_inner_row(&pair[0]) && is_blank_inner_row(&pair[1])),
+            "no doubled blank rows when the CACHE row drops: {lines:?}"
+        );
+    }
+}
