@@ -199,6 +199,11 @@ pub struct SessionState {
     /// with identical usage; chunks are contiguous, so one remembered id
     /// suffices.
     pub last_usage_message_id: Option<String>,
+    /// Replay guard: highest line timestamp (epoch ms) among accumulated
+    /// usage events. Session resume re-appends the full history into the
+    /// SAME transcript file with ORIGINAL timestamps — anything at or
+    /// below this high-water mark is a replay, not a new API call.
+    pub max_usage_ts_ms: u64,
     /// Per-sub-agent transcript tail state, keyed by runtime `agentId`.
     /// Populated when the parent transcript surfaces a `toolUseResult` with
     /// `status == "async_launched"`; pruned when the corresponding agent
@@ -237,6 +242,7 @@ impl SessionState {
             self.cache_history.clear();
             self.cache_read_total = 0;
             self.last_usage_message_id = None;
+            self.max_usage_ts_ms = 0;
             self.sub_agents.clear();
             self.compact_count = 0;
             self.last_api_error_ms = None;
@@ -664,6 +670,7 @@ impl SessionState {
         self.cache_history = history;
         self.cache_read_total = cache.cache_read_total;
         self.last_usage_message_id = cache.last_usage_message_id;
+        self.max_usage_ts_ms = cache.max_usage_ts_ms;
         self.sub_agents = cache.sub_agents;
         self.compact_count = cache.compact_count;
         self.last_api_error_ms = cache.last_api_error_ms;
@@ -706,6 +713,7 @@ impl SessionState {
             cache_history: self.cache_history.clone(),
             cache_read_total: self.cache_read_total,
             last_usage_message_id: self.last_usage_message_id.clone(),
+            max_usage_ts_ms: self.max_usage_ts_ms,
             sub_agents: self.sub_agents.clone(),
             compact_count: self.compact_count,
             last_api_error_ms: self.last_api_error_ms,

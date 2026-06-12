@@ -68,6 +68,9 @@ pub struct SessionCache {
     // Dedupe key for usage accumulation (last accumulated `message.id`).
     #[serde(default)]
     pub last_usage_message_id: Option<String>,
+    // Replay guard — highest accumulated usage-event timestamp (epoch ms).
+    #[serde(default)]
+    pub max_usage_ts_ms: u64,
     // Per-sub-agent tail offsets + task state.
     #[serde(default)]
     pub sub_agents: HashMap<String, SubAgentTranscriptState>,

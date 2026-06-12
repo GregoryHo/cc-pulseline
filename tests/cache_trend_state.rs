@@ -47,8 +47,11 @@ fn test_config() -> RenderConfig {
     }
 }
 
-/// One assistant usage line in real transcript shape.
-fn usage_line(message_id: &str, cache_read: u64, uuid: &str) -> String {
+/// One assistant usage line in real transcript shape. `ts_secs` is the
+/// line timestamp as seconds past a fixed base — distinct API calls carry
+/// increasing timestamps (the `max_usage_ts_ms` replay guard skips
+/// anything at or below the high-water mark).
+fn usage_line(message_id: &str, cache_read: u64, uuid: &str, ts_secs: u64) -> String {
     json!({
         "type": "assistant",
         "message": {
@@ -64,7 +67,7 @@ fn usage_line(message_id: &str, cache_read: u64, uuid: &str) -> String {
         },
         "requestId": format!("req_{uuid}"),
         "uuid": uuid,
-        "timestamp": "2026-06-12T00:00:00.000Z"
+        "timestamp": format!("2026-06-12T00:{:02}:{:02}.000Z", ts_secs / 60, ts_secs % 60)
     })
     .to_string()
 }
@@ -78,7 +81,7 @@ fn usage_events_accumulate_and_dedupe_by_message_id() {
     let collector = FileTranscriptCollector;
     let mut state = SessionState::default();
 
-    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1", 0));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(
         state.cache_read_total, 1000,
@@ -86,11 +89,11 @@ fn usage_events_accumulate_and_dedupe_by_message_id() {
     );
 
     // Same id + identical usage (streaming chunk) must NOT double-count.
-    append_line(&transcript, &usage_line("msg_1", 1000, "u2"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u2", 1));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1000, "same message.id is deduped");
 
-    append_line(&transcript, &usage_line("msg_2", 500, "u3"));
+    append_line(&transcript, &usage_line("msg_2", 500, "u3", 5));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1500, "new message.id increments");
 }
@@ -105,10 +108,10 @@ fn dedupe_survives_split_across_polls() {
     let mut state = SessionState::default();
 
     // Chunk 1 of msg_1 lands in the first poll...
-    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1", 0));
     collector.collect_transcript(&payload, &mut state, &config);
     // ...chunk 2 of the same API call lands in the next poll.
-    append_line(&transcript, &usage_line("msg_1", 1000, "u2"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u2", 1));
     collector.collect_transcript(&payload, &mut state, &config);
 
     assert_eq!(
@@ -126,7 +129,7 @@ fn compact_boundary_clears_history_but_not_cumulative() {
     let collector = FileTranscriptCollector;
     let mut state = SessionState::default();
 
-    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1", 0));
     collector.collect_transcript(&payload, &mut state, &config);
     state.push_cache_sample(80, 1);
     state.push_cache_sample(90, 2);
@@ -162,7 +165,7 @@ fn transcript_path_change_clears_cumulative_and_history() {
     let collector = FileTranscriptCollector;
     let mut state = SessionState::default();
 
-    append_line(&transcript_a, &usage_line("msg_1", 1000, "u1"));
+    append_line(&transcript_a, &usage_line("msg_1", 1000, "u1", 0));
     let payload_a = payload(&workspace, &transcript_a, "cache-trend-path");
     collector.collect_transcript(&payload_a, &mut state, &config);
     state.push_cache_sample(75, 1);
@@ -186,15 +189,18 @@ fn transcript_truncation_resets_cache_trend() {
     let collector = FileTranscriptCollector;
     let mut state = SessionState::default();
 
-    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_2", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_2", 500, "u2", 5));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1500);
 
     // Replace the file with SHORTER content: truncation must reset the
     // accumulator before re-reading from offset 0 (not old + 700).
-    fs::write(&transcript, format!("{}\n", usage_line("msg_9", 700, "u9")))
-        .expect("transcript should rewrite");
+    fs::write(
+        &transcript,
+        format!("{}\n", usage_line("msg_9", 700, "u9", 0)),
+    )
+    .expect("transcript should rewrite");
     collector.collect_transcript(&payload, &mut state, &config);
 
     assert_eq!(
@@ -273,8 +279,8 @@ fn cumulative_total_survives_process_reload_and_renders_in_ledger() {
     let session_id = "cache-trend-reload-ledger-2026";
 
     // Two usage events with distinct message ids: 1000 + 500 = 1.5k.
-    append_line(&transcript, &usage_line("msg_1", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_2", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_1", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_2", 500, "u2", 5));
 
     let payload_json = json!({
         "session_id": session_id,
@@ -343,7 +349,7 @@ fn cumulative_total_survives_process_reload_and_renders_in_ledger() {
     );
 
     // A third usage event (new message id) increments: 1500 + 500 = 2.0k.
-    append_line(&transcript, &usage_line("msg_3", 500, "u3"));
+    append_line(&transcript, &usage_line("msg_3", 500, "u3", 10));
     let lines = runner2
         .run_from_str(&payload_json, ledger_cfg())
         .expect("post-append render");

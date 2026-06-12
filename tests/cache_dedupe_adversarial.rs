@@ -53,8 +53,11 @@ fn test_config() -> RenderConfig {
 
 /// One assistant usage line in real transcript shape. `uuid` is the
 /// transcript-event uuid (distinct per streamed chunk line); `message_id`
-/// is the Anthropic API response id (shared across chunks of one call).
-fn usage_line(message_id: &str, cache_read: u64, uuid: &str) -> String {
+/// is the Anthropic API response id (shared across chunks of one call);
+/// `ts_secs` is the line timestamp as seconds past a fixed base — distinct
+/// API calls in a live stream carry increasing timestamps, while resume
+/// replays repeat the ORIGINAL timestamp (pass the same `ts_secs`).
+fn usage_line(message_id: &str, cache_read: u64, uuid: &str, ts_secs: u64) -> String {
     json!({
         "type": "assistant",
         "isSidechain": false,
@@ -71,7 +74,7 @@ fn usage_line(message_id: &str, cache_read: u64, uuid: &str) -> String {
         },
         "requestId": format!("req_{message_id}"),
         "uuid": uuid,
-        "timestamp": "2026-06-12T00:00:00.000Z"
+        "timestamp": format!("2026-06-12T00:{:02}:{:02}.000Z", ts_secs / 60, ts_secs % 60)
     })
     .to_string()
 }
@@ -114,15 +117,15 @@ fn streaming_chunks_count_once_even_with_interposed_non_id_lines() {
 
     // Three chunk lines of ONE API call, with a user tool_result line (no
     // message.id) interposed — dedupe must survive the gap.
-    append_line(&transcript, &usage_line("msg_A", 1234, "u1"));
-    append_line(&transcript, &usage_line("msg_A", 1234, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 1234, "u1", 0));
+    append_line(&transcript, &usage_line("msg_A", 1234, "u2", 1));
     append_line(&transcript, &user_tool_result_line("u3"));
-    append_line(&transcript, &usage_line("msg_A", 1234, "u4"));
+    append_line(&transcript, &usage_line("msg_A", 1234, "u4", 2));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1234, "one call = one count");
 
     // A late chunk of the SAME call arriving in a later poll.
-    append_line(&transcript, &usage_line("msg_A", 1234, "u5"));
+    append_line(&transcript, &usage_line("msg_A", 1234, "u5", 3));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1234, "late chunk must not recount");
 }
@@ -141,8 +144,8 @@ fn distinct_calls_with_identical_usage_each_count() {
     let mut state = SessionState::default();
 
     // Adjacent calls, byte-identical usage — only message.id differs.
-    append_line(&transcript, &usage_line("msg_A", 4242, "u1"));
-    append_line(&transcript, &usage_line("msg_B", 4242, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 4242, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 4242, "u2", 5));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(
         state.cache_read_total, 8484,
@@ -150,7 +153,7 @@ fn distinct_calls_with_identical_usage_each_count() {
     );
 
     // Third identical-usage call in a separate poll.
-    append_line(&transcript, &usage_line("msg_C", 4242, "u3"));
+    append_line(&transcript, &usage_line("msg_C", 4242, "u3", 10));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 12726);
 }
@@ -173,7 +176,7 @@ fn process_restart_mid_stream_does_not_recount_partial_message() {
     let key = session_key(&workspace, &transcript, session_id);
 
     // Process 1 sees only chunk 1 of msg_A, persists, dies.
-    append_line(&transcript, &usage_line("msg_A", 1000, "u1"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
     {
         let mut runner1 = PulseLineRunner::default();
         runner1
@@ -185,9 +188,9 @@ fn process_restart_mid_stream_does_not_recount_partial_message() {
     assert_eq!(disk.last_usage_message_id.as_deref(), Some("msg_A"));
 
     // While no process runs: remaining chunks of msg_A + a new call msg_B.
-    append_line(&transcript, &usage_line("msg_A", 1000, "u2"));
-    append_line(&transcript, &usage_line("msg_A", 1000, "u3"));
-    append_line(&transcript, &usage_line("msg_B", 500, "u4"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u2", 1));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u3", 2));
+    append_line(&transcript, &usage_line("msg_B", 500, "u4", 5));
 
     // Fresh process resumes from the persisted offset + dedupe id.
     let mut runner2 = PulseLineRunner::default();
@@ -214,8 +217,8 @@ fn restart_with_lost_cache_recounts_from_zero_exactly() {
     .to_string();
     let key = session_key(&workspace, &transcript, session_id);
 
-    append_line(&transcript, &usage_line("msg_A", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_B", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 5));
     {
         let mut runner1 = PulseLineRunner::default();
         runner1
@@ -262,8 +265,8 @@ fn truncation_across_process_restart_resets_exactly() {
     .to_string();
     let key = session_key(&workspace, &transcript, session_id);
 
-    append_line(&transcript, &usage_line("msg_A", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_B", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 5));
     {
         let mut runner1 = PulseLineRunner::default();
         runner1
@@ -274,8 +277,11 @@ fn truncation_across_process_restart_resets_exactly() {
     // File replaced with SHORTER content while no process runs. The new
     // file reuses msg_A: the truncation reset must also clear the dedupe
     // id, or msg_A's usage would be skipped (undercount).
-    fs::write(&transcript, format!("{}\n", usage_line("msg_A", 700, "u9")))
-        .expect("transcript rewritten");
+    fs::write(
+        &transcript,
+        format!("{}\n", usage_line("msg_A", 700, "u9", 0)),
+    )
+    .expect("transcript rewritten");
 
     let mut runner2 = PulseLineRunner::default();
     runner2
@@ -291,21 +297,20 @@ fn truncation_across_process_restart_resets_exactly() {
 }
 
 // ---------------------------------------------------------------------------
-// KNOWN BUG repro: session-resume history replay double-counts.
+// Session-resume history replay must not double-count.
 //
 // Real CC behavior (observed in ~/.claude/projects/*.jsonl): resuming a
 // session re-appends the ENTIRE conversation history to the SAME transcript
 // file — byte-near-identical lines with the same `message.id`, `uuid`,
 // `requestId`, timestamp, and usage. The single-remembered-id dedupe
-// (`last_usage_message_id`) only suppresses contiguous repeats, so every
-// replayed usage event is re-accumulated. Measured on a real transcript
-// with two resume replays: algorithm total 1,735,405,509 vs ground truth
-// 899,558,894 (1.93x inflation). Un-ignore once dedupe is replay-proof
-// (e.g. keyed on seen message ids with a FIFO cap, or replay-marker reset).
+// (`last_usage_message_id`) only suppresses contiguous repeats; replays are
+// guarded by the `max_usage_ts_ms` high-water mark instead — replayed lines
+// carry their ORIGINAL timestamps, so anything at or below the mark is
+// skipped. (Without the mark, a real two-resume transcript measured 1.93x
+// inflation: 1,735,405,509 vs ground truth 899,558,894.)
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "KNOWN BUG: session-resume history replay double-counts cache_read_total"]
 fn session_resume_history_replay_must_not_recount() {
     let workspace = TempDir::new().expect("temp workspace");
     let transcript = workspace.path().join("resume.jsonl");
@@ -315,25 +320,46 @@ fn session_resume_history_replay_must_not_recount() {
     let mut state = SessionState::default();
 
     // Live session: two API calls.
-    append_line(&transcript, &usage_line("msg_A", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_B", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 5));
     collector.collect_transcript(&payload, &mut state, &config);
     assert_eq!(state.cache_read_total, 1500);
 
     // Session resume: CC appends session-restart metadata, then replays the
-    // full history with IDENTICAL message ids / uuids / usage. The file
-    // only grows, so the truncation reset does not fire.
+    // full history with IDENTICAL message ids / uuids / usage / timestamps.
+    // The file only grows, so the truncation reset does not fire.
     append_line(
         &transcript,
         &json!({"type": "last-prompt", "lastPrompt": "continue"}).to_string(),
     );
-    append_line(&transcript, &usage_line("msg_A", 1000, "u1"));
-    append_line(&transcript, &usage_line("msg_B", 500, "u2"));
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 5));
     collector.collect_transcript(&payload, &mut state, &config);
-
     assert_eq!(
         state.cache_read_total, 1500,
-        "replayed history lines are the SAME API calls and must not recount \
-         (actual behavior today: 3000 — every resume roughly doubles the total)"
+        "replayed history lines are the SAME API calls and must not recount"
+    );
+
+    // Conversation continues after the resume: a genuinely new call (newer
+    // timestamp) must still accumulate.
+    append_line(&transcript, &usage_line("msg_C", 500, "u5", 10));
+    collector.collect_transcript(&payload, &mut state, &config);
+    assert_eq!(
+        state.cache_read_total, 2000,
+        "post-resume call still counts"
+    );
+
+    // A second resume replays the now-longer history; total stays exact.
+    append_line(
+        &transcript,
+        &json!({"type": "last-prompt", "lastPrompt": "again"}).to_string(),
+    );
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 5));
+    append_line(&transcript, &usage_line("msg_C", 500, "u5", 10));
+    collector.collect_transcript(&payload, &mut state, &config);
+    assert_eq!(
+        state.cache_read_total, 2000,
+        "second resume must not inflate"
     );
 }

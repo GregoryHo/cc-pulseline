@@ -161,6 +161,7 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.cache_history.clear();
             state.cache_read_total = 0;
             state.last_usage_message_id = None;
+            state.max_usage_ts_ms = 0;
             state.compact_count = 0;
             state.last_api_error_ms = None;
         }
@@ -355,7 +356,7 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
     // disambiguate `async_launched` (agent still running) from terminal.
     let tool_use_result = raw_event.get("toolUseResult");
 
-    accumulate_usage(state, raw_event, &message_id);
+    accumulate_usage(state, raw_event, &message_id, event_ts);
 
     // Path 1: Nested content[] blocks (real Claude Code transcript format)
     // Messages have: { "message": { "role": "assistant", "content": [{...}] } }
@@ -425,12 +426,31 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
 }
 
 /// Accumulate cache_read_input_tokens from assistant usage events,
-/// deduped per API call by `message.id` (streaming chunks of one call
-/// repeat the same id with byte-identical usage, contiguously).
-fn accumulate_usage(state: &mut SessionState, raw_event: &Value, message_id: &Option<String>) {
+/// deduped per API call on two axes:
+/// - `message.id` catches streaming chunks of ONE call (same id,
+///   byte-identical usage, contiguous lines — chunk line timestamps may
+///   increase, so the timestamp axis alone cannot catch these);
+/// - the `max_usage_ts_ms` high-water mark catches session-resume
+///   replays: CC re-appends the FULL history into the same transcript
+///   file with ORIGINAL timestamps, so replayed events are non-contiguous
+///   repeats that the single-id memory misses. Anything at or below the
+///   mark is a replay. (Trade-off: a genuine new call sharing the exact
+///   millisecond of the previous one would be skipped — API calls take
+///   far longer than 1ms, while resume inflation is ~2x per resume.)
+fn accumulate_usage(
+    state: &mut SessionState,
+    raw_event: &Value,
+    message_id: &Option<String>,
+    event_ts: Option<u64>,
+) {
     let Some(id) = message_id else { return };
     if state.last_usage_message_id.as_deref() == Some(id.as_str()) {
         return;
+    }
+    if let Some(ts) = event_ts {
+        if state.max_usage_ts_ms > 0 && ts <= state.max_usage_ts_ms {
+            return;
+        }
     }
     let Some(usage) = raw_event.get("message").and_then(|m| m.get("usage")) else {
         return;
@@ -441,6 +461,9 @@ fn accumulate_usage(state: &mut SessionState, raw_event: &Value, message_id: &Op
         .unwrap_or(0);
     state.cache_read_total = state.cache_read_total.saturating_add(read);
     state.last_usage_message_id = Some(id.clone());
+    if let Some(ts) = event_ts {
+        state.max_usage_ts_ms = state.max_usage_ts_ms.max(ts);
+    }
 }
 
 /// Extract content[] blocks from nested transcript events.
