@@ -61,6 +61,9 @@ pub struct ThemePalette {
 /// context-window size: 55%+ → warn, 70%+ → critical.
 pub const CTX_WARN_THRESHOLD: u64 = 55;
 pub const CTX_CRITICAL_THRESHOLD: u64 = 70;
+/// Creation-share threshold (percent) above which a low cache hit rate is
+/// read as "rebuilding" (cache being rewritten) rather than a cold start.
+pub const CACHE_REBUILD_CREATION_SHARE: f64 = 50.0;
 
 /// Semantic aliases and color-selection helpers.
 impl ThemePalette {
@@ -144,15 +147,20 @@ impl ThemePalette {
     }
 
     /// Cache hit-rate ladder — `≥80% → green` (warm cache), `≥40% →
-    /// primary` (neutral ramp), else warn (churn = cost leak). Amber, NOT
-    /// red — high is good here and there is no hard limit.
-    pub fn color_for_cache_hit_pct(&self, pct: f64) -> &str {
+    /// primary` (neutral ramp). Below 40% the creation share decides:
+    /// `≥ CACHE_REBUILD_CREATION_SHARE` → warn (rebuilding — the cache is
+    /// being rewritten; amber, NOT red, since high is good here and there
+    /// is no hard limit), otherwise primary (cold start / little cache
+    /// activity = neutral, not an alarm).
+    pub fn color_for_cache_hit_pct(&self, pct: f64, creation_share: Option<f64>) -> &str {
         if pct >= 80.0 {
             &self.stable_green
         } else if pct >= 40.0 {
             &self.primary
-        } else {
+        } else if creation_share.is_some_and(|s| s >= CACHE_REBUILD_CREATION_SHARE) {
             self.ctx_warn()
+        } else {
+            &self.primary
         }
     }
 
@@ -1015,10 +1023,28 @@ mod tests {
     #[test]
     fn color_for_cache_hit_pct_thresholds() {
         let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
-        assert_eq!(p.color_for_cache_hit_pct(39.9), p.ctx_warn());
-        assert_eq!(p.color_for_cache_hit_pct(40.0), &p.primary);
-        assert_eq!(p.color_for_cache_hit_pct(79.9), &p.primary);
-        assert_eq!(p.color_for_cache_hit_pct(80.0), &p.stable_green);
+        assert_eq!(p.color_for_cache_hit_pct(39.9, Some(60.0)), p.ctx_warn());
+        assert_eq!(p.color_for_cache_hit_pct(40.0, Some(60.0)), &p.primary);
+        assert_eq!(p.color_for_cache_hit_pct(79.9, Some(60.0)), &p.primary);
+        assert_eq!(p.color_for_cache_hit_pct(80.0, Some(60.0)), &p.stable_green);
+    }
+
+    #[test]
+    fn cache_cell_color_is_creation_aware() {
+        let p = resolve_palette("tokyo-night", Some("dark"), &ColorsConfig::default());
+        // Warm cache: green regardless of creation share.
+        assert_eq!(p.color_for_cache_hit_pct(85.0, None), &p.stable_green);
+        // Mid band ignores creation share entirely.
+        assert_eq!(p.color_for_cache_hit_pct(50.0, Some(90.0)), &p.primary);
+        // Low hit + high creation = rebuilding → warn.
+        assert_eq!(p.color_for_cache_hit_pct(10.0, Some(60.0)), p.ctx_warn());
+        // Low hit + low creation = cold start → neutral.
+        assert_eq!(p.color_for_cache_hit_pct(10.0, Some(10.0)), &p.primary);
+        // Low hit + no creation signal at all → neutral.
+        assert_eq!(p.color_for_cache_hit_pct(10.0, None), &p.primary);
+        // Boundary: share at exactly 50.0 warns, just under stays neutral.
+        assert_eq!(p.color_for_cache_hit_pct(39.9, Some(50.0)), p.ctx_warn());
+        assert_eq!(p.color_for_cache_hit_pct(39.9, Some(49.9)), &p.primary);
     }
 
     #[test]

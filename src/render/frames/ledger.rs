@@ -555,7 +555,11 @@ fn tok_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
     let hit_part = line3
         .cache_hit_pct()
         .map(|pct| {
-            let pct_v = colorize(&format!("{pct:.0}%"), p.color_for_cache_hit_pct(pct), color);
+            let pct_v = colorize(
+                &format!("{pct:.0}%"),
+                p.color_for_cache_hit_pct(pct, line3.cache_creation_share()),
+                color,
+            );
             let hit_lbl = colorize("hit", &p.structural, color);
             format!("  {pct_v} {hit_lbl}")
         })

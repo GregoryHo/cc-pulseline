@@ -795,7 +795,10 @@ fn format_tokens_segment(
     // Cache hit rate — `C:50%` threshold-colored, or structural `C:--`
     // when there is no cache signal (never a misleading red 0%).
     let (cache_str, cache_color) = match line3.cache_hit_pct() {
-        Some(pct) => (format!("{pct:.0}%"), p.color_for_cache_hit_pct(pct)),
+        Some(pct) => (
+            format!("{pct:.0}%"),
+            p.color_for_cache_hit_pct(pct, line3.cache_creation_share()),
+        ),
         None => ("--".to_string(), &p.structural as &str),
     };
 

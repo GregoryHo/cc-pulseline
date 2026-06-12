@@ -3,7 +3,7 @@ use std::{fs, path::Path, process::Command};
 use cc_pulseline::{
     config::{GlyphMode, RenderConfig},
     render::color::{
-        visible_width, COMPLETED_CHECK, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE,
+        colorize, visible_width, COMPLETED_CHECK, COST_HIGH_RATE, COST_LOW_RATE, COST_MED_RATE,
         INDICATOR_CLAUDE_MD, INDICATOR_DURATION, INDICATOR_HOOKS, INDICATOR_MCP, INDICATOR_RULES,
         INDICATOR_SKILLS,
     },
@@ -395,6 +395,71 @@ fn cache_hit_zero_pct_on_cold_start() {
         lines[2].contains("C:0%"),
         "cold start (creation only, no reads) should render a real 0%, got: {}",
         lines[2]
+    );
+}
+
+/// Builds a payload whose cache cell renders "5%" with the given token split.
+fn cache_color_payload(input: u64, creation: u64, read: u64) -> String {
+    json!({
+        "model": {"display_name": "Opus"},
+        "output_style": {"name": "concise"},
+        "version": "2.0.0",
+        "context_window": {
+            "context_window_size": 200000,
+            "used_percentage": 50,
+            "current_usage": {
+                "input_tokens": input,
+                "output_tokens": 200,
+                "cache_creation_input_tokens": creation,
+                "cache_read_input_tokens": read
+            }
+        },
+        "cost": {
+            "total_cost_usd": 1.0,
+            "total_duration_ms": 3600000
+        }
+    })
+    .to_string()
+}
+
+#[test]
+fn cache_cell_warns_when_rebuilding() {
+    // Hit ≈ 5% (500/9500), creation share ≈ 84% → rebuilding → warn color.
+    let input = cache_color_payload(1000, 8000, 500);
+    let config = RenderConfig {
+        color_enabled: true,
+        ..Default::default()
+    };
+    let warn_needle = colorize("5%", config.palette.ctx_warn(), true);
+
+    let lines = run_from_str(&input, config).expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains(&warn_needle),
+        "rebuilding cache (low hit, high creation) should warn-color the C cell, got: {joined:?}"
+    );
+}
+
+#[test]
+fn cache_cell_stays_neutral_on_cold_start() {
+    // Hit = 5% (500/10000), creation share = 5% → cold start → primary.
+    let input = cache_color_payload(9000, 500, 500);
+    let config = RenderConfig {
+        color_enabled: true,
+        ..Default::default()
+    };
+    let primary_needle = colorize("5%", &config.palette.primary, true);
+    let warn_needle = colorize("5%", config.palette.ctx_warn(), true);
+
+    let lines = run_from_str(&input, config).expect("render should succeed");
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains(&primary_needle),
+        "cold start (low hit, low creation) should keep the C cell neutral, got: {joined:?}"
+    );
+    assert!(
+        !joined.contains(&warn_needle),
+        "cold start must NOT warn-color the C cell, got: {joined:?}"
     );
 }
 
