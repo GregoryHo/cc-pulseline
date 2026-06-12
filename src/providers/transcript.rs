@@ -158,10 +158,7 @@ impl TranscriptCollector for FileTranscriptCollector {
             state.output_speed_toks_per_sec = None;
             state.ctx_history.clear();
             // File replaced → re-reading from 0 would double-count usage.
-            state.cache_history.clear();
-            state.cache_read_total = 0;
-            state.last_usage_message_id = None;
-            state.max_usage_ts_ms = 0;
+            state.reset_cache_trend();
             state.compact_count = 0;
             state.last_api_error_ms = None;
         }
@@ -390,6 +387,19 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
                 .unwrap_or("");
             match subtype {
                 "compact_boundary" => {
+                    // Session-resume replay guard (same mechanism as
+                    // `accumulate_usage`): a resumed session re-appends the
+                    // full history, so a replayed boundary (original
+                    // timestamp at or below the high-water mark) must not
+                    // re-increment ⟳N or re-clear the trend windows. Live
+                    // boundaries also RAISE the mark so an immediate resume
+                    // can't replay them either.
+                    if let Some(ts) = event_ts {
+                        if state.replay_guard_ts_ms > 0 && ts <= state.replay_guard_ts_ms {
+                            return;
+                        }
+                        state.replay_guard_ts_ms = state.replay_guard_ts_ms.max(ts);
+                    }
                     state.compact_count = state.compact_count.saturating_add(1);
                     state.ctx_history.clear();
                     // `cache_read_total` is session-cumulative and survives
@@ -430,7 +440,7 @@ fn apply_transcript_event(state: &mut SessionState, raw_event: &Value) {
 /// - `message.id` catches streaming chunks of ONE call (same id,
 ///   byte-identical usage, contiguous lines — chunk line timestamps may
 ///   increase, so the timestamp axis alone cannot catch these);
-/// - the `max_usage_ts_ms` high-water mark catches session-resume
+/// - the `replay_guard_ts_ms` high-water mark catches session-resume
 ///   replays: CC re-appends the FULL history into the same transcript
 ///   file with ORIGINAL timestamps, so replayed events are non-contiguous
 ///   repeats that the single-id memory misses. Anything at or below the
@@ -448,7 +458,7 @@ fn accumulate_usage(
         return;
     }
     if let Some(ts) = event_ts {
-        if state.max_usage_ts_ms > 0 && ts <= state.max_usage_ts_ms {
+        if state.replay_guard_ts_ms > 0 && ts <= state.replay_guard_ts_ms {
             return;
         }
     }
@@ -462,7 +472,7 @@ fn accumulate_usage(
     state.cache_read_total = state.cache_read_total.saturating_add(read);
     state.last_usage_message_id = Some(id.clone());
     if let Some(ts) = event_ts {
-        state.max_usage_ts_ms = state.max_usage_ts_ms.max(ts);
+        state.replay_guard_ts_ms = state.replay_guard_ts_ms.max(ts);
     }
 }
 

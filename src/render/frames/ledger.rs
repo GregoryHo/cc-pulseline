@@ -601,6 +601,7 @@ fn cache_row_body(
     if read_total == 0 && line3.cache_hit_pct().is_none() {
         return String::new(); // no cache signal at all → row dropped
     }
+    let creation_share = line3.cache_creation_share();
     let mut cells: Vec<String> = Vec::with_capacity(3);
     // Sparkline filled with the creation-aware cache color of the LATEST
     // hit rate (per-row rule; ledger CTX uses velocity aurora instead).
@@ -608,7 +609,7 @@ fn cache_row_body(
         let window = sparkline_window(history);
         let latest = window.last().map(|(pct, _)| *pct as f64);
         let fill = match latest {
-            Some(pct) => p.color_for_cache_hit_pct(pct, line3.cache_creation_share()),
+            Some(pct) => p.color_for_cache_hit_pct(pct, creation_share),
             None => p.structural.as_str(),
         };
         let glyph = widgets::sparkline::render(window, fill, mode, color);
@@ -619,7 +620,7 @@ fn cache_row_body(
     let total_v = colorize(&format_number(read_total), &p.primary, color);
     let total_lbl = colorize("read total", &p.structural, color);
     cells.push(format!("{total_v} {total_lbl}"));
-    if let Some(share) = line3.cache_creation_share() {
+    if let Some(share) = creation_share {
         let share_v = colorize(&format!("{share:.0}%"), &p.primary, color);
         let share_lbl = colorize("create", &p.structural, color);
         cells.push(format!("{share_v} {share_lbl}"));

@@ -304,7 +304,7 @@ fn truncation_across_process_restart_resets_exactly() {
 // file — byte-near-identical lines with the same `message.id`, `uuid`,
 // `requestId`, timestamp, and usage. The single-remembered-id dedupe
 // (`last_usage_message_id`) only suppresses contiguous repeats; replays are
-// guarded by the `max_usage_ts_ms` high-water mark instead — replayed lines
+// guarded by the `replay_guard_ts_ms` high-water mark instead — replayed lines
 // carry their ORIGINAL timestamps, so anything at or below the mark is
 // skipped. (Without the mark, a real two-resume transcript measured 1.93x
 // inflation: 1,735,405,509 vs ground truth 899,558,894.)
@@ -362,4 +362,76 @@ fn session_resume_history_replay_must_not_recount() {
         state.cache_read_total, 2000,
         "second resume must not inflate"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Session-resume replay of `compact_boundary` lines: the replayed boundary
+// must not re-increment ⟳N nor re-clear the trend windows (same replay
+// pattern as the usage events above; same high-water guard).
+// ---------------------------------------------------------------------------
+
+/// A `system/compact_boundary` line with a real timestamp.
+fn boundary_line(ts_secs: u64) -> String {
+    json!({
+        "type": "system",
+        "subtype": "compact_boundary",
+        "timestamp": format!("2026-06-12T00:{:02}:{:02}.000Z", ts_secs / 60, ts_secs % 60)
+    })
+    .to_string()
+}
+
+#[test]
+fn replayed_compact_boundary_does_not_recount_or_reclear() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("boundary-replay.jsonl");
+    let payload = payload(&workspace, &transcript, "adv-boundary-replay");
+    let config = test_config();
+    let collector = FileTranscriptCollector;
+    let mut state = SessionState::default();
+
+    // Live session: call, compaction, call.
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &boundary_line(5));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 10));
+    collector.collect_transcript(&payload, &mut state, &config);
+    assert_eq!(state.compact_count, 1);
+    assert_eq!(state.cache_read_total, 1500);
+
+    // Trend samples gathered after the compaction.
+    state.push_cache_sample(80, 1);
+    state.push_cache_sample(90, 2);
+
+    // Resume: restart marker + full history replay (original timestamps).
+    append_line(
+        &transcript,
+        &json!({"type": "last-prompt", "lastPrompt": "continue"}).to_string(),
+    );
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &boundary_line(5));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 10));
+    collector.collect_transcript(&payload, &mut state, &config);
+
+    assert_eq!(state.compact_count, 1, "replayed boundary must not recount");
+    assert_eq!(
+        state.cache_history.len(),
+        2,
+        "replayed boundary must not clear the trend window"
+    );
+    assert_eq!(state.cache_read_total, 1500);
+
+    // A boundary as the LAST live event raises the guard itself, so an
+    // immediate resume cannot replay it either.
+    append_line(&transcript, &boundary_line(15));
+    collector.collect_transcript(&payload, &mut state, &config);
+    assert_eq!(state.compact_count, 2);
+    append_line(
+        &transcript,
+        &json!({"type": "last-prompt", "lastPrompt": "again"}).to_string(),
+    );
+    append_line(&transcript, &usage_line("msg_A", 1000, "u1", 0));
+    append_line(&transcript, &boundary_line(5));
+    append_line(&transcript, &usage_line("msg_B", 500, "u2", 10));
+    append_line(&transcript, &boundary_line(15));
+    collector.collect_transcript(&payload, &mut state, &config);
+    assert_eq!(state.compact_count, 2, "second resume must not inflate ⟳N");
 }

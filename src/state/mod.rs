@@ -158,6 +158,24 @@ pub const MAX_CTX_HISTORY: usize = 30;
 /// draws 12 samples (6 braille cells × 2); the surplus absorbs bursts.
 pub const MAX_CACHE_HISTORY: usize = 30;
 
+/// FIFO-push a `(pct, ts_ms)` sample into a capped buffer, evicting the
+/// oldest at capacity. `pct` clamps to 100. Shared by the CTX and
+/// cache-trend histories so cap/clamp behavior cannot drift between them.
+fn push_capped_sample(history: &mut VecDeque<(u8, u64)>, cap: usize, pct: u8, ts_ms: u64) {
+    if history.len() == cap {
+        history.pop_front();
+    }
+    history.push_back((pct.min(100), ts_ms));
+}
+
+/// Defensive trim after cache hydration: a future cap reduction must not
+/// over-restore from an older, larger on-disk history.
+fn trim_to_cap(history: &mut VecDeque<(u8, u64)>, cap: usize) {
+    while history.len() > cap {
+        history.pop_front();
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SessionState {
     pub last_transcript_offset: u64,
@@ -200,10 +218,11 @@ pub struct SessionState {
     /// suffices.
     pub last_usage_message_id: Option<String>,
     /// Replay guard: highest line timestamp (epoch ms) among accumulated
-    /// usage events. Session resume re-appends the full history into the
-    /// SAME transcript file with ORIGINAL timestamps — anything at or
-    /// below this high-water mark is a replay, not a new API call.
-    pub max_usage_ts_ms: u64,
+    /// usage events and processed `compact_boundary` events. Session
+    /// resume re-appends the full history into the SAME transcript file
+    /// with ORIGINAL timestamps — anything at or below this high-water
+    /// mark is a replay, not a new event.
+    pub replay_guard_ts_ms: u64,
     /// Per-sub-agent transcript tail state, keyed by runtime `agentId`.
     /// Populated when the parent transcript surfaces a `toolUseResult` with
     /// `status == "async_launched"`; pruned when the corresponding agent
@@ -239,10 +258,7 @@ impl SessionState {
             self.last_output_token_time_ms = None;
             self.output_speed_toks_per_sec = None;
             self.ctx_history.clear();
-            self.cache_history.clear();
-            self.cache_read_total = 0;
-            self.last_usage_message_id = None;
-            self.max_usage_ts_ms = 0;
+            self.reset_cache_trend();
             self.sub_agents.clear();
             self.compact_count = 0;
             self.last_api_error_ms = None;
@@ -252,19 +268,24 @@ impl SessionState {
     /// Push a fresh CTX% sample stamped with `ts_ms`, discarding the oldest
     /// when at capacity.
     pub fn push_ctx_sample(&mut self, pct: u8, ts_ms: u64) {
-        if self.ctx_history.len() == MAX_CTX_HISTORY {
-            self.ctx_history.pop_front();
-        }
-        self.ctx_history.push_back((pct.min(100), ts_ms));
+        push_capped_sample(&mut self.ctx_history, MAX_CTX_HISTORY, pct, ts_ms);
     }
 
     /// Push a fresh cache hit-rate sample stamped with `ts_ms`, discarding
     /// the oldest when at capacity.
     pub fn push_cache_sample(&mut self, pct: u8, ts_ms: u64) {
-        if self.cache_history.len() == MAX_CACHE_HISTORY {
-            self.cache_history.pop_front();
-        }
-        self.cache_history.push_back((pct.min(100), ts_ms));
+        push_capped_sample(&mut self.cache_history, MAX_CACHE_HISTORY, pct, ts_ms);
+    }
+
+    /// Clear all cache-trend accumulation state: the trend window, the
+    /// cumulative read total, and both replay-dedupe guards. For transcript
+    /// replacement (path change) and truncation — NOT for
+    /// `compact_boundary`, which clears only the trend window.
+    pub fn reset_cache_trend(&mut self) {
+        self.cache_history.clear();
+        self.cache_read_total = 0;
+        self.last_usage_message_id = None;
+        self.replay_guard_ts_ms = 0;
     }
 
     /// Compute output token speed from successive payload snapshots.
@@ -658,19 +679,13 @@ impl SessionState {
         self.last_output_token_time_ms = cache.last_output_token_time_ms;
         self.output_speed_toks_per_sec = cache.output_speed_toks_per_sec;
         // Defensive trim: a future cap reduction must not over-restore here.
-        let mut history = cache.ctx_history;
-        while history.len() > MAX_CTX_HISTORY {
-            history.pop_front();
-        }
-        self.ctx_history = history;
-        let mut history = cache.cache_history;
-        while history.len() > MAX_CACHE_HISTORY {
-            history.pop_front();
-        }
-        self.cache_history = history;
+        self.ctx_history = cache.ctx_history;
+        trim_to_cap(&mut self.ctx_history, MAX_CTX_HISTORY);
+        self.cache_history = cache.cache_history;
+        trim_to_cap(&mut self.cache_history, MAX_CACHE_HISTORY);
         self.cache_read_total = cache.cache_read_total;
         self.last_usage_message_id = cache.last_usage_message_id;
-        self.max_usage_ts_ms = cache.max_usage_ts_ms;
+        self.replay_guard_ts_ms = cache.replay_guard_ts_ms;
         self.sub_agents = cache.sub_agents;
         self.compact_count = cache.compact_count;
         self.last_api_error_ms = cache.last_api_error_ms;
@@ -713,7 +728,7 @@ impl SessionState {
             cache_history: self.cache_history.clone(),
             cache_read_total: self.cache_read_total,
             last_usage_message_id: self.last_usage_message_id.clone(),
-            max_usage_ts_ms: self.max_usage_ts_ms,
+            replay_guard_ts_ms: self.replay_guard_ts_ms,
             sub_agents: self.sub_agents.clone(),
             compact_count: self.compact_count,
             last_api_error_ms: self.last_api_error_ms,

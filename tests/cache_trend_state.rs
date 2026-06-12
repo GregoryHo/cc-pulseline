@@ -49,7 +49,7 @@ fn test_config() -> RenderConfig {
 
 /// One assistant usage line in real transcript shape. `ts_secs` is the
 /// line timestamp as seconds past a fixed base — distinct API calls carry
-/// increasing timestamps (the `max_usage_ts_ms` replay guard skips
+/// increasing timestamps (the `replay_guard_ts_ms` replay guard skips
 /// anything at or below the high-water mark).
 fn usage_line(message_id: &str, cache_read: u64, uuid: &str, ts_secs: u64) -> String {
     json!({
@@ -348,8 +348,10 @@ fn cumulative_total_survives_process_reload_and_renders_in_ledger() {
         "compaction must not clear the cumulative total: {blob}"
     );
 
-    // A third usage event (new message id) increments: 1500 + 500 = 2.0k.
-    append_line(&transcript, &usage_line("msg_3", 500, "u3", 10));
+    // A third usage event (new message id, wall-clock AFTER the boundary —
+    // line timestamps are monotone in real transcripts) increments:
+    // 1500 + 500 = 2.0k.
+    append_line(&transcript, &usage_line("msg_3", 500, "u3", 70));
     let lines = runner2
         .run_from_str(&payload_json, ledger_cfg())
         .expect("post-append render");
