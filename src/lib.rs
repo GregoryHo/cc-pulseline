@@ -116,6 +116,11 @@ impl PulseLineRunner {
         if needs_sparkline {
             frame.ctx_history = state.ctx_history.iter().copied().collect();
         }
+        // Cache-trend consumers (compact C-cell spark, ledger CACHE row) are
+        // knob-gated; skip the copy otherwise — tight allocation hot path.
+        if config.show_cache_trend {
+            frame.cache_history = state.cache_history.iter().copied().collect();
+        }
 
         let lines = render::layout::render_frame(&frame, &config);
 

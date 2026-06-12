@@ -432,6 +432,11 @@ pub struct RenderFrame {
     /// flat layout opts in to `+sparkline`). Populated by `PulseLineRunner`
     /// from `SessionState.ctx_history`.
     pub ctx_history: Vec<(u8, u64)>,
+    /// Rolling cache hit-rate history (oldest → newest), each entry
+    /// `(pct, epoch_ms)`. Populated by `PulseLineRunner` from
+    /// `SessionState.cache_history` only when `show_cache_trend` is on
+    /// (allocation discipline — the copy is skipped otherwise).
+    pub cache_history: Vec<(u8, u64)>,
     /// Number of `compact_boundary` events seen this session.
     pub compact_count: u32,
     /// Epoch-ms of the most recent `api_error` event (if within 30s TTL).
@@ -529,6 +534,7 @@ impl RenderFrame {
                 })
                 .unwrap_or_default(),
             ctx_history: Vec::new(),
+            cache_history: Vec::new(),
             compact_count: 0,
             last_api_error_ms: None,
         }

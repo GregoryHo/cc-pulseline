@@ -331,7 +331,7 @@ fn assemble_compact(
     if !identity.is_empty() {
         lines.push(identity);
     }
-    let mut budget_parts = line3_parts(frame, config, p_state);
+    let mut budget_parts = line3_parts(frame, config, p_state, true);
     if config.show_quota {
         if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
             budget_parts.push((quota, CellPriority::Required));
@@ -401,7 +401,7 @@ fn fused_head_row(frame: &RenderFrame, config: &RenderConfig, p_state: &ThemePal
     use crate::render::activity::cell::CellPriority;
 
     let mut parts = line1_parts(frame, config, p_state);
-    parts.extend(line3_parts(frame, config, p_state));
+    parts.extend(line3_parts(frame, config, p_state, false));
     if config.show_quota {
         if let Some(quota) = format_quota_compact(&frame.quota, config, p_state) {
             parts.push((quota, CellPriority::Required));
@@ -640,7 +640,7 @@ pub(crate) fn format_line2(
 fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) -> String {
     let color = config.color_enabled;
     let sep = colorize(" | ", &p.separator, color);
-    line3_parts(frame, config, p)
+    line3_parts(frame, config, p, false)
         .into_iter()
         .map(|(part, _)| part)
         .collect::<Vec<_>>()
@@ -651,10 +651,18 @@ fn format_line3(frame: &RenderFrame, config: &RenderConfig, p: &ThemePalette) ->
 /// cost are the alert-bearing cells (`Required`); the token breakdown is
 /// reference data (`Optional`, dropped first under compact width
 /// pressure).
+///
+/// `include_cache_spark` opts the row into the knob-gated cache-trend
+/// sparkline as a separate Optional cell pushed AFTER the TOK cell:
+/// `pack_with_separator` drops the RIGHTMOST Optional first, so the
+/// drop order is spark → TOK → never the Required CTX/cost cells. Only
+/// the compact layout passes `true`; the flat L3 row and the FuseCore
+/// height-degrade floor stay unchanged.
 fn line3_parts(
     frame: &RenderFrame,
     config: &RenderConfig,
     p: &ThemePalette,
+    include_cache_spark: bool,
 ) -> Vec<(String, crate::render::activity::cell::CellPriority)> {
     use crate::render::activity::cell::CellPriority::{Optional, Required};
     let color = config.color_enabled;
@@ -689,6 +697,20 @@ fn line3_parts(
             format_tokens_segment(&frame.line3, speed, config, p),
             Optional,
         ));
+        // Cache-trend spark rides with the C cell (no C cell → no spark)
+        // as its own Optional cell so it drops before TOK under pressure.
+        if include_cache_spark && config.show_cache_trend {
+            let spark = frames::shared::cache_trend_sparkline(
+                &frame.cache_history,
+                &frame.line3,
+                mode,
+                p,
+                color,
+            );
+            if !spark.is_empty() {
+                parts.push((spark, Optional));
+            }
+        }
     }
     if config.show_cost {
         parts.push((format_cost_segment(&frame.line3, config, p), Required));
