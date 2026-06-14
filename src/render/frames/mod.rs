@@ -14,6 +14,7 @@
 //! widget dispatch hubs (`render_context_visual`, etc.) shared across
 //! frames.
 
+pub mod badge;
 pub mod console;
 pub mod ledger;
 pub mod shared;
@@ -85,6 +86,16 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             quota_visual: "gauge",
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
+            todo_visual: "text",
+        },
+        // Badge reads token/ctx/quota directly inside `frames/badge.rs`
+        // (it paints filled pills, not composed widget cells), so these
+        // specs are informational — kept minimal.
+        LayoutStyle::Badge => SegmentVisualDefaults {
+            context_visual: "text",
+            quota_visual: "text",
+            agents_visual: "name",
+            tools_visual: "ticker",
             todo_visual: "text",
         },
     }

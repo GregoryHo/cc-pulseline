@@ -31,6 +31,13 @@ pub enum LayoutStyle {
     /// blank rows separate groups. Tallest layout — favours typographic
     /// rhythm over density.
     Ledger,
+    /// Experimental. Discrete two-tone "pill" badges with a background
+    /// fill — the only layout that paints a background. Three rows
+    /// (identity / budget / quota), each its own group of floating chips.
+    /// Owns its own pipeline. Tier auto-selected from
+    /// `(color_enabled, glyph_mode)`: rounded caps (Icon) → capless slabs
+    /// (Ascii) → plain `[brackets]` (NO_COLOR). See `frames/badge.rs`.
+    Badge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,7 +83,9 @@ pub fn apply_pane(
     cfg: &PaneConfig,
 ) -> Vec<String> {
     match cfg.style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => return lines,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger | LayoutStyle::Badge => {
+            return lines
+        }
         LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {

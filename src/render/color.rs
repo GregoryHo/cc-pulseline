@@ -905,6 +905,19 @@ pub fn colorize(text: &str, color: &str, enabled: bool) -> String {
     }
 }
 
+/// 256-color foreground escape, e.g. `\x1b[38;5;30m`.
+pub fn fg_code(code: u8) -> String {
+    ansi256(code)
+}
+
+/// 256-color *background* escape, e.g. `\x1b[48;5;30m`. Companion to the
+/// foreground `colorize` — the only place a background fill is emitted. The
+/// badge layout composes `fg_code` + `bg_code` + `RESET` to paint filled
+/// pills; `strip_ansi` already consumes `48;5;Nm` so width math is unaffected.
+pub fn bg_code(code: u8) -> String {
+    format!("\x1b[48;5;{code}m")
+}
+
 pub fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();

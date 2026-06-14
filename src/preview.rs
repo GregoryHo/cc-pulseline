@@ -15,12 +15,13 @@ use crate::types::{
 
 /// Layouts rendered by `--preview-layouts`, minimal → maximal density.
 /// Must stay in sync with `config::parse_layout_name`'s valid list
-/// (`none | compact | console | ledger`).
+/// (`none | compact | console | ledger | badge`).
 const PREVIEW_LAYOUTS: &[(LayoutStyle, &str)] = &[
     (LayoutStyle::None, "none"),
     (LayoutStyle::Compact, "compact"),
     (LayoutStyle::Console, "console"),
     (LayoutStyle::Ledger, "ledger"),
+    (LayoutStyle::Badge, "badge"),
 ];
 
 const DEFAULT_WIDTH: usize = 140;

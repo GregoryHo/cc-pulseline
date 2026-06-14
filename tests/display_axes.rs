@@ -181,6 +181,7 @@ const ALL_LAYOUTS: &[LayoutStyle] = &[
     LayoutStyle::Compact,
     LayoutStyle::Console,
     LayoutStyle::Ledger,
+    LayoutStyle::Badge,
 ];
 
 fn frame_with_tools_for_ascii_contract() -> RenderFrame {

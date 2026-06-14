@@ -1462,6 +1462,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "compact" => LayoutStyle::Compact,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
+        "badge" => LayoutStyle::Badge,
         // Removed in the layout consolidations: zones / grid fold into the
         // flat default (they shared none's visual defaults); sections —
         // like cards, cockpit, flightstrip, and auto before it — folds
@@ -1469,21 +1470,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | console | ledger)"
+                 \"none\" (valid: none | compact | console | ledger | badge)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | console | ledger)"
+                 \"console\" (valid: none | compact | console | ledger | badge)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | console | ledger)"
+                 (valid: none | compact | console | ledger | badge)"
             );
             LayoutStyle::None
         }
