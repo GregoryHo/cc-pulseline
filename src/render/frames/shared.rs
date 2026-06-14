@@ -214,14 +214,13 @@ pub fn identity_headline(
 
     if config.show_effort {
         if let Some(level) = &line1.effort_level {
-            let effort_color = p.color_for_effort_level(level);
-            let label = colorize(
-                &glyph(config.glyph_mode, ICON_EFFORT, "E:"),
-                effort_color,
+            parts.push(render_effort_visual(
+                config.effective_effort_visual(),
+                level,
+                config.glyph_mode,
+                p,
                 color,
-            );
-            let val = colorize(level, effort_color, color);
-            parts.push(format!("{label}{val}"));
+            ));
         }
     }
 
@@ -495,6 +494,50 @@ pub fn ctx_gauge_cell(
 }
 
 // ============================================================================
+// Effort dispatch hub (identity row)
+// ============================================================================
+
+/// Compose the effort cell from a `+`-joined visual spec. Atoms: `word`
+/// (the level name — today's behaviour) and `ramp` (the ordinal pip
+/// ramp, `widgets::effort`). The `E:` / speedometer segment label always
+/// leads; unknown atoms drop silently (forward-compat).
+///
+/// `word+ramp` is the gauge-alongside-text pattern the rendering
+/// principle permits: the word names the level, the ramp shows its
+/// position on the fixed scale. `ramp` alone is parseable but discouraged
+/// — pips with no word need a legend to decode — so no shipped default
+/// uses it, and a spec that resolves to nothing renderable falls back to
+/// the word (the segment never collapses to a bare label).
+pub fn render_effort_visual(
+    spec: &str,
+    level: &str,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let effort_color = p.color_for_effort_level(level);
+    let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color_enabled);
+
+    let mut cells: Vec<String> = Vec::new();
+    for raw in spec.split('+') {
+        match raw.trim() {
+            WIDGET_WORD => cells.push(colorize(level, effort_color, color_enabled)),
+            WIDGET_RAMP => {
+                let ramp = widgets::effort::render(level, mode, p, color_enabled);
+                if !ramp.is_empty() {
+                    cells.push(ramp);
+                }
+            }
+            _ => {} // empty or unknown atom — drop
+        }
+    }
+    if cells.is_empty() {
+        cells.push(colorize(level, effort_color, color_enabled));
+    }
+    format!("{label}{}", cells.join(" "))
+}
+
+// ============================================================================
 // Quota dispatch hub
 // ============================================================================
 
@@ -518,6 +561,9 @@ pub const QUOTA_MARKS: [u64; 2] = [50, 85];
 pub const WIDGET_GAUGE: &str = "gauge";
 pub const WIDGET_SPARKLINE: &str = "sparkline";
 pub const WIDGET_TEXT: &str = "text";
+// Effort segment atoms (identity row).
+pub const WIDGET_WORD: &str = "word";
+pub const WIDGET_RAMP: &str = "ramp";
 
 /// Returns true if the `+`-joined visual spec contains `widget` as a
 /// trimmed atom. Centralizes the parse so a typo in one widget name

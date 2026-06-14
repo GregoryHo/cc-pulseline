@@ -4,6 +4,7 @@
 //! can compose them like any other segment. No new deps — just Unicode
 //! blocks and braille from the BMP.
 
+pub mod effort;
 pub mod gauge;
 pub mod sparkline;
 

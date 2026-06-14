@@ -473,10 +473,14 @@ fn line1_parts(
 
     if config.show_effort {
         if let Some(level) = &frame.line1.effort_level {
-            let effort_color = p.color_for_effort_level(level);
-            let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color);
-            let val = colorize(level, effort_color, color);
-            parts.push((format!("{label}{val}"), Optional));
+            let cell = frames::shared::render_effort_visual(
+                config.effective_effort_visual(),
+                level,
+                mode,
+                p,
+                color,
+            );
+            parts.push((cell, Optional));
         }
     }
 
