@@ -9,10 +9,15 @@ rows. The shipping layouts:
 | `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
+| `badge` | **Experimental.** Discrete background-fill "pill" badges across 3 rows (identity / budget / quota), each domain its own group. The only layout that paints a background. Deep-teal accent on budget+quota only; warm only near a limit. Tier auto-picks from icons + color. |
 
-All four share the same theme palette, segment toggles, and per-segment
-visual composition (see [Visual Composition](#visual-composition)). The
-TOML strings below are stable — internally they map 1-to-1 onto
+The first four share the same theme palette, segment toggles, and
+per-segment visual composition (see
+[Visual Composition](#visual-composition)). `badge` honors the segment
+toggles too, but paints its own fixed background scheme and reads its
+segments directly rather than through the `*_visual` hubs — see its
+[catalog entry](#badge--background-fill-pills-experimental). The TOML
+strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
 
 > **Removed in v1.1.0:** `cards`, `cockpit`, `flightstrip`, `auto` —
@@ -251,6 +256,70 @@ compact rhythm, useful when statusline vertical room is tight:
 Default is `false` (legacy rhythm: one blank between ENV, Budget+Quota,
 TOOL, and AGENT+TODO groups).
 
+### `badge` — background-fill pills (experimental)
+
+The only layout that paints a **background**. Every other layout is
+foreground-only (colored glyphs on the terminal's default background,
+split by `|` pipes or box chrome); `badge` fills discrete two-tone
+"pill" shapes so each metric reads pre-attentively as an object rather
+than a run of text. Three rows, one domain per group:
+
+```
+   MDL Opus 4.6    EFT high    CC 2.1.119       ~/cc-pulseline    feat/x *↑2
+   TOK ↓ 12.4k    ↑ 3.1k     CACHE 87%       CTX 43% · 86.0k/200.0k
+   5H 62% · resets 2h 8m         7D 19% · resets 5d
+```
+
+Each `label value` unit above is a filled pill: a dark label half fused
+to a brighter value half. Badges float with a 2-space gutter; sub-groups
+(e.g. cwd + git) are separated by a 4-space moat.
+
+**Three render tiers**, picked automatically from `(display.icons,
+color)` — no extra config knob:
+
+| Condition | Tier | Edge |
+|---|---|---|
+| icons on + color | **DRIFT** | rounded powerline caps `` `` + bg fill |
+| icons off + color | **STENCIL** | capless slabs, label/value fused by the `236→238` bg step |
+| `NO_COLOR` | **ASCII** | `[label value]` plain brackets, no fill |
+
+So one design degrades cleanly: Nerd Font → caps, no Nerd Font → slabs,
+no color → brackets.
+
+**Color** is deliberately restrained — grayscale everywhere, a single
+deep-teal accent (ANSI `30`) on the value half of **cache, CTX, and
+quota only**, and warm (`173` → `130`) **only** when a window nears its
+limit. Identity badges never change color, save a warm fleck on the git
+`*`/`↑n↓n`. The accent thresholds reuse the existing ladders: CTX turns
+warm at `≥70%` (`CTX_CRITICAL_THRESHOLD`); each quota window turns warm
+at `≥50%` and critical at `≥85%`. When a value half trips its threshold
+the **whole half fills warm** — the alarm is a colored block, not a
+recolored digit.
+
+> The badge color scheme is **module-local** (`frames/badge.rs`), not a
+> `ThemePalette` tier — so it ignores `display.theme` and the `[colors]`
+> overrides for now. This is intentional while the layout is
+> experimental; if it graduates the codes get promoted to palette
+> fields. Everything else (`show_*` segment toggles, `cc_margin`) works
+> normally.
+
+**Width:** badge owns its pipeline (like ledger) and runs its own 4-rung
+ladder before overflowing — drop CTX `used/total` → drop quota `resets …`
+→ shorten cwd to its basename → fall back to `compact` if even the
+shrunk render can't fit a known width.
+
+**Cost:** exactly 3 rows (2 if quota is disabled). **Pick when** you want
+a modern dashboard-chip look and have a Nerd Font + a ~120-col pane.
+Enable with:
+
+```toml
+[layout]
+name = "badge"
+[segments.quota]   # quota is opt-in; badge's 3rd row needs it
+enabled = true
+show_seven_day = true
+```
+
 ---
 
 ## Visual Composition
@@ -301,9 +370,14 @@ paths (mostly tests) that construct `RenderConfig` directly.
 | `compact` | `text` | `text` | `ticker`¹ | `name` | `text` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` |
+| `badge`² | `text` | `text` | `ticker` | `name` | `text` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
+
+² Informational only: `badge` reads context/quota directly and renders no
+tools/agents/todo rows, so these specs don't drive its output — they
+exist to satisfy the per-layout defaults contract.
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only
