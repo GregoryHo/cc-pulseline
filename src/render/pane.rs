@@ -33,6 +33,13 @@ pub enum LayoutStyle {
     /// `╭─ <model · path · branch> ───╮`. Best when statusline is
     /// ≥110 cols.
     Console,
+    /// Flat trend-forward layout: the CONTEXT row leads with a braille
+    /// line-plot of the CTX% history (`context_visual` defaults to
+    /// `plot+text`) plus a delta-time tail, ahead of the tokens and quota
+    /// rows. Like `none` it flows through the generic flat pipeline and
+    /// `apply_pane` (no chrome, no bespoke builder) — only its visual
+    /// defaults differ.
+    Velocity,
     /// Label-value pairs aligned in a fixed left column, like an
     /// accounting ledger. Owns its own pipeline (framed). One TAG per
     /// metric (ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO);
@@ -87,6 +94,7 @@ pub fn apply_pane(
         LayoutStyle::None
         | LayoutStyle::Compact
         | LayoutStyle::Budgets
+        | LayoutStyle::Velocity
         | LayoutStyle::Ledger => return lines,
         LayoutStyle::Console => {}
     }

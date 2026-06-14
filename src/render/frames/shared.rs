@@ -407,6 +407,7 @@ pub fn render_context_visual(
         let cell = match widget {
             WIDGET_GAUGE => ctx_gauge_cell(line3, gauge_width, mode, p, color_enabled),
             WIDGET_SPARKLINE => ctx_sparkline(history, mode, p, color_enabled),
+            WIDGET_PLOT => ctx_plot_cell(history, mode, p, color_enabled),
             WIDGET_TEXT => ctx_text_cell(line3, mode, p, color_enabled),
             _ => String::new(), // unknown widget — silently drop
         };
@@ -560,6 +561,7 @@ pub const QUOTA_MARKS: [u64; 2] = [50, 85];
 // ── Visual spec keywords (string atoms in `*_visual` config) ──
 pub const WIDGET_GAUGE: &str = "gauge";
 pub const WIDGET_SPARKLINE: &str = "sparkline";
+pub const WIDGET_PLOT: &str = "plot";
 pub const WIDGET_TEXT: &str = "text";
 // Effort segment atoms (identity row).
 pub const WIDGET_WORD: &str = "word";
@@ -639,6 +641,66 @@ pub fn ctx_sparkline(
         &p.aurora_low
     };
     widgets::sparkline::render(history, fill, mode, color_enabled)
+}
+
+/// CTX braille line-plot cell — a normalized trend line plus a delta-time
+/// tail (`30→43% in 5m`). The plot glyph is icon-only (empty under Ascii);
+/// the tail is text, so under Ascii the trend still reads via the tail —
+/// the same axis-and-tail honesty the ledger sparkline carries. Fill color
+/// comes from CTX consumption velocity, like the ledger sparkline.
+pub fn ctx_plot_cell(
+    history: &[(u8, u64)],
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let window = recent_trend_window(history);
+    if window.is_empty() {
+        return String::new();
+    }
+    let fill = widgets::sparkline::aurora_for_velocity(window, p);
+    let glyph = widgets::plot::render(window, fill, mode, color_enabled);
+    let tail = plot_delta_label(window).map(|l| colorize(&l, &p.structural, color_enabled));
+    match (glyph.is_empty(), tail) {
+        (false, Some(tail)) => format!("{glyph} {tail}"),
+        (false, None) => glyph,
+        (true, Some(tail)) => tail,
+        (true, None) => String::new(),
+    }
+}
+
+/// Most-recent slice of CTX `history` the plot draws — the last
+/// `TREND_WINDOW` samples. (A simpler fixed-count window than the ledger
+/// sparkline's wall-clock-aware variant; the plot widget caps to the same
+/// span internally.)
+fn recent_trend_window(history: &[(u8, u64)]) -> &[(u8, u64)] {
+    const TREND_WINDOW: usize = 12;
+    &history[history.len().saturating_sub(TREND_WINDOW)..]
+}
+
+/// `30→43% in 5m` — first→last percentage over the window plus elapsed
+/// wall time. Same vocabulary as the ledger sparkline's delta label.
+/// `None` for windows too short to carry a trend.
+fn plot_delta_label(window: &[(u8, u64)]) -> Option<String> {
+    let (first, last) = (window.first()?, window.last()?);
+    if window.len() < 2 {
+        return None;
+    }
+    let span_ms = last.1.saturating_sub(first.1);
+    if span_ms == 0 {
+        return None;
+    }
+    let secs = span_ms / 1000;
+    let dur = if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h", secs / 3600)
+    } else {
+        format!("{}d", secs / 86_400)
+    };
+    Some(format!("{}→{}% in {dur}", first.0, last.0))
 }
 
 /// Knob-gated cache-trend cell: braille sparkline over the hit-rate

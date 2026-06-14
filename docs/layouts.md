@@ -8,6 +8,7 @@ rows. The shipping layouts:
 | `none` | Flat output, no chrome. Default. |
 | `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
+| `velocity` | Flat trend-forward: the CONTEXT row leads with a braille line-plot of the CTX% history + a `30→43% in 5m` delta-time tail, ahead of the tokens and quota rows. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
@@ -167,6 +168,33 @@ with the effort ramp (`effort_visual` defaults to `word+ramp` here).
 activity. **Pick when** you want to watch context and subscription burn
 side-by-side. Quota rows only appear with `[segments.quota] enabled`.
 
+### `velocity` — trend-forward CONTEXT plot
+
+A flat layout whose CONTEXT row leads with a braille **line-plot** of the
+CTX% history, then a delta-time tail, then the percentage and numbers:
+
+```
+M:Opus 4.7 | E:high ▰▰▰·· | P:~/cc-pulseline | G:feat/x *
+⡠⠔⠊⠉ 18→43% in 5m  43% 86.0k/200.0k | TOK I:10 O:20 C:50% | $4.56 ($4.56/h)
+Q: 5h: ▰▰▰▰▰▰▰▰▰───·─ 62% (resets 1h 59m)
+```
+
+The plot (`context_visual` defaults to `plot+text`) is the `plot` widget —
+a normalized braille line, distinct from the ledger's bottom-up
+`sparkline`: it rescales the window to its own min→max so a shallow
+30→43% climb fills the cell height instead of collapsing into the global
+0–100 buckets. It's icon-only, so under `display.icons = false` the plot
+glyph drops and the `30→43% in 5m` delta-time tail carries the trend (the
+same axis-and-tail honesty the ledger sparkline keeps). Leads with the
+effort ramp (`word+ramp`).
+
+Mechanically velocity is `none` with a trend-forward CTX default — it
+flows through the same flat pipeline and `apply_pane` (no chrome, no
+bespoke builder). **Pick when** the *direction* context is moving matters
+more than the exact percentage. Marginal over ledger's `text+sparkline`
+(the gain is the normalized line shape, not a new signal) — it's the
+lightest, opt-in trend view.
+
 ### `console` — framed dashboard with identity-in-title
 
 One outer `╭─...─╮ … ╰─┴─╯` wrapper around every group, with `├─┼─┤`
@@ -313,7 +341,7 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `plot`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `plot` is a normalized braille **line** plot (`widgets::plot`): one dot per column at the sample's height, rescaled to the window's own min→max so the trend *shape* shows even for a small range — distinct from `sparkline`'s bottom-up bars. It carries a `30→43% in 5m` delta-time tail (text, so the trend survives ascii where the braille drops out) and is filled by CTX consumption velocity. Also icon-only. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |
@@ -331,6 +359,7 @@ paths (mostly tests) that construct `RenderConfig` directly.
 | `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `compact` | `text` | `text` | `ticker`¹ | `name` | `text` | `word` |
 | `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
+| `velocity` | `plot+text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 

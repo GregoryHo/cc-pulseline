@@ -636,6 +636,9 @@ visual = ""
 #                column-aligned equal-weight gauges (compare burn across
 #                windows on a shared axis), then a TOKENS + cost row.
 #                Quota rows need [segments.quota] enabled.
+#   "velocity" — trend-forward: the CONTEXT row leads with a braille
+#                line-plot of the CTX% history + a delta-time tail, ahead
+#                of the tokens and quota rows.
 #   "console"  — single outer ╭─...─╮ frame with ├─┼─┤ between groups and
 #                the identity row hoisted into the top frame title (best
 #                ≥110 cols)
@@ -1209,7 +1212,7 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "budgets" | "velocity" | "console" | "ledger"
 # name = "console"
 # min_width = 60
 # max_width = 140
@@ -1494,6 +1497,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "none" => LayoutStyle::None,
         "compact" => LayoutStyle::Compact,
         "budgets" => LayoutStyle::Budgets,
+        "velocity" => LayoutStyle::Velocity,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
         // Removed in the layout consolidations: zones / grid fold into the
@@ -1503,21 +1507,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | budgets | console | ledger)"
+                 \"none\" (valid: none | compact | budgets | velocity | console | ledger)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | budgets | console | ledger)"
+                 \"console\" (valid: none | compact | budgets | velocity | console | ledger)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger)"
+                 (valid: none | compact | budgets | velocity | console | ledger)"
             );
             LayoutStyle::None
         }

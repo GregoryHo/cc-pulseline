@@ -6,6 +6,7 @@
 
 pub mod effort;
 pub mod gauge;
+pub mod plot;
 pub mod sparkline;
 
 #[cfg(test)]

@@ -53,6 +53,7 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         LayoutStyle::None
         | LayoutStyle::Compact
         | LayoutStyle::Budgets
+        | LayoutStyle::Velocity
         | LayoutStyle::Console => {}
     }
 
@@ -273,15 +274,17 @@ fn assemble_flat(
 
     // Deduct the active style's horizontal overhead from the degradation
     // budget so content + decoration together fit the terminal.
-    // Budgets, like None/Compact, owns a flat bespoke assembly that returns
-    // before reaching this generic-path code — but the match must stay
-    // exhaustive, so it joins the frameless (overhead 0) arm.
+    // None/Compact/Budgets/Velocity are frameless (overhead 0): Compact and
+    // Budgets return from their own bespoke assembly before reaching here;
+    // None and Velocity flow through this generic path with no chrome.
     let pane_active = !matches!(
         config.pane_style,
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Velocity
     );
     let style_overhead = match config.pane_style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets => 0,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Velocity => {
+            0
+        }
         // Console uses a wall-on-both-sides layout (`│ ` left + internal
         // ` │ ` divider + ` │` right) around a label column whose default
         // group labels (Identity/Config/Budget/Activity) top out at 8

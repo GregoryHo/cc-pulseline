@@ -21,7 +21,7 @@ use std::fs;
 
 const FRAMES_DIR: &str = "src/render/frames";
 const ALLOWED_DIRECT_WIDGET_CALLERS: &[&str] = &["shared.rs", "ledger.rs"];
-const WIDGETS_TO_GUARD: &[&str] = &["gauge", "sparkline", "effort"];
+const WIDGETS_TO_GUARD: &[&str] = &["gauge", "sparkline", "effort", "plot"];
 
 #[test]
 fn no_direct_widget_render_outside_dispatch_hub() {
