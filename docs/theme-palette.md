@@ -318,6 +318,12 @@ The contrast floor test (`all_builtin_themes_light_pass_contrast_floor`) enforce
 | `mako-reactor` | FFVII: Shinra steel, Mako cyan-green, Materia accents |
 | `aburaya-twilight` | Spirited Away: bathhouse red, dragon teal, spirit blues |
 | `matte-carbon-neon` | Industrial tech: grayscale chrome, piercing neon accents |
+| `signal-phosphor` | Design-lab: oscilloscope green on near-black; one green family, amber warn |
+| `copper-noir` | Design-lab: true-black ground, warm copper signal, sage stable |
+| `nd-slate-jade` | Design-lab: cool graphite + a single jade signal |
+| `nd-ember` | Design-lab: warm umber ground, amber signal, one cool teal counter |
+| `nd-flux` | Design-lab: near-black, electric-lime active, blue→lime→magenta velocity |
+| `nd-glacier` | Design-lab: cold premium slate, glacial-blue + frost-mint, rose alert |
 
 > The full set of theme JSON files lives in `src/themes/`. New themes
 > dropped into that directory are picked up at build time — this table
