@@ -597,6 +597,26 @@ pub fn render_quota_visual(
     )
 }
 
+/// Bare bracketless gauge bar (`▰─·`) for layouts that compose their own
+/// row around it. The `budgets` / `velocity` dashboards align a label
+/// column + percentage + bar themselves, so they can't reuse
+/// `ctx_gauge_cell` / `render_quota_visual` (which bake in an icon or a
+/// fixed mark set). Keeping the `widgets::gauge::render` call here honours
+/// the dispatch-hub iron rule: the direct widget call stays inside the hub
+/// module, never in a layout file. Caller supplies marks + fill colour
+/// (CTX → `ctx_marks()`; quota → `QUOTA_MARKS`).
+pub fn gauge_bar(
+    pct: u64,
+    width: usize,
+    marks: &[u64],
+    fill_color: &str,
+    p: &ThemePalette,
+    mode: GlyphMode,
+    color_enabled: bool,
+) -> String {
+    widgets::gauge::render(pct, width, marks, fill_color, p, mode, color_enabled)
+}
+
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
 /// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
 ///

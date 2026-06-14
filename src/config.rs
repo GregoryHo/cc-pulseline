@@ -632,6 +632,10 @@ visual = ""
 #                row, activity ticker on row 3 (only when active).
 #                Small but readable — never squeezes CC's footer.
 #                (Absolute minimum: "none" + max_total_lines = 1–2.)
+#   "budgets"  — identity row, then CONTEXT / 5H QUOTA / 7D QUOTA as three
+#                column-aligned equal-weight gauges (compare burn across
+#                windows on a shared axis), then a TOKENS + cost row.
+#                Quota rows need [segments.quota] enabled.
 #   "console"  — single outer ╭─...─╮ frame with ├─┼─┤ between groups and
 #                the identity row hoisted into the top frame title (best
 #                ≥110 cols)
@@ -1205,7 +1209,7 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger"
 # name = "console"
 # min_width = 60
 # max_width = 140
@@ -1489,6 +1493,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         "none" => LayoutStyle::None,
         "compact" => LayoutStyle::Compact,
+        "budgets" => LayoutStyle::Budgets,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
         // Removed in the layout consolidations: zones / grid fold into the
@@ -1498,21 +1503,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | console | ledger)"
+                 \"none\" (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | console | ledger)"
+                 \"console\" (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::None
         }

@@ -74,6 +74,18 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             todo_visual: "text",
             effort_visual: "word",
         },
+        // Budgets is a gauge dashboard: CTX + both quotas render as
+        // aligned bars by construction (composed inline, see
+        // `layout::assemble_budgets`), and it leads with the effort ramp.
+        // Activity specs mirror `none`.
+        LayoutStyle::Budgets => SegmentVisualDefaults {
+            context_visual: "gauge",
+            quota_visual: "gauge",
+            agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "text",
+            effort_visual: "word+ramp",
+        },
         // Framed layout — quota bar appears by default; CTX bar still
         // opt-in (CTX has more competing data — adding the bar there
         // by default would saturate the row).

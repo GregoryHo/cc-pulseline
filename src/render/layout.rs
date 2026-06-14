@@ -50,7 +50,10 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below
         // and is decorated by `apply_pane`.
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Console => {}
+        LayoutStyle::None
+        | LayoutStyle::Compact
+        | LayoutStyle::Budgets
+        | LayoutStyle::Console => {}
     }
 
     let mut lines = assemble_flat(frame, config, HeightSqueeze::default());
@@ -140,6 +143,17 @@ fn assemble_flat(
     // so the ladder flags have nothing left to collapse.
     if matches!(config.pane_style, LayoutStyle::Compact) {
         return assemble_compact(frame, config, &p_state, &p_activity);
+    }
+
+    // Budgets is a fixed three-gauge dashboard with its own bespoke row
+    // composition (label column + pct + bar), so it short-circuits the
+    // generic core-row assembly like compact does. Like compact it ignores
+    // `squeeze`: it has no collapsible activity ladder of its own, so a
+    // `max_total_lines` cap degrades it via the blunt bottom truncation in
+    // `render_frame` rather than the graceful rungs (acceptable — the cap is
+    // a hard contract and budgets is a deliberately tall dashboard).
+    if matches!(config.pane_style, LayoutStyle::Budgets) {
+        return assemble_budgets(frame, config, &p_state, &p_activity);
     }
 
     let mut lines: Vec<String> = Vec::new();
@@ -259,9 +273,15 @@ fn assemble_flat(
 
     // Deduct the active style's horizontal overhead from the degradation
     // budget so content + decoration together fit the terminal.
-    let pane_active = !matches!(config.pane_style, LayoutStyle::None | LayoutStyle::Compact);
+    // Budgets, like None/Compact, owns a flat bespoke assembly that returns
+    // before reaching this generic-path code — but the match must stay
+    // exhaustive, so it joins the frameless (overhead 0) arm.
+    let pane_active = !matches!(
+        config.pane_style,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets
+    );
     let style_overhead = match config.pane_style {
-        LayoutStyle::None | LayoutStyle::Compact => 0,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets => 0,
         // Console uses a wall-on-both-sides layout (`│ ` left + internal
         // ` │ ` divider + ` │` right) around a label column whose default
         // group labels (Identity/Config/Budget/Activity) top out at 8
@@ -351,6 +371,210 @@ fn assemble_compact(
     ));
 
     // Single-pass width fit: no compress/drop ladder needed at 2–3 rows.
+    if let Some(width) = config.terminal_width {
+        lines = lines
+            .into_iter()
+            .map(|line| truncate_to_width(&line, width, color))
+            .collect();
+    }
+    lines
+}
+
+/// Budgets layout column widths. The label column fits the longest label
+/// (`5H QUOTA` / `7D QUOTA`, 8 cells); the percentage column fits `100%`.
+/// The gauge is wide (`▰─·` reused at `BUDGET_GAUGE_W`) so the three budget
+/// windows share a long, comparable baseline.
+const BUDGET_LABEL_W: usize = 8;
+const BUDGET_PCT_W: usize = 4;
+const BUDGET_GAUGE_W: usize = 24;
+
+/// One budgets-layout gauge row: `LABEL    NN%  ▰▰▰▰▰▰───·──   <trailing>`.
+///
+/// The percentage is the D2 "anchor" — the row's hero metric, rendered in
+/// its threshold color; the label (tag tier) and trailing context
+/// (structural) recede. There is no SGR bold primitive in this codebase,
+/// so the colour hierarchy carries the emphasis, exactly like the ledger
+/// budget rows. The gauge bar comes from the hub's `gauge_bar` helper so
+/// the `widgets::gauge::render` call stays inside the dispatch-hub module.
+#[allow(clippy::too_many_arguments)]
+fn budget_gauge_row(
+    label: &str,
+    pct: f64,
+    pct_color: &str,
+    marks: &[u64],
+    gauge_w: usize,
+    trailing: &str,
+    config: &RenderConfig,
+    p: &ThemePalette,
+) -> String {
+    let color = config.color_enabled;
+    let label_cell = frames::shared::pad_to(&colorize(label, &p.tag_label, color), BUDGET_LABEL_W);
+    let pct_cell = frames::shared::pad_to(
+        &colorize(&format!("{pct:.0}%"), pct_color, color),
+        BUDGET_PCT_W,
+    );
+    let bar = frames::shared::gauge_bar(
+        pct as u64,
+        gauge_w,
+        marks,
+        pct_color,
+        p,
+        config.glyph_mode,
+        color,
+    );
+    let mut row = format!("{label_cell}  {pct_cell}  {bar}");
+    if !trailing.is_empty() {
+        row.push_str("   ");
+        row.push_str(trailing);
+    }
+    row
+}
+
+/// The `budgets` layout: identity, then CONTEXT / 5H QUOTA / 7D QUOTA as
+/// three column-aligned equal-weight gauges, then a TOKENS + cost row.
+/// The three gauges share one width (scaled together to the terminal) so
+/// burn across the windows reads on a common spatial axis — the inline
+/// `CTX% … 5h% … 7d%` form scatters them with no shared baseline. Each
+/// gauge keeps its own `pct` + `used/total` (or reset) text, so nothing
+/// is traded for the bar. Frameless — routes through `apply_pane` like
+/// `none`. Quota rows appear only when `[segments.quota]` is enabled.
+fn assemble_budgets(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    p_state: &ThemePalette,
+    p_activity: &ThemePalette,
+) -> Vec<String> {
+    let color = config.color_enabled;
+    let mode = config.glyph_mode;
+    let mut lines: Vec<String> = Vec::new();
+
+    // Row 1 — identity (flat `M: | E: | P: | G:` body format).
+    let identity = format_line1(frame, config, p_state);
+    if !identity.is_empty() {
+        lines.push(identity);
+    }
+
+    // All three gauges share one width so their fills line up vertically.
+    // Reserve the label/pct columns, gaps, and room for the trailing text;
+    // scale the bar down on narrow terminals (clamped so it never vanishes).
+    let gauge_w = match config.terminal_width {
+        Some(w) => {
+            // label + gaps + pct + gap + room for the trailing cell. 24 cells
+            // covers the longest trailing string (`resets 10d 23h 59m`, ~18,
+            // + the 3-space gap); a longer one only clips via the truncate
+            // backstop below, never overflows the row.
+            let reserved = BUDGET_LABEL_W + 2 + BUDGET_PCT_W + 2 + 24;
+            w.saturating_sub(reserved).clamp(6, BUDGET_GAUGE_W)
+        }
+        None => BUDGET_GAUGE_W,
+    };
+
+    // Row 2 — CONTEXT gauge (with the ⟳N compaction marker as trailing).
+    if config.show_context {
+        if let (Some(pct), Some(size)) = (
+            frame.line3.context_used_percentage,
+            frame.line3.context_window_size,
+        ) {
+            let pct_color = p_state.color_for_ctx_pct(pct);
+            let used = ((size as f64) * (pct as f64) / 100.0) as u64;
+            let mut trailing = format!(
+                "{}{}{}",
+                colorize(&format_number(used), &p_state.primary, color),
+                colorize("/", &p_state.separator, color),
+                colorize(&format_number(size), &p_state.secondary, color),
+            );
+            if frame.compact_count > 0 {
+                let marker = format!(
+                    "   {}{}",
+                    glyph(mode, ICON_COMPACT, "~"),
+                    frame.compact_count
+                );
+                trailing.push_str(&colorize(&marker, &p_state.structural, color));
+            }
+            lines.push(budget_gauge_row(
+                "CONTEXT",
+                pct as f64,
+                pct_color,
+                &ThemePalette::ctx_marks(),
+                gauge_w,
+                &trailing,
+                config,
+                p_state,
+            ));
+        }
+    }
+
+    // Rows 3/4 — 5H / 7D quota gauges (only when quota is enabled + present).
+    if config.show_quota && frame.quota.has_data() {
+        let reset_trailing = |minutes: Option<u64>| -> String {
+            minutes
+                .map(|m| {
+                    colorize(
+                        &format!("resets {}", format_reset_duration(m)),
+                        &p_state.structural,
+                        color,
+                    )
+                })
+                .unwrap_or_default()
+        };
+        if config.show_quota_five_hour {
+            if let Some(pct) = frame.quota.five_hour_pct {
+                lines.push(budget_gauge_row(
+                    "5H QUOTA",
+                    pct,
+                    p_state.color_for_quota_pct(pct),
+                    &frames::shared::QUOTA_MARKS,
+                    gauge_w,
+                    &reset_trailing(frame.quota.five_hour_reset_minutes),
+                    config,
+                    p_state,
+                ));
+            }
+        }
+        if config.show_quota_seven_day {
+            if let Some(pct) = frame.quota.seven_day_pct {
+                lines.push(budget_gauge_row(
+                    "7D QUOTA",
+                    pct,
+                    p_state.color_for_quota_pct(pct),
+                    &frames::shared::QUOTA_MARKS,
+                    gauge_w,
+                    &reset_trailing(frame.quota.seven_day_reset_minutes),
+                    config,
+                    p_state,
+                ));
+            }
+        }
+    }
+
+    // Row 5 — tokens + cost (reuses the shared cells; `TOK` is its label).
+    let mut budget_cells: Vec<String> = Vec::new();
+    if config.show_tokens {
+        let speed = if config.show_speed {
+            frame.line3.output_speed_toks_per_sec
+        } else {
+            None
+        };
+        budget_cells.push(format_tokens_segment(&frame.line3, speed, config, p_state));
+    }
+    if config.show_cost {
+        budget_cells.push(format_cost_segment(&frame.line3, config, p_state));
+    }
+    if !budget_cells.is_empty() {
+        lines.push(budget_cells.join("   "));
+    }
+
+    // Activity rows — same multi-row treatment as `none`.
+    let activity_width = config.terminal_width.unwrap_or(usize::MAX);
+    lines.extend(crate::render::activity::build_activity_rows(
+        frame,
+        config,
+        p_activity,
+        activity_width,
+    ));
+
+    // Safety net: clamp any over-wide row (identity / tokens can run long).
+    // The gauge rows already fit via `gauge_w` scaling.
     if let Some(width) = config.terminal_width {
         lines = lines
             .into_iter()

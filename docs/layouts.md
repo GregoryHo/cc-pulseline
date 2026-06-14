@@ -7,6 +7,7 @@ rows. The shipping layouts:
 |---|---|
 | `none` | Flat output, no chrome. Default. |
 | `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
+| `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
@@ -136,6 +137,35 @@ merged activity row → quota into L3 → drop config row → **fuse-core**
 that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
 ladder stops early at the quota merge — L1 and L3+quota keep separate
 rows and fuse-core is never reached — while compact always fuses.
+
+### `budgets` — three parallel gauges
+
+A flat (frameless) dashboard that stacks the three budget windows as
+column-aligned, equal-weight gauges under the identity row, so burn
+across them reads on one shared spatial axis (the inline
+`CTX:43% … 5h:62% … 7d:28%` form scatters them with no common baseline):
+
+```
+M:Opus 4.7 | E:high ▰▰▰·· | P:~/cc-pulseline | G:feat/x *
+CONTEXT   43%  ▰▰▰▰▰▰▰▰▰▰───·───·──────   86.0k/200.0k   ⟳2
+5H QUOTA  62%  ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰─────·───   resets 1h 59m
+7D QUOTA  28%  ▰▰▰▰▰▰▰─────·───────·───   resets 4d 6h
+TOK I:10 O:20 C:50%   $4.56 ($4.56/h)
+```
+
+Each gauge reuses the shipped bracketless `▰─·` marks-gauge (no second
+`█▌░` dialect) at a wider width; the three share one width that scales
+down together on narrow terminals (clamped so they never vanish). The
+percentage is the **D2 anchor** — the row's hero metric in its threshold
+color, with the label (tag tier) and trailing context (structural)
+receding. There is no SGR-bold primitive, so the color hierarchy carries
+the emphasis (same as the ledger budget rows). The CONTEXT row appends
+the `⟳N` compaction marker when the session has auto-compacted. Leads
+with the effort ramp (`effort_visual` defaults to `word+ramp` here).
+
+**Cost:** identity + CONTEXT + (5H/7D when quota enabled) + TOKENS +
+activity. **Pick when** you want to watch context and subscription burn
+side-by-side. Quota rows only appear with `[segments.quota] enabled`.
 
 ### `console` — framed dashboard with identity-in-title
 
@@ -300,11 +330,20 @@ paths (mostly tests) that construct `RenderConfig` directly.
 |--------|------------------|----------------|----------------|-----------------|---------------|-----------------|
 | `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `compact` | `text` | `text` | `ticker`¹ | `name` | `text` | `word` |
+| `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
+
+² Informational: budgets composes its CTX + quota gauges inline (aligned
+label column + pct + bar, see `layout::assemble_budgets`), so the bars
+render by construction; the `gauge` defaults document the intent rather
+than flowing through the dispatch hubs. Consequently `context_visual` /
+`quota_visual` overrides are **inert** on budgets — the three-gauge
+alignment is the layout's identity (the same stance ledger takes toward
+its TAG rhythm).
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only
