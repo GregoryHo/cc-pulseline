@@ -8,6 +8,16 @@ use cc_pulseline::{config::RenderConfig, render::color::visible_width, PulseLine
 use serde_json::json;
 use tempfile::TempDir;
 
+/// p95 render-latency budget. The shipped binary is a release build; debug
+/// is ~3× slower and GitHub CI runners are highly variable, so the strict
+/// 50ms budget is enforced only where it's meaningful (release). Debug keeps
+/// a loose sanity ceiling that still catches gross regressions without
+/// flaking on a loaded runner. Run `cargo test --release` to exercise the
+/// real budget.
+fn p95_budget() -> Duration {
+    Duration::from_millis(if cfg!(debug_assertions) { 250 } else { 50 })
+}
+
 fn append_line(path: &std::path::Path, line: &str) {
     let mut file = OpenOptions::new()
         .create(true)
@@ -220,9 +230,9 @@ fn handles_large_transcript_and_stays_within_render_budget() {
     let p95 = durations[idx.min(durations.len() - 1)];
 
     assert!(
-        p95 < Duration::from_millis(50),
-        "p95 render latency {:?} exceeded 50ms budget",
-        p95
+        p95 < p95_budget(),
+        "p95 render latency {p95:?} exceeded {:?} budget",
+        p95_budget()
     );
 }
 
@@ -328,8 +338,8 @@ fn sub_agent_tailing_stays_within_render_budget() {
     let idx = ((durations.len() as f64) * 0.95).floor() as usize;
     let p95 = durations[idx.min(durations.len() - 1)];
     assert!(
-        p95 < Duration::from_millis(50),
-        "p95 with sub-agent tailing {:?} exceeded 50ms budget",
-        p95
+        p95 < p95_budget(),
+        "p95 with sub-agent tailing {p95:?} exceeded {:?} budget",
+        p95_budget()
     );
 }
