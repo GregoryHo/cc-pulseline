@@ -22,6 +22,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --verbose
 
+  perf:
+    name: Perf budget (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The p95 render-latency budget is a production (release) SLA; the
+      # debug build measured by the matrix job above is ~3x slower and
+      # unrepresentative (see tests/adaptive_performance.rs::p95_budget).
+      # Run the perf tests in release so the strict 50ms budget is enforced
+      # against the shipped artifact, where it has ~50x headroom (no flake).
+      - run: cargo test --release --test adaptive_performance
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
