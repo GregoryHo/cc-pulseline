@@ -147,7 +147,7 @@ across them reads on one shared spatial axis (the inline
 `CTX:43% … 5h:62% … 7d:28%` form scatters them with no common baseline):
 
 ```
-M:Opus 4.7 | E:high ▰▰▰·· | P:~/cc-pulseline | G:feat/x *
+M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
 CONTEXT   43%  ▰▰▰▰▰▰▰▰▰▰───·───·──────   86.0k/200.0k   ⟳2
 5H QUOTA  62%  ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰─────·───   resets 1h 59m
 7D QUOTA  28%  ▰▰▰▰▰▰▰─────·───────·───   resets 4d 6h
@@ -174,7 +174,7 @@ A flat layout whose CONTEXT row leads with a braille **line-plot** of the
 CTX% history, then a delta-time tail, then the percentage and numbers:
 
 ```
-M:Opus 4.7 | E:high ▰▰▰·· | P:~/cc-pulseline | G:feat/x *
+M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
 ⡠⠔⠊⠉ 18→43% in 5m  43% 86.0k/200.0k | TOK I:10 O:20 C:50% | $4.56 ($4.56/h)
 Q: 5h: ▰▰▰▰▰▰▰▰▰───·─ 62% (resets 1h 59m)
 ```
@@ -345,7 +345,7 @@ context_visual = ""                 # = layout default
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |
-| `effort_visual` | `word`, `ramp` | Identity-row effort cell, dispatched by `render_effort_visual`. `word` = the level name (`high`) — today's behaviour. `ramp` = an ordinal pip ramp (`widgets::effort`) pinned to the 5-step scale (`low/medium/high/xhigh/max`); filled count = the level's 1-based ordinal, fill colour escalates via `color_for_effort_level`. `▰▰▰··` icon, `===--` ascii — block glyphs, so it is **not** icon-gated (renders under `display.icons = false`, unlike `sparkline`). Off-scale values (e.g. `auto`, a future level) degrade to a single pip — no false N-of-5. `word+ramp` is the gauge-alongside-text pairing the rendering principle permits; `ramp` alone is parseable but discouraged (pips need the word to decode), and a spec resolving to nothing falls back to `word` so the cell never collapses to a bare `E:` label. |
+| `effort_visual` | `word`, `ramp` | Identity-row effort cell, dispatched by `render_effort_visual`. `word` = the level name (`high`) — today's behaviour. `ramp` = an ordinal pip ramp (`widgets::effort`) pinned to the 5-step scale (`low/medium/high/xhigh/max`); lit count = the level's 1-based ordinal, fill colour escalates via `color_for_effort_level`. `▮▮▮▮▮` icon — a single `▮` (U+25AE) glyph for every cell, lit/dim split purely by colour (lit = effort colour, dim = `separator`), per the design system; `===--` ascii / NO_COLOR fallback (one glyph can't read without colour), so it is **not** icon-gated (renders under `display.icons = false`, unlike `sparkline`). Off-scale values (e.g. `auto`, a future level) degrade to a single pip — no false N-of-5. `word+ramp` is the gauge-alongside-text pairing the rendering principle permits; `ramp` alone is parseable but discouraged (pips need the word to decode), and a spec resolving to nothing falls back to `word` so the cell never collapses to a bare `E:` label. |
 
 ### Per-layout defaults
 

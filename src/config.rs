@@ -550,7 +550,7 @@ show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 # effort_visual: how the effort level renders. Empty defers to the layout
 # (most use "word"; budgets/velocity add the ramp). Examples:
 #   effort_visual = "word"        # just the level name (today's default)
-#   effort_visual = "word+ramp"   # level name + ordinal pip ramp ▰▰▰··
+#   effort_visual = "word+ramp"   # level name + ordinal pip ramp ▮▮▮▮▮
 effort_visual = ""
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
