@@ -214,14 +214,13 @@ pub fn identity_headline(
 
     if config.show_effort {
         if let Some(level) = &line1.effort_level {
-            let effort_color = p.color_for_effort_level(level);
-            let label = colorize(
-                &glyph(config.glyph_mode, ICON_EFFORT, "E:"),
-                effort_color,
+            parts.push(render_effort_visual(
+                config.effective_effort_visual(),
+                level,
+                config.glyph_mode,
+                p,
                 color,
-            );
-            let val = colorize(level, effort_color, color);
-            parts.push(format!("{label}{val}"));
+            ));
         }
     }
 
@@ -408,6 +407,7 @@ pub fn render_context_visual(
         let cell = match widget {
             WIDGET_GAUGE => ctx_gauge_cell(line3, gauge_width, mode, p, color_enabled),
             WIDGET_SPARKLINE => ctx_sparkline(history, mode, p, color_enabled),
+            WIDGET_PLOT => ctx_plot_cell(history, mode, p, color_enabled),
             WIDGET_TEXT => ctx_text_cell(line3, mode, p, color_enabled),
             _ => String::new(), // unknown widget — silently drop
         };
@@ -495,6 +495,50 @@ pub fn ctx_gauge_cell(
 }
 
 // ============================================================================
+// Effort dispatch hub (identity row)
+// ============================================================================
+
+/// Compose the effort cell from a `+`-joined visual spec. Atoms: `word`
+/// (the level name — today's behaviour) and `ramp` (the ordinal pip
+/// ramp, `widgets::effort`). The `E:` / speedometer segment label always
+/// leads; unknown atoms drop silently (forward-compat).
+///
+/// `word+ramp` is the gauge-alongside-text pattern the rendering
+/// principle permits: the word names the level, the ramp shows its
+/// position on the fixed scale. `ramp` alone is parseable but discouraged
+/// — pips with no word need a legend to decode — so no shipped default
+/// uses it, and a spec that resolves to nothing renderable falls back to
+/// the word (the segment never collapses to a bare label).
+pub fn render_effort_visual(
+    spec: &str,
+    level: &str,
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let effort_color = p.color_for_effort_level(level);
+    let label = colorize(&glyph(mode, ICON_EFFORT, "E:"), effort_color, color_enabled);
+
+    let mut cells: Vec<String> = Vec::new();
+    for raw in spec.split('+') {
+        match raw.trim() {
+            WIDGET_WORD => cells.push(colorize(level, effort_color, color_enabled)),
+            WIDGET_RAMP => {
+                let ramp = widgets::effort::render(level, mode, p, color_enabled);
+                if !ramp.is_empty() {
+                    cells.push(ramp);
+                }
+            }
+            _ => {} // empty or unknown atom — drop
+        }
+    }
+    if cells.is_empty() {
+        cells.push(colorize(level, effort_color, color_enabled));
+    }
+    format!("{label}{}", cells.join(" "))
+}
+
+// ============================================================================
 // Quota dispatch hub
 // ============================================================================
 
@@ -517,7 +561,11 @@ pub const QUOTA_MARKS: [u64; 2] = [50, 85];
 // ── Visual spec keywords (string atoms in `*_visual` config) ──
 pub const WIDGET_GAUGE: &str = "gauge";
 pub const WIDGET_SPARKLINE: &str = "sparkline";
+pub const WIDGET_PLOT: &str = "plot";
 pub const WIDGET_TEXT: &str = "text";
+// Effort segment atoms (identity row).
+pub const WIDGET_WORD: &str = "word";
+pub const WIDGET_RAMP: &str = "ramp";
 
 /// Returns true if the `+`-joined visual spec contains `widget` as a
 /// trimmed atom. Centralizes the parse so a typo in one widget name
@@ -551,6 +599,26 @@ pub fn render_quota_visual(
     )
 }
 
+/// Bare bracketless gauge bar (`▰─·`) for layouts that compose their own
+/// row around it. The `budgets` dashboard aligns a label
+/// column + percentage + bar themselves, so it can't reuse
+/// `ctx_gauge_cell` / `render_quota_visual` (which bake in an icon or a
+/// fixed mark set). Keeping the `widgets::gauge::render` call here honours
+/// the dispatch-hub iron rule: the direct widget call stays inside the hub
+/// module, never in a layout file. Caller supplies marks + fill colour
+/// (CTX → `ctx_marks()`; quota → `QUOTA_MARKS`).
+pub fn gauge_bar(
+    pct: u64,
+    width: usize,
+    marks: &[u64],
+    fill_color: &str,
+    p: &ThemePalette,
+    mode: GlyphMode,
+    color_enabled: bool,
+) -> String {
+    widgets::gauge::render(pct, width, marks, fill_color, p, mode, color_enabled)
+}
+
 /// CTX sparkline glyph strip (no label) — empty when history is empty *or*
 /// when `mode == GlyphMode::Ascii` (sparkline is icon-only).
 ///
@@ -573,6 +641,66 @@ pub fn ctx_sparkline(
         &p.aurora_low
     };
     widgets::sparkline::render(history, fill, mode, color_enabled)
+}
+
+/// CTX braille line-plot cell — a normalized trend line plus a delta-time
+/// tail (`30→43% in 5m`). The plot glyph is icon-only (empty under Ascii);
+/// the tail is text, so under Ascii the trend still reads via the tail —
+/// the same axis-and-tail honesty the ledger sparkline carries. Fill color
+/// comes from CTX consumption velocity, like the ledger sparkline.
+pub fn ctx_plot_cell(
+    history: &[(u8, u64)],
+    mode: GlyphMode,
+    p: &ThemePalette,
+    color_enabled: bool,
+) -> String {
+    let window = recent_trend_window(history);
+    if window.is_empty() {
+        return String::new();
+    }
+    let fill = widgets::sparkline::aurora_for_velocity(window, p);
+    let glyph = widgets::plot::render(window, fill, mode, color_enabled);
+    let tail = plot_delta_label(window).map(|l| colorize(&l, &p.structural, color_enabled));
+    match (glyph.is_empty(), tail) {
+        (false, Some(tail)) => format!("{glyph} {tail}"),
+        (false, None) => glyph,
+        (true, Some(tail)) => tail,
+        (true, None) => String::new(),
+    }
+}
+
+/// Most-recent slice of CTX `history` the plot draws — the last
+/// `TREND_WINDOW` samples. (A simpler fixed-count window than the ledger
+/// sparkline's wall-clock-aware variant; the plot widget caps to the same
+/// span internally.)
+fn recent_trend_window(history: &[(u8, u64)]) -> &[(u8, u64)] {
+    const TREND_WINDOW: usize = 12;
+    &history[history.len().saturating_sub(TREND_WINDOW)..]
+}
+
+/// `30→43% in 5m` — first→last percentage over the window plus elapsed
+/// wall time. Same vocabulary as the ledger sparkline's delta label.
+/// `None` for windows too short to carry a trend.
+fn plot_delta_label(window: &[(u8, u64)]) -> Option<String> {
+    let (first, last) = (window.first()?, window.last()?);
+    if window.len() < 2 {
+        return None;
+    }
+    let span_ms = last.1.saturating_sub(first.1);
+    if span_ms == 0 {
+        return None;
+    }
+    let secs = span_ms / 1000;
+    let dur = if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h", secs / 3600)
+    } else {
+        format!("{}d", secs / 86_400)
+    };
+    Some(format!("{}→{}% in {dur}", first.0, last.0))
 }
 
 /// Knob-gated cache-trend cell: braille sparkline over the hit-rate

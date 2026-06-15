@@ -7,10 +7,11 @@ rows. The shipping layouts:
 |---|---|
 | `none` | Flat output, no chrome. Default. |
 | `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
+| `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
-All four share the same theme palette, segment toggles, and per-segment
+All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
 TOML strings below are stable — internally they map 1-to-1 onto
 `pane::LayoutStyle` variants.
@@ -136,6 +137,71 @@ merged activity row → quota into L3 → drop config row → **fuse-core**
 that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
 ladder stops early at the quota merge — L1 and L3+quota keep separate
 rows and fuse-core is never reached — while compact always fuses.
+
+### `budgets` — three parallel gauges
+
+A flat (frameless) dashboard that stacks the three budget windows as
+column-aligned, equal-weight gauges under the identity row, so burn
+across them reads on one shared spatial axis (the inline
+`CTX:43% … 5h:62% … 7d:28%` form scatters them with no common baseline):
+
+```
+M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
+CONTEXT   43%  ▰▰▰▰▰▰▰▰▰▰───·───·──────   86.0k/200.0k   ⟳2
+5H QUOTA  62%  ▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰─────·───   resets 1h 59m
+7D QUOTA  28%  ▰▰▰▰▰▰▰─────·───────·───   resets 4d 6h
+TOK I:10 O:20 C:50%   $4.56 ($4.56/h)
+```
+
+Each gauge reuses the shipped bracketless `▰─·` marks-gauge (no second
+`█▌░` dialect) at a wider width; the three share one width that scales
+down together on narrow terminals (clamped so they never vanish). The
+percentage is the **D2 anchor** — the row's hero metric in its threshold
+color, with the label (tag tier) and trailing context (structural)
+receding. There is no SGR-bold primitive, so the color hierarchy carries
+the emphasis (same as the ledger budget rows). The CONTEXT row appends
+the `⟳N` compaction marker when the session has auto-compacted. Leads
+with the effort ramp (`effort_visual` defaults to `word+ramp` here).
+
+**Cost:** identity + CONTEXT + (5H/7D when quota enabled) + TOKENS +
+activity. **Pick when** you want to watch context and subscription burn
+side-by-side. Quota rows only appear with `[segments.quota] enabled`.
+
+### Trend-forward CONTEXT plot — a recipe, not a layout
+
+There is no `velocity` layout. "Trend-forward" was a config preset (`none`
+with a `plot` CTX default) and **no** bespoke builder, so it read as `none`
+with two metrics swapped — and the design's actual hero (an oversized %
+and a per-data-column gradient) is impossible in a fixed-cell terminal. It
+was removed; the **`plot` widget lives on**, and any layout opts into the
+trend-forward view through the dispatch hub:
+
+```toml
+[layout]
+name = "none"                    # or console / ledger / …
+
+[segments.budget]
+context_visual = "plot+text"     # braille line-plot + delta-time tail, then the number
+
+[segments.quota]
+enabled = true
+quota_visual = "gauge"
+```
+
+```
+M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
+⡠⠔⠊⠉ 18→43% in 5m  43% 86.0k/200.0k | TOK I:10 O:20 C:50% | $4.56 ($4.56/h)
+Q: 5h: ▰▰▰▰▰▰▰▰▰───·─ 62% (resets 1h 59m)
+```
+
+The `plot` widget is a normalized braille **line**, distinct from the
+ledger's bottom-up `sparkline`: it rescales the window to its own min→max
+so a shallow 30→43% climb fills the cell height instead of collapsing into
+the global 0–100 buckets. It's icon-only, so under `display.icons = false`
+the plot glyph drops and the `30→43% in 5m` delta-time tail carries the
+trend (the same axis-and-tail honesty the ledger sparkline keeps). Setting
+`name = "velocity"` now warns and falls back to `none` — use the recipe
+above.
 
 ### `console` — framed dashboard with identity-in-title
 
@@ -283,10 +349,11 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `plot`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `plot` is a normalized braille **line** plot (`widgets::plot`): one dot per column at the sample's height, rescaled to the window's own min→max so the trend *shape* shows even for a small range — distinct from `sparkline`'s bottom-up bars. It carries a `30→43% in 5m` delta-time tail (text, so the trend survives ascii where the braille drops out) and is filled by CTX consumption velocity. Also icon-only. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |
+| `effort_visual` | `word`, `ramp` | Identity-row effort cell, dispatched by `render_effort_visual`. `word` = the level name (`high`) — today's behaviour. `ramp` = an ordinal pip ramp (`widgets::effort`) pinned to the 5-step scale (`low/medium/high/xhigh/max`); lit count = the level's 1-based ordinal, fill colour escalates via `color_for_effort_level`. `▮▮▮▮▮` icon — a single `▮` (U+25AE) glyph for every cell, lit/dim split purely by colour (lit = effort colour, dim = `separator`), per the design system; `===--` ascii / NO_COLOR fallback (one glyph can't read without colour), so it is **not** icon-gated (renders under `display.icons = false`, unlike `sparkline`). Off-scale values (e.g. `auto`, a future level) degrade to a single pip — no false N-of-5. `word+ramp` is the gauge-alongside-text pairing the rendering principle permits; `ramp` alone is parseable but discouraged (pips need the word to decode), and a spec resolving to nothing falls back to `word` so the cell never collapses to a bare `E:` label. |
 
 ### Per-layout defaults
 
@@ -295,15 +362,24 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
-| Layout | `context_visual` | `quota_visual` | `tools_visual` | `agents_visual` | `todo_visual` |
-|--------|------------------|----------------|----------------|-----------------|---------------|
-| `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` |
-| `compact` | `text` | `text` | `ticker`¹ | `name` | `text` |
-| `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` |
-| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` |
+| Layout | `context_visual` | `quota_visual` | `tools_visual` | `agents_visual` | `todo_visual` | `effort_visual` |
+|--------|------------------|----------------|----------------|-----------------|---------------|-----------------|
+| `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` | `word` |
+| `compact` | `text` | `text` | `ticker`¹ | `name` | `text` | `word` |
+| `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
+| `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
+| `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
+
+² Informational: budgets composes its CTX + quota gauges inline (aligned
+label column + pct + bar, see `layout::assemble_budgets`), so the bars
+render by construction; the `gauge` defaults document the intent rather
+than flowing through the dispatch hubs. Consequently `context_visual` /
+`quota_visual` overrides are **inert** on budgets — the three-gauge
+alignment is the layout's identity (the same stance ledger takes toward
+its TAG rhythm).
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only

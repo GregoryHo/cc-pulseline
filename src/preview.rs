@@ -15,10 +15,11 @@ use crate::types::{
 
 /// Layouts rendered by `--preview-layouts`, minimal → maximal density.
 /// Must stay in sync with `config::parse_layout_name`'s valid list
-/// (`none | compact | console | ledger`).
+/// (`none | compact | budgets | console | ledger`).
 const PREVIEW_LAYOUTS: &[(LayoutStyle, &str)] = &[
     (LayoutStyle::None, "none"),
     (LayoutStyle::Compact, "compact"),
+    (LayoutStyle::Budgets, "budgets"),
     (LayoutStyle::Console, "console"),
     (LayoutStyle::Ledger, "ledger"),
 ];

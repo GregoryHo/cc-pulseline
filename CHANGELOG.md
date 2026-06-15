@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-15
+
+Feature release on the display surface: a new column-aligned
+`budgets` layout, a braille line-plot widget for trend-forward
+context readouts, an opt-in ordinal effort ramp, and six new
+built-in themes from the design lab. Purely additive — every new
+surface is opt-in and existing output is unchanged.
+
+### Added
+
+- **`budgets` layout** (`name = "budgets"`) — a flat (frameless)
+  dashboard that stacks CONTEXT / 5H QUOTA / 7D QUOTA as three
+  equal-width, column-aligned gauges under the identity row, then a
+  TOKENS + cost row, so burn across the three budget windows reads on
+  one shared spatial axis. Reuses the shipped bracketless `▰─·`
+  marks-gauge at a wider width (no second gauge dialect); the three
+  gauges share one width that scales down together under width
+  pressure. The percentage is the hero metric — rendered in its
+  threshold color while the label and trailing detail recede (color
+  tier only, no bold). The CONTEXT row carries the `⟳N` compaction
+  marker, and the row leads with the effort ramp (`word+ramp` by
+  default for this layout). Routes through `apply_pane` like `none`.
+- **`plot` context widget** — a single-row braille line plot
+  (`widgets::plot`), a new `context_visual` atom. Unlike the sparkline
+  (bottom-up bars on a global 0–100 scale), the plot draws one dot per
+  column at the sample height and normalizes the window to its own
+  min→max, so the trend *shape* shows even across a small range (a
+  30→43% climb fills the cell height instead of collapsing). Compose
+  it via `context_visual = "plot+text"`; the `30→43% in 5m` delta-time
+  tail carries the trend under `display.icons = false` (the plot glyph
+  is icon-only). Routes through the `render_context_visual` dispatch
+  hub like every other context widget, so any layout can opt in.
+- **`effort_visual` config + `ramp` atom** — the identity row's effort
+  level gains an opt-in ordinal pip ramp beside the word
+  (`E:high ▮▮▮▮▮`, ascii `===--`). The ramp is a fixed 5-cell scale
+  (low/medium/high/xhigh/max) whose lit count is the level's position
+  and whose color escalates with the level; off-scale values (e.g.
+  `auto`) degrade to a single pip rather than a false N-of-5. Every
+  cell is the same `▮` glyph with the lit/dim split carried by color
+  (lit in the effort color, dim in `separator`); under Ascii or
+  `NO_COLOR` it falls back to distinct `=`/`-` shapes so the count
+  survives without color. Wired through a new `render_effort_visual`
+  dispatch hub. Defaults to `word` on every layout except `budgets`
+  (which leads `word+ramp`), so existing output is unchanged.
+- **Six new built-in themes** — `signal-phosphor` (green CRT),
+  `copper-noir` (warm instrument), and `nd-slate-jade` / `nd-ember` /
+  `nd-flux` / `nd-glacier` from the design-lab palettes. Each is
+  authored to the existing 34-field `ThemePalette` contract (no
+  contract change) with truecolor hex quantized to ANSI-256, and each
+  ships a `light_emphasis` keeping every semantic field under the
+  light-variant contrast floor. Theme count grows 10 → 16.
+
+### Internal
+
+- New `tests/budgets_layout.rs` and `tests/context_plot.rs` cover the
+  new layout and the plot atom (including cold-start and `plot+text`
+  on `none`); the dispatch-hub iron-rule guard and the
+  `display_axes.rs` Ascii catch-net are extended for both new widgets.
+- `gauge_bar` helper in `frames/shared.rs` lets the budgets layout
+  call the wider gauge from inside the hub module (keeps the
+  `widgets::gauge::render` call out of the layout per the iron rule).
+- `name = "velocity"` is parse-handled with a stderr warning pointing
+  at the `none` + `context_visual = "plot+text"` recipe, alongside the
+  existing removed-layout fallbacks.
+
 ## [1.2.1] - 2026-06-12
 
 Feature release adding cache observability: an opt-in cache-trend
@@ -688,6 +753,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.3.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.5...v1.2.0
 [1.1.5]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.4...v1.1.5

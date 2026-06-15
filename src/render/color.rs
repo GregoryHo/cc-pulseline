@@ -437,6 +437,19 @@ static BUILTIN_THEMES: &[(&str, &str)] = &[
         "pulseline-aurora",
         include_str!("../themes/pulseline-aurora.json"),
     ),
+    // Design-lab experimental themes (authored to the 34-field contract).
+    (
+        "signal-phosphor",
+        include_str!("../themes/signal-phosphor.json"),
+    ),
+    ("copper-noir", include_str!("../themes/copper-noir.json")),
+    (
+        "nd-slate-jade",
+        include_str!("../themes/nd-slate-jade.json"),
+    ),
+    ("nd-ember", include_str!("../themes/nd-ember.json")),
+    ("nd-flux", include_str!("../themes/nd-flux.json")),
+    ("nd-glacier", include_str!("../themes/nd-glacier.json")),
 ];
 
 /// Load a built-in theme by name. Parsed once per process via OnceLock cache.

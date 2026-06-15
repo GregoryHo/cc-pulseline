@@ -106,14 +106,15 @@ impl PulseLineRunner {
                 state.push_cache_sample(sample, now_ms);
             }
         }
-        // Sparkline consumers: any layout whose effective `context_visual`
-        // spec includes `sparkline` needs the history copy. Skip the copy
-        // otherwise — it's a tight allocation hot path.
-        let needs_sparkline = config
+        // CTX-history consumers: any layout whose effective `context_visual`
+        // spec includes `sparkline` or `plot` (both braille trend widgets)
+        // needs the history copy. Skip the copy otherwise — it's a tight
+        // allocation hot path.
+        let needs_ctx_history = config
             .effective_context_visual()
             .split('+')
-            .any(|w| w.trim() == "sparkline");
-        if needs_sparkline {
+            .any(|w| matches!(w.trim(), "sparkline" | "plot"));
+        if needs_ctx_history {
             frame.ctx_history = state.ctx_history.iter().copied().collect();
         }
         // Cache-trend consumers (compact C-cell spark, ledger CACHE row) are

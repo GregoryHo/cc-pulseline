@@ -37,6 +37,10 @@ pub struct SegmentVisualDefaults {
     pub tools_visual: &'static str,
     /// Todo visual spec — atoms `text`, `bar` (5-cell progress gauge).
     pub todo_visual: &'static str,
+    /// Effort visual spec (identity row) — atoms `word` (level name),
+    /// `ramp` (ordinal pip ramp). `word` is today's behaviour; `word+ramp`
+    /// adds the spatial position reading. See `widgets::effort`.
+    pub effort_visual: &'static str,
 }
 
 /// Per-layout default visual specs.
@@ -56,6 +60,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
             todo_visual: "text",
+            effort_visual: "word",
         },
         // Compact packs everything onto 2–3 rows — activity cells all
         // compete for one ticker row, so agents show their name only.
@@ -67,6 +72,19 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name",
             tools_visual: "ticker",
             todo_visual: "text",
+            effort_visual: "word",
+        },
+        // Budgets is a gauge dashboard: CTX + both quotas render as
+        // aligned bars by construction (composed inline, see
+        // `layout::assemble_budgets`), and it leads with the effort ramp.
+        // Activity specs mirror `none`.
+        LayoutStyle::Budgets => SegmentVisualDefaults {
+            context_visual: "gauge",
+            quota_visual: "gauge",
+            agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "text",
+            effort_visual: "word+ramp",
         },
         // Framed layout — quota bar appears by default; CTX bar still
         // opt-in (CTX has more competing data — adding the bar there
@@ -77,6 +95,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
             todo_visual: "text",
+            effort_visual: "word",
         },
         // Ledger ships sparkline on the CTX row + bar on the quota row.
         // The TAG-column rhythm has natural space for both.
@@ -86,6 +105,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
             todo_visual: "text",
+            effort_visual: "word",
         },
     }
 }

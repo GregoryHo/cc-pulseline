@@ -42,7 +42,7 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
 - **Adaptive rendering** — Width degradation for narrow terminals
-- **10 built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview`
+- **Built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview` (see `src/themes/` for the full set)
 - **Minimal dependencies** — 3 runtime crates (serde, serde_json, toml)
 - **Configurable** — TOML config with per-project overrides and segment toggles
 
@@ -150,7 +150,7 @@ max_lines = 2
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Four layouts ship: `none` (flat default), `compact` (2–3 row micro layout), `console` (single outer frame + identity-in-frame-title, recommended ≥110 cols), and `ledger` (label-value pairs in a fixed-width TAG column with sparkline + delta-time on CTX).
+`[layout].name` picks how rows are arranged and decorated. Several layouts ship — `none`, `compact`, `budgets`, `console`, `ledger` — see [docs/layouts.md](docs/layouts.md) for the catalog.
 
 Each layout asserts a tasteful default for every widget-bearing segment — see [docs/layouts.md](docs/layouts.md) for the per-segment reference. The user can override per segment via `*_visual` strings — same widget, any layout:
 
@@ -168,7 +168,7 @@ name = "console"
 visual = "text"
 ```
 
-Recognized widgets: `gauge`, `sparkline`, `text` for context; `gauge`, `text` for quota. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
+Recognized widgets: `gauge`, `sparkline`, `plot`, `text` for context; `gauge`, `text` for quota. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
 
 ## CLI Usage
 

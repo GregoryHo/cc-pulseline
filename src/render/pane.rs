@@ -19,6 +19,14 @@ pub enum LayoutStyle {
     /// quota row, and a single packed activity ticker that only appears
     /// when there is activity (idle footprint = 2 rows). No chrome.
     Compact,
+    /// Flat dashboard of three column-aligned, equal-weight gauges —
+    /// CONTEXT / 5H QUOTA / 7D QUOTA — stacked under the identity row, so
+    /// burn across the three budget windows reads on a shared spatial
+    /// axis. Reuses the bracketless `▰─·` gauge at a wider width; the
+    /// percentage is the D2 "anchor" (hero metric in its threshold color).
+    /// A TOKENS row closes it. No chrome — routes through `apply_pane`
+    /// like `none`.
+    Budgets,
     /// Single outer `╭─...─╮` wrapper with a `├─┼─┤` separator emitted
     /// between every pair of non-empty groups, and the Identity row
     /// hoisted into the top frame title:
@@ -76,7 +84,9 @@ pub fn apply_pane(
     cfg: &PaneConfig,
 ) -> Vec<String> {
     match cfg.style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Ledger => return lines,
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Ledger => {
+            return lines
+        }
         LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {

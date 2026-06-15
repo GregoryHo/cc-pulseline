@@ -283,6 +283,11 @@ pub struct IdentitySegmentConfig {
     pub show_effort: bool,
     #[serde(default = "default_true")]
     pub show_thinking: bool,
+    /// Effort visual spec — `+`-joined atoms `word`, `ramp`. Empty defers
+    /// to the layout default (see `frames::default_visuals_for`): `word`
+    /// everywhere today, `word+ramp` on the budgets dashboard.
+    #[serde(default)]
+    pub effort_visual: String,
 }
 
 impl Default for IdentitySegmentConfig {
@@ -298,6 +303,7 @@ impl Default for IdentitySegmentConfig {
             show_worktree: true,
             show_effort: true,
             show_thinking: true,
+            effort_visual: String::new(),
         }
     }
 }
@@ -541,6 +547,11 @@ show_agent = true       # AG:agent-name when --agent is active
 show_worktree = true    # (WT) indicator when in a worktree session
 show_effort = true      # effort level pill (low/medium/high/xhigh/max, CC 2.1.119+)
 show_thinking = true    # thinking mode indicator (CC 2.1.119+)
+# effort_visual: how the effort level renders. Empty defers to the layout
+# (most use "word"; budgets adds the ramp). Examples:
+#   effort_visual = "word"        # just the level name (today's default)
+#   effort_visual = "word+ramp"   # level name + ordinal pip ramp ▮▮▮▮▮
+effort_visual = ""
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
 # Master toggle. Default OFF: the counts rarely change within a session
@@ -621,6 +632,10 @@ visual = ""
 #                row, activity ticker on row 3 (only when active).
 #                Small but readable — never squeezes CC's footer.
 #                (Absolute minimum: "none" + max_total_lines = 1–2.)
+#   "budgets"  — identity row, then CONTEXT / 5H QUOTA / 7D QUOTA as three
+#                column-aligned equal-weight gauges (compare burn across
+#                windows on a shared axis), then a TOKENS + cost row.
+#                Quota rows need [segments.quota] enabled.
 #   "console"  — single outer ╭─...─╮ frame with ├─┼─┤ between groups and
 #                the identity row hoisted into the top frame title (best
 #                ≥110 cols)
@@ -629,6 +644,10 @@ visual = ""
 #   "ledger"   — TAG-column rows with blank-row group separation. Tallest
 #                layout — favours rhythm over density. Ships sparkline +
 #                delta-time on the CTX row by default.
+#
+# Trend-forward is a recipe, not a layout: any layout +
+# context_visual = "plot+text" (+ quota_visual = "gauge") leads the CONTEXT
+# row with a braille line-plot of the CTX% history and a delta-time tail.
 name = "none"
 min_width = 60          # skip framing when terminal can't fit this many cols
 max_width = 160         # clamp auto-sized frames to this many cols
@@ -719,6 +738,8 @@ pub struct ProjectIdentityOverride {
     pub show_worktree: Option<bool>,
     pub show_effort: Option<bool>,
     pub show_thinking: Option<bool>,
+    /// Effort visual spec — see `IdentitySegmentConfig::effort_visual`.
+    pub effort_visual: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -897,6 +918,9 @@ pub fn merge_configs(
             }
             if let Some(v) = identity.show_thinking {
                 user.segments.identity.show_thinking = v;
+            }
+            if let Some(v) = &identity.effort_visual {
+                user.segments.identity.effort_visual = v.clone();
             }
         }
         if let Some(config) = &segments.config {
@@ -1153,6 +1177,7 @@ pub fn default_project_config_toml() -> &'static str {
 # show_worktree = true
 # show_effort = false
 # show_thinking = false
+# effort_visual = "word+ramp"   # "word" | "word+ramp" (ordinal pip ramp)
 
 # [segments.config]
 # enabled = true            # L2 row is opt-in (off by default)
@@ -1188,7 +1213,7 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger"
 # name = "console"
 # min_width = 60
 # max_width = 140
@@ -1298,6 +1323,8 @@ pub struct RenderConfig {
     pub tools_visual: String,
     /// Effective todo visual spec — atoms `text`, `bar`.
     pub todo_visual: String,
+    /// Effective effort visual spec (identity row) — atoms `word`, `ramp`.
+    pub effort_visual: String,
     // Activity segment toggles + limits
     pub max_tool_lines: usize,
     pub max_completed_tools: usize,
@@ -1375,6 +1402,15 @@ impl RenderConfig {
             &self.todo_visual
         }
     }
+
+    /// See `effective_context_visual` — same fallback rule for effort.
+    pub fn effective_effort_visual(&self) -> &str {
+        if self.effort_visual.is_empty() {
+            crate::render::frames::default_visuals_for(self.pane_style).effort_visual
+        } else {
+            &self.effort_visual
+        }
+    }
 }
 
 impl Default for RenderConfig {
@@ -1414,6 +1450,7 @@ impl Default for RenderConfig {
             agents_visual: String::new(),
             tools_visual: String::new(),
             todo_visual: String::new(),
+            effort_visual: String::new(),
             max_tool_lines: 2,
             max_completed_tools: 4,
             max_completed_lines: 1,
@@ -1460,8 +1497,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         "none" => LayoutStyle::None,
         "compact" => LayoutStyle::Compact,
+        "budgets" => LayoutStyle::Budgets,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
+        // Velocity was a config preset masquerading as a layout (none + a
+        // plot CTX default); removed. The trend-forward view lives on as a
+        // recipe any layout can opt into via the `plot` context_visual atom.
+        "velocity" => {
+            eprintln!(
+                "warning: layout.name \"velocity\" was removed; it was a preset of \
+                 name = \"none\" + context_visual = \"plot+text\" + quota_visual = \"gauge\" \
+                 — set those instead. Falling back to \"none\" \
+                 (valid: none | compact | budgets | console | ledger)"
+            );
+            LayoutStyle::None
+        }
         // Removed in the layout consolidations: zones / grid fold into the
         // flat default (they shared none's visual defaults); sections —
         // like cards, cockpit, flightstrip, and auto before it — folds
@@ -1469,21 +1519,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | console | ledger)"
+                 \"none\" (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | console | ledger)"
+                 \"console\" (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger)"
             );
             LayoutStyle::None
         }
@@ -1647,6 +1697,10 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         show_worktree: pulseline.segments.identity.show_worktree,
         show_effort: pulseline.segments.identity.show_effort,
         show_thinking: pulseline.segments.identity.show_thinking,
+        effort_visual: resolve_visual_field(
+            &pulseline.segments.identity.effort_visual,
+            layout_visual_defaults.effort_visual,
+        ),
         // L2 config toggles
         // L2 is opt-in: the master `enabled` gate zeroes every show_*
         // toggle so the row (and framed layouts' ENV group) disappears.
