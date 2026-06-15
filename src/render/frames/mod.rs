@@ -86,17 +86,6 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             todo_visual: "text",
             effort_visual: "word+ramp",
         },
-        // Velocity leads the CTX row with the braille line-plot (`plot`),
-        // then the percentage/numbers (`text`); quota rows show the gauge.
-        // Flows through the generic flat path — only its defaults differ.
-        LayoutStyle::Velocity => SegmentVisualDefaults {
-            context_visual: "plot+text",
-            quota_visual: "gauge",
-            agents_visual: "name+description+model",
-            tools_visual: "counts+targets",
-            todo_visual: "text",
-            effort_visual: "word+ramp",
-        },
         // Framed layout — quota bar appears by default; CTX bar still
         // opt-in (CTX has more competing data — adding the bar there
         // by default would saturate the row).

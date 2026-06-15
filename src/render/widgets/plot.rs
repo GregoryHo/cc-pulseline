@@ -8,8 +8,8 @@
 //! collapsing into the sparkline's global 0–100 buckets).
 //!
 //! Icon-only: returns `""` under `GlyphMode::Ascii` (braille has no ascii
-//! equivalent) — the velocity layout's delta-time tail carries the trend
-//! in that mode, exactly as the ledger sparkline does.
+//! equivalent) — the caller's delta-time tail (the `plot+text` recipe)
+//! carries the trend in that mode, exactly as the ledger sparkline does.
 
 use crate::config::GlyphMode;
 use crate::render::color::colorize;

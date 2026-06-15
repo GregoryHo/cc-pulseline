@@ -119,7 +119,10 @@ mod tests {
             5,
             "all five cells are ▮: {s:?}"
         );
-        assert!(s.contains("AMBER"), "lit pips carry the effort colour: {s:?}");
+        assert!(
+            s.contains("AMBER"),
+            "lit pips carry the effort colour: {s:?}"
+        );
         assert!(s.contains("SEP"), "dim pips carry separator: {s:?}");
     }
 

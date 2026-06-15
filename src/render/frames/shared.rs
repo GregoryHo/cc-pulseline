@@ -600,8 +600,8 @@ pub fn render_quota_visual(
 }
 
 /// Bare bracketless gauge bar (`▰─·`) for layouts that compose their own
-/// row around it. The `budgets` / `velocity` dashboards align a label
-/// column + percentage + bar themselves, so they can't reuse
+/// row around it. The `budgets` dashboard aligns a label
+/// column + percentage + bar themselves, so it can't reuse
 /// `ctx_gauge_cell` / `render_quota_visual` (which bake in an icon or a
 /// fixed mark set). Keeping the `widgets::gauge::render` call here honours
 /// the dispatch-hub iron rule: the direct widget call stays inside the hub

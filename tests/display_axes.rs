@@ -180,7 +180,6 @@ const ALL_LAYOUTS: &[LayoutStyle] = &[
     LayoutStyle::None,
     LayoutStyle::Compact,
     LayoutStyle::Budgets,
-    LayoutStyle::Velocity,
     LayoutStyle::Console,
     LayoutStyle::Ledger,
 ];

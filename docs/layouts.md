@@ -8,7 +8,6 @@ rows. The shipping layouts:
 | `none` | Flat output, no chrome. Default. |
 | `compact` | 2–3 row micro layout: packed identity row, packed budget+quota row, activity ticker on row 3 (only when active). |
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
-| `velocity` | Flat trend-forward: the CONTEXT row leads with a braille line-plot of the CTX% history + a `30→43% in 5m` delta-time tail, ahead of the tokens and quota rows. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 
@@ -168,10 +167,26 @@ with the effort ramp (`effort_visual` defaults to `word+ramp` here).
 activity. **Pick when** you want to watch context and subscription burn
 side-by-side. Quota rows only appear with `[segments.quota] enabled`.
 
-### `velocity` — trend-forward CONTEXT plot
+### Trend-forward CONTEXT plot — a recipe, not a layout
 
-A flat layout whose CONTEXT row leads with a braille **line-plot** of the
-CTX% history, then a delta-time tail, then the percentage and numbers:
+There is no `velocity` layout. "Trend-forward" was a config preset (`none`
+with a `plot` CTX default) and **no** bespoke builder, so it read as `none`
+with two metrics swapped — and the design's actual hero (an oversized %
+and a per-data-column gradient) is impossible in a fixed-cell terminal. It
+was removed; the **`plot` widget lives on**, and any layout opts into the
+trend-forward view through the dispatch hub:
+
+```toml
+[layout]
+name = "none"                    # or console / ledger / …
+
+[segments.budget]
+context_visual = "plot+text"     # braille line-plot + delta-time tail, then the number
+
+[segments.quota]
+enabled = true
+quota_visual = "gauge"
+```
 
 ```
 M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
@@ -179,21 +194,14 @@ M:Opus 4.7 | E:high ▮▮▮▮▮ | P:~/cc-pulseline | G:feat/x *
 Q: 5h: ▰▰▰▰▰▰▰▰▰───·─ 62% (resets 1h 59m)
 ```
 
-The plot (`context_visual` defaults to `plot+text`) is the `plot` widget —
-a normalized braille line, distinct from the ledger's bottom-up
-`sparkline`: it rescales the window to its own min→max so a shallow
-30→43% climb fills the cell height instead of collapsing into the global
-0–100 buckets. It's icon-only, so under `display.icons = false` the plot
-glyph drops and the `30→43% in 5m` delta-time tail carries the trend (the
-same axis-and-tail honesty the ledger sparkline keeps). Leads with the
-effort ramp (`word+ramp`).
-
-Mechanically velocity is `none` with a trend-forward CTX default — it
-flows through the same flat pipeline and `apply_pane` (no chrome, no
-bespoke builder). **Pick when** the *direction* context is moving matters
-more than the exact percentage. Marginal over ledger's `text+sparkline`
-(the gain is the normalized line shape, not a new signal) — it's the
-lightest, opt-in trend view.
+The `plot` widget is a normalized braille **line**, distinct from the
+ledger's bottom-up `sparkline`: it rescales the window to its own min→max
+so a shallow 30→43% climb fills the cell height instead of collapsing into
+the global 0–100 buckets. It's icon-only, so under `display.icons = false`
+the plot glyph drops and the `30→43% in 5m` delta-time tail carries the
+trend (the same axis-and-tail honesty the ledger sparkline keeps). Setting
+`name = "velocity"` now warns and falls back to `none` — use the recipe
+above.
 
 ### `console` — framed dashboard with identity-in-title
 
@@ -359,7 +367,6 @@ paths (mostly tests) that construct `RenderConfig` directly.
 | `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `compact` | `text` | `text` | `ticker`¹ | `name` | `text` | `word` |
 | `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
-| `velocity` | `plot+text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 
