@@ -90,6 +90,9 @@ fn default_layout_tonal_strata() -> bool {
 fn default_layout_ledger_dense() -> bool {
     false
 }
+fn default_layout_seams() -> String {
+    "powerline".to_string()
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LayoutSection {
@@ -108,6 +111,13 @@ pub struct LayoutSection {
     /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
     #[serde(default = "default_layout_ledger_dense")]
     pub ledger_dense: bool,
+    /// `rail`/`anchor` only: seam glyph tier. `"powerline"` (default) uses
+    /// PUA Powerline seam/cap glyphs; `"blocks"` degrades to unicode
+    /// half-blocks for terminals without a patched font. Independent of
+    /// `display.icons` (which only gates per-cell glyphs). See
+    /// `designs/powerline-rail-anchor.md`.
+    #[serde(default = "default_layout_seams")]
+    pub seams: String,
     /// Hard cap on TOTAL output rows (chrome included). When exceeded the
     /// height-degradation ladder collapses groups in order until the render
     /// fits. `None` = unlimited (current behavior). Ledger is exempt (it
@@ -135,6 +145,7 @@ impl Default for LayoutSection {
             cc_margin: default_layout_cc_margin(),
             tonal_strata: default_layout_tonal_strata(),
             ledger_dense: default_layout_ledger_dense(),
+            seams: default_layout_seams(),
             max_total_lines: None,
         }
     }
@@ -645,6 +656,13 @@ visual = ""
 #                layout — favours rhythm over density. Ships sparkline +
 #                delta-time on the CTX row by default.
 #
+# Single-row (nerd-font tier, stdin-only — needs a patched font, see `seams`):
+#   "rail"     — one connected Powerline bar (identity → pressure). The bar
+#                rides a gray ink ramp; exactly one segment tints when its
+#                state crosses a threshold (the live signal).
+#   "anchor"   — a reverse-video hero capsule (model) anchors the line; the
+#                rest trail as dim text where colour marks the one live signal.
+#
 # Trend-forward is a recipe, not a layout: any layout +
 # context_visual = "plot+text" (+ quota_visual = "gauge") leads the CONTEXT
 # row with a braille line-plot of the CTX% history and a delta-time tail.
@@ -663,6 +681,15 @@ tonal_strata = true
 # / TOOL / AGENT+TODO). The bottom frame always closes flush against the
 # last content row regardless of this setting.
 ledger_dense = false
+
+# rail/anchor only: seam glyph tier.
+#   "powerline" (default) — PUA Powerline seam/cap glyphs (needs a patched
+#                           Nerd Font).
+#   "blocks"              — unicode half-block seams; a connected coloured bar
+#                           in any UTF-8 terminal without a patched font.
+# Independent of display.icons. With no color (NO_COLOR) the bar drops to a
+# plain ` | ` separator floor.
+seams = "powerline"
 
 # Hard cap on TOTAL statusline rows, frame chrome included. When the render
 # exceeds it, groups collapse in order (running tools → completed tools →
@@ -699,6 +726,7 @@ pub struct ProjectLayoutOverride {
     pub cc_margin: Option<usize>,
     pub tonal_strata: Option<bool>,
     pub ledger_dense: Option<bool>,
+    pub seams: Option<String>,
     pub max_total_lines: Option<MaxTotalLines>,
 }
 
@@ -1046,6 +1074,9 @@ pub fn merge_configs(
         if let Some(v) = layout.ledger_dense {
             user.layout.ledger_dense = v;
         }
+        if let Some(v) = &layout.seams {
+            user.layout.seams = v.clone();
+        }
         if let Some(v) = &layout.max_total_lines {
             user.layout.max_total_lines = Some(v.clone());
         }
@@ -1213,13 +1244,14 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger" | "rail" | "anchor"
 # name = "console"
 # min_width = 60
 # max_width = 140
 # cc_margin = 4             # cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
+# seams = "powerline"       # rail/anchor only: "powerline" | "blocks" (unicode fallback)
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
 #                           # ladder ends at fuse-core (identity+budget on one row)
 "#
@@ -1351,6 +1383,19 @@ pub struct RenderConfig {
     pub pane_tonal_strata: bool,
     /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
     pub pane_ledger_dense: bool,
+    /// `rail`/`anchor` seam glyph tier (powerline PUA vs unicode blocks).
+    pub pane_seams: LayoutSeams,
+}
+
+/// Seam glyph tier for the `rail`/`anchor` Powerline layouts. Picked by the
+/// `[layout] seams` config string. Independent of `display.icons`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutSeams {
+    /// PUA Powerline seam/cap glyphs (needs a patched font). Default.
+    #[default]
+    Powerline,
+    /// Unicode half-block seams — a connected bar in any UTF-8 terminal.
+    Blocks,
 }
 
 impl RenderConfig {
@@ -1489,6 +1534,24 @@ impl Default for RenderConfig {
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
             pane_tonal_strata: true,
             pane_ledger_dense: false,
+            pane_seams: LayoutSeams::Powerline,
+        }
+    }
+}
+
+/// Parse the `[layout] seams` string into a `LayoutSeams` tier. Unknown
+/// values warn and fall back to the powerline default (forward-compatible,
+/// like `parse_layout_name`).
+fn parse_layout_seams(value: &str) -> LayoutSeams {
+    match value.to_lowercase().as_str() {
+        "powerline" => LayoutSeams::Powerline,
+        "blocks" => LayoutSeams::Blocks,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.seams {unknown:?}; falling back to \
+                 \"powerline\" (valid: powerline | blocks)"
+            );
+            LayoutSeams::Powerline
         }
     }
 }
@@ -1500,6 +1563,8 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "budgets" => LayoutStyle::Budgets,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
+        "rail" => LayoutStyle::Rail,
+        "anchor" => LayoutStyle::Anchor,
         // Velocity was a config preset masquerading as a layout (none + a
         // plot CTX default); removed. The trend-forward view lives on as a
         // recipe any layout can opt into via the `plot` context_visual atom.
@@ -1508,7 +1573,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
                 "warning: layout.name \"velocity\" was removed; it was a preset of \
                  name = \"none\" + context_visual = \"plot+text\" + quota_visual = \"gauge\" \
                  — set those instead. Falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
@@ -1519,21 +1584,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | budgets | console | ledger)"
+                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | budgets | console | ledger)"
+                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
@@ -1760,6 +1825,7 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_cc_margin: pulseline.layout.cc_margin,
         pane_tonal_strata: pulseline.layout.tonal_strata,
         pane_ledger_dense: pulseline.layout.ledger_dense,
+        pane_seams: parse_layout_seams(&pulseline.layout.seams),
         max_total_lines: resolve_max_total_lines(pulseline.layout.max_total_lines.as_ref()),
         transcript_window_events: pulseline.performance.transcript_window_events,
         transcript_poll_throttle_ms: pulseline.performance.transcript_poll_throttle_ms,

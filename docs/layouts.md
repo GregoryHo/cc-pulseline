@@ -10,6 +10,8 @@ rows. The shipping layouts:
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
+| `rail` | **Height 1.** One connected Powerline bar (identity → pressure) riding a gray ink ramp; exactly one segment tints when its state crosses a threshold (the live signal). Nerd-font tier, stdin-only. See `seams`. |
+| `anchor` | **Height 1.** A reverse-video hero capsule (model) anchors the line by silhouette; the rest trail as dim text where colour marks the one live signal. Nerd-font tier, stdin-only. See `seams`. |
 
 All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
@@ -319,6 +321,83 @@ TOOL, and AGENT+TODO groups).
 
 ---
 
+### `rail` — one connected Powerline bar
+
+**Height 1, stdin-only, nerd-font tier.** A single row of segments joined by
+real Powerline seams. The left cluster runs identity → pressure; the right
+cluster (`cost`, `version`) is pushed toward the far edge with seams pointing
+inward at the middle gap.
+
+```
+ Opus 4.6  high  cc-pulseline  feat/ledger-quota +2 ~1  43%        $3.47  v2.1.153
+└─ model ─┘└eff┘└── cwd ──┘└──── git ────┘└ctx┘         └cost┘└version┘
+   high  ▲ the ONE tinted segment (effort=high → warn/amber); rest = gray ramp
+```
+
+The bar is **monochrome by default** — every segment rides a 3-step gray ink
+ramp. **Colour is reserved for the live signal**: a segment leaves the ramp and
+takes a render-role tint only when its state crosses a threshold:
+
+| Segment | Tints when | Colour |
+|---|---|---|
+| effort | level ≥ `high` | `color_for_effort_level` (warn → crit up the scale) |
+| ctx | pct ≥ 55 (first `ctx_marks()` mark) | `color_for_ctx_pct` (warn ≥55, crit ≥70) |
+| git | working tree dirty | `alert_orange` on the `~N` count only — branch stays ramp |
+
+In the default session that is exactly **one** segment — no rainbow. Cost is
+**not** a signal (informational); it stays gray even at high burn. Under width
+pressure, cells drop in priority order **version → cost → cwd → git → effort**;
+**model** and **ctx** (the hero + the signal) survive longest. Below
+`min_width` the bar bypasses to flat `none`.
+
+### `anchor` — hero capsule + dim trail
+
+**Height 1, stdin-only, nerd-font tier.** One reverse-video **capsule** (angled
+Powerline caps) anchors the line; the remaining fields trail as dim text. Two
+orthogonal channels: **shape = identity, colour = state** — so the capsule is a
+stable identity colour *and* the trail can still flash one signal.
+
+```
+ Opus 4.6 ▒ high · cc-pulseline · feat/ledger-quota +2 ~1 · 43% · $3.47 · v2.1.153
+└─ capsule ─┘  ▲ amber          └──────────── dim trail (structural) ───────────┘
+   (model bg)    (effort=high, the lone tint)
+```
+
+The hero is `model.display_name` (capsule body = the model role colour, text =
+reverse-video). The trail (`effort · cwd · git · ctx · cost · version`) is dim
+(`structural`) except the one item whose state crosses threshold — same tinting
+rule as `rail`.
+
+#### Capability tiers: `seams`
+
+Both `rail` and `anchor` are nerd-font tier. One config knob picks the seam
+vocabulary, and every higher tier names a lower fallback so nothing renders as
+tofu:
+
+```toml
+[layout]
+seams = "powerline"   # powerline | blocks   (default: powerline)
+```
+
+| Element | `seams = "powerline"` (default) | `seams = "blocks"` | `display.icons = false` / `NO_COLOR` floor |
+|---|---|---|---|
+| rail seam | PUA `\u{e0b0}`/`\u{e0b2}` | unicode half-block `▐`/`▌` | ` \| ` separator, no fill |
+| anchor cap | PUA `\u{e0b2}`/`\u{e0b0}` | reverse-cap `▐body▌` | `[model]` bracket + dim trail |
+| cell icon | MD glyph + space | MD glyph + space | ASCII prefix (`M:`, `G:`, …) |
+
+`blocks` is the unicode rung: a connected coloured bar in any UTF-8 terminal
+without a patched font. `seams` is independent of `display.icons` (which gates
+only the per-cell MD glyphs); colour is the hard gate — without it the bar
+can't read, so it collapses to the ` | ` floor (NO_COLOR / dumb terminal).
+
+> **Colour fidelity note.** The design specifies a truecolor RGB ink ramp
+> blended from `term_bg`. The renderer is 256-colour and has no `term_bg`
+> source (not in the stdin contract, not detectable), so the bed is a fixed
+> 256 grayscale ramp — the standard vim-airline / tmux Powerline approach.
+> A truecolor backend is a later swap, gated on a `term_bg` source.
+
+---
+
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
@@ -369,6 +448,8 @@ paths (mostly tests) that construct `RenderConfig` directly.
 | `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
+| `rail` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
+| `anchor` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
@@ -380,6 +461,12 @@ than flowing through the dispatch hubs. Consequently `context_visual` /
 `quota_visual` overrides are **inert** on budgets — the three-gauge
 alignment is the layout's identity (the same stance ledger takes toward
 its TAG rhythm).
+
+³ Informational: `rail`/`anchor` are single-row, stdin-only — CTX renders
+as an inline tinted bar segment (not via `render_context_visual`), and
+there are no activity rows. The `*_visual` hubs are therefore **inert**;
+the defaults document intent. `effort_visual` stays `word` because the
+ordinal pip ramp would double the bar's own colour signal.
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only
@@ -481,6 +568,12 @@ Layouts may apply additional per-segment width gating inside their
 dispatch (e.g. dropping `sparkline` from the spec below a threshold).
 These limits are layout-internal; the user-supplied spec is the
 *target*, not the guarantee.
+
+`rail`/`anchor` are single-row, so there is no height ladder; instead
+they drop cells in priority order (**version → cost → cwd → git →
+effort**) until the row fits — `rail` keeps **model + ctx**, `anchor`
+keeps the **capsule (model) + ctx** — then bypass to flat `none` below
+`min_width` or if even those survivors overflow.
 
 ---
 

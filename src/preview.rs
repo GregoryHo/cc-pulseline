@@ -22,6 +22,8 @@ const PREVIEW_LAYOUTS: &[(LayoutStyle, &str)] = &[
     (LayoutStyle::Budgets, "budgets"),
     (LayoutStyle::Console, "console"),
     (LayoutStyle::Ledger, "ledger"),
+    (LayoutStyle::Rail, "rail"),
+    (LayoutStyle::Anchor, "anchor"),
 ];
 
 const DEFAULT_WIDTH: usize = 140;

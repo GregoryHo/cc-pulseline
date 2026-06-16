@@ -14,8 +14,11 @@
 //! widget dispatch hubs (`render_context_visual`, etc.) shared across
 //! frames.
 
+pub mod anchor;
 pub mod console;
 pub mod ledger;
+pub mod powerline;
+pub mod rail;
 pub mod shared;
 
 use super::pane::LayoutStyle;
@@ -104,6 +107,19 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             quota_visual: "gauge",
             agents_visual: "name+description+model",
             tools_visual: "counts+targets",
+            todo_visual: "text",
+            effort_visual: "word",
+        },
+        // Rail/Anchor are single-row, stdin-only — CTX renders as an inline
+        // tinted segment (not via `render_context_visual`), and there are no
+        // activity rows, so most hubs are inert (like `budgets`). The effort
+        // ramp would double the rail's own colour signal, so effort stays
+        // `word`. See `designs/powerline-rail-anchor.md`.
+        LayoutStyle::Rail | LayoutStyle::Anchor => SegmentVisualDefaults {
+            context_visual: "text",
+            quota_visual: "text",
+            agents_visual: "name",
+            tools_visual: "ticker",
             todo_visual: "text",
             effort_visual: "word",
         },
