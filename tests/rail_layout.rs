@@ -1,52 +1,67 @@
-//! `rail` layout — one connected Powerline bar (height 1, stdin-only).
+//! `rail` v2 — three grouped rows (identity · context · quota).
 //!
-//! Covers the design's Must/Should checks from
-//! `designs/powerline-rail-anchor.md`:
-//! - height 1 from stdin fields only
-//! - exactly one tinted segment in the default fixture (no rainbow)
-//! - seam glyph present in powerline mode, half-block in blocks mode
-//! - ASCII floor has no PUA
-//! - cell-drop order under width pressure (model + ctx survive longest)
-//! - a dirty tree tints only the `~N` modified count
+//! Covers the Must/Should of `designs/rail-anchor-grouped-rows.md`:
+//! - default = 3 rows; quota-less = 2; `max_total_lines = 1` = the v1 fused bar
+//! - anti-rainbow: ZERO left-cell ink flags in a calm fixture; a high fixture
+//!   lights exactly the effort/ctx/git ink flags
+//! - headline column shares an axis across rows
+//! - ink survives the ASCII floor; blocks tier uses half-blocks (no PUA seam)
+//!
+//! Ink detection is precise. An ink flag is a ramp segment (bg = RampLevel::Base
+//! = 256 code 235) whose TEXT fg is a role colour — emitted as `48;5;235m`
+//! immediately followed by the role `38;5` escape. A Powerline seam emits the
+//! opposite order (`38;5` fg then `48;5` bg then a glyph), so a seam can never
+//! match this marker even when it leaks a band colour as a foreground. That is
+//! the soundness fix for the naive `contains(role_colour)` approach.
 
 use cc_pulseline::config::{GlyphMode, LayoutSeams, RenderConfig};
 use cc_pulseline::render::color::{strip_ansi, visible_width};
 use cc_pulseline::render::pane::LayoutStyle;
-use cc_pulseline::types::{RenderFrame, StdinPayload};
+use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload};
 use serde_json::json;
 
 const SEAM_R: char = '\u{e0b0}';
-const SEAM_L: char = '\u{e0b2}';
 const HALF_R: char = '\u{2590}';
 const HALF_L: char = '\u{258c}';
-/// Reverse-video text colour emitted once per tinted segment body.
-const TINT_FG_ESC: &str = "\x1b[38;5;16m";
+const TINT_FG_ESC: &str = "\x1b[38;5;16m"; // every reverse-video fill (head / headline)
+const RAMP_BASE_BG: &str = "\x1b[48;5;235m"; // RampLevel::Base background
 
-fn payload() -> StdinPayload {
-    let input = json!({
-        "session_id": "rail-test",
-        "model": {"display_name": "Opus 4.6"},
-        "version": "2.1.153",
-        "workspace": {"current_dir": "/home/me/cc-pulseline"},
-        "context_window": {"context_window_size": 200000, "used_percentage": 43},
-        "cost": {"total_cost_usd": 3.47}
-    })
-    .to_string();
-    serde_json::from_str(&input).unwrap()
+/// The precise byte signature of an ink-flagged ramp cell: a Base ramp bg
+/// immediately followed by the role-colour fg. Seams can't produce this.
+fn ink_marker(role_escape: &str) -> String {
+    format!("{RAMP_BASE_BG}{role_escape}")
 }
 
-/// Default fixture: effort = high (the one tinted segment), ctx calm (43%),
-/// clean tree.
-fn default_frame() -> RenderFrame {
+fn payload() -> StdinPayload {
+    serde_json::from_str(&json!({"session_id": "rail-v2"}).to_string()).unwrap()
+}
+
+fn frame(effort: &str, ctx: u64, q5: f64, q7: f64, dirty: bool, quota: bool) -> RenderFrame {
     let mut f = RenderFrame::from_payload(&payload());
     f.line1.model = "Opus 4.6".into();
     f.line1.claude_code_version = "2.1.153".into();
     f.line1.project_path = "/home/me/cc-pulseline".into();
     f.line1.git_branch = "main".into();
-    f.line1.effort_level = Some("high".into());
-    f.line3.context_used_percentage = Some(43);
-    f.line3.context_window_size = Some(200000);
+    f.line1.effort_level = Some(effort.into());
+    f.line1.git_dirty = dirty;
+    if dirty {
+        f.line1.git_modified = 2;
+    }
+    f.line3.context_used_percentage = Some(ctx);
+    f.line3.context_window_size = Some(200_000);
     f.line3.total_cost_usd = Some(3.47);
+    f.line3.total_duration_ms = Some(2_700_000);
+    f.line3.input_tokens = Some(12_800);
+    f.line3.output_tokens = Some(24_600);
+    f.line3.cache_read_tokens = Some(68_200);
+    if quota {
+        f.quota = QuotaMetrics {
+            five_hour_pct: Some(q5),
+            five_hour_reset_minutes: Some(119),
+            seven_day_pct: Some(q7),
+            seven_day_reset_minutes: Some(5_760),
+        };
+    }
     f
 }
 
@@ -68,8 +83,8 @@ fn rail_config() -> RenderConfig {
     }
 }
 
-fn render(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    cc_pulseline::render::layout::render_frame(frame, config)
+fn render(f: &RenderFrame, c: &RenderConfig) -> Vec<String> {
+    cc_pulseline::render::layout::render_frame(f, c)
 }
 
 fn has_pua(s: &str) -> bool {
@@ -81,194 +96,252 @@ fn has_pua(s: &str) -> bool {
     })
 }
 
+/// Column where the headline (right cluster) begins = the index just after the
+/// longest run of spaces (the alignment gap). Used to verify the shared axis.
+fn headline_start(row: &str) -> usize {
+    let plain: Vec<char> = strip_ansi(row).chars().collect();
+    let (mut best_end, mut best_len, mut i) = (0usize, 0usize, 0usize);
+    while i < plain.len() {
+        if plain[i] == ' ' {
+            let start = i;
+            while i < plain.len() && plain[i] == ' ' {
+                i += 1;
+            }
+            if i - start >= best_len {
+                best_len = i - start;
+                best_end = i;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    best_end
+}
+
 #[test]
-fn renders_single_row_from_stdin_fields() {
-    let lines = render(&default_frame(), &rail_config());
-    assert_eq!(lines.len(), 1, "rail is height 1");
+fn default_renders_three_grouped_rows() {
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &rail_config());
+    assert_eq!(lines.len(), 3, "identity · context · quota");
+    let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
+    assert!(
+        plain[0].contains("Opus 4.6") && plain[0].contains("$3.47"),
+        "row1: {}",
+        plain[0]
+    );
+    assert!(
+        plain[1].contains("43%") && plain[1].contains("↓12.8k"),
+        "row2: {}",
+        plain[1]
+    );
+    assert!(
+        plain[2].contains("5H") && plain[2].contains("7D"),
+        "row3: {}",
+        plain[2]
+    );
+}
+
+#[test]
+fn quota_less_fixture_renders_two_rows() {
+    let lines = render(&frame("high", 43, 0.0, 0.0, false, false), &rail_config());
+    assert_eq!(
+        lines.len(),
+        2,
+        "no rate-limit data → quota row drops (not blank)"
+    );
+    let joined: String = lines
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("5H") && !joined.contains("7D"),
+        "the dropped row is quota: {joined}"
+    );
+}
+
+#[test]
+fn context_row_drops_cleanly_when_no_api_data() {
+    // Before the first API call: no ctx, no tokens → the context row would be
+    // empty. It must drop, not render a blank line.
+    let mut f = frame("high", 43, 62.0, 41.0, false, true);
+    f.line3.context_used_percentage = None;
+    f.line3.input_tokens = None;
+    f.line3.output_tokens = None;
+    f.line3.cache_read_tokens = None;
+    let lines = render(&f, &rail_config());
+    assert!(
+        lines.iter().all(|l| visible_width(l) > 0),
+        "no blank rows: {lines:?}"
+    );
+    assert!(lines.len() < 3, "the empty context row dropped: {lines:?}");
+}
+
+#[test]
+fn max_total_lines_one_is_the_v1_fused_bar() {
+    let mut config = rail_config();
+    config.max_total_lines = Some(1);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    assert_eq!(lines.len(), 1, "bottom rung is a single fused bar");
     let bar = strip_ansi(&lines[0]);
-    assert!(bar.contains("Opus 4.6"), "model present: {bar}");
-    assert!(bar.contains("43%"), "ctx present: {bar}");
-    assert!(bar.contains("v2.1.153"), "version present: {bar}");
+    for needle in ["Opus 4.6", "43%", "$3.47", "v2.1.153"] {
+        assert!(bar.contains(needle), "fused bar missing {needle}: {bar}");
+    }
 }
 
 #[test]
-fn exactly_one_tinted_segment_in_default_fixture() {
-    let lines = render(&default_frame(), &rail_config());
-    // Each reverse-video (tinted) segment body emits exactly one TINT_FG. In
-    // the default fixture only effort=high crosses threshold → exactly one.
-    let tinted = lines[0].matches(TINT_FG_ESC).count();
-    assert_eq!(
-        tinted, 1,
-        "exactly one tinted segment, no rainbow: {}",
-        lines[0]
-    );
-}
-
-#[test]
-fn calm_session_has_zero_tints() {
-    // effort=low, ctx low, clean tree → the whole bar rides the ramp.
-    let mut f = default_frame();
-    f.line1.effort_level = Some("low".into());
-    f.line3.context_used_percentage = Some(20);
-    let lines = render(&f, &rail_config());
-    assert_eq!(
-        lines[0].matches(TINT_FG_ESC).count(),
-        0,
-        "no tints when calm"
-    );
-}
-
-#[test]
-fn ctx_tints_when_over_threshold() {
-    let mut f = default_frame();
-    f.line1.effort_level = Some("low".into()); // not a signal
-    f.line3.context_used_percentage = Some(72); // crit → tints
-    let lines = render(&f, &rail_config());
-    assert_eq!(
-        lines[0].matches(TINT_FG_ESC).count(),
-        1,
-        "ctx is the lone tint"
-    );
-}
-
-#[test]
-fn seam_glyph_present_in_powerline_mode() {
-    let lines = render(&default_frame(), &rail_config());
-    let s = &lines[0];
-    assert!(
-        s.contains(SEAM_R) || s.contains(SEAM_L),
-        "powerline mode emits a PUA seam glyph"
-    );
-    assert!(
-        !s.contains(HALF_R) && !s.contains(HALF_L),
-        "no half-block in powerline mode"
-    );
-}
-
-#[test]
-fn blocks_mode_uses_half_block_not_seam_glyph() {
+fn max_total_lines_two_keeps_identity_and_context_drops_quota() {
     let mut config = rail_config();
-    config.pane_seams = LayoutSeams::Blocks;
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
+    config.max_total_lines = Some(2);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    assert_eq!(lines.len(), 2);
     assert!(
-        s.contains(HALF_R) || s.contains(HALF_L),
-        "blocks mode emits a unicode half-block: {s}"
+        strip_ansi(&lines[0]).contains("Opus 4.6"),
+        "row0 is identity"
     );
+    assert!(strip_ansi(&lines[1]).contains("43%"), "row1 is context");
+    let joined: String = lines
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
-        !s.contains(SEAM_R) && !s.contains(SEAM_L),
-        "blocks mode emits NO PUA seam glyph"
+        !joined.contains("5H") && !joined.contains("7D"),
+        "quota is the dropped row"
     );
 }
 
 #[test]
-fn ascii_floor_has_no_pua() {
-    let mut config = rail_config();
-    config.glyph_mode = GlyphMode::Ascii; // display.icons = false
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
+fn calm_fixture_has_zero_left_ink_flags() {
+    // effort=low, ctx=40, quota 20/20, clean tree. Headlines (cost, 7d) and the
+    // model head are still filled Tints — by design, NOT a rainbow. The test:
+    // no LEFT cell carries a role-colour ink flag (precise ramp-base marker).
+    let config = rail_config();
+    let p = &config.palette;
+    let s = render(&frame("low", 40, 20.0, 20.0, false, true), &config).join("\n");
     assert!(
-        !has_pua(s),
-        "ASCII floor must contain zero PUA glyphs: {s:?}"
+        !s.contains(&ink_marker(p.color_for_effort_level("high"))),
+        "no effort ink when calm"
     );
-    assert!(s.contains(" | "), "ASCII floor joins cells with ` | `");
-    assert!(s.contains("M:"), "ASCII floor uses ascii label prefixes");
+    assert!(
+        !s.contains(&ink_marker(p.color_for_ctx_pct(72))),
+        "no ctx ink when calm"
+    );
+    assert!(
+        !s.contains(&ink_marker(&p.alert_orange)),
+        "no git ink when clean"
+    );
+    assert!(
+        s.contains(TINT_FG_ESC),
+        "headline/head fills are always present"
+    );
 }
 
 #[test]
-fn no_color_floor_drops_fills_and_seams() {
-    let mut config = rail_config();
-    config.color_enabled = false;
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
+fn high_fixture_lights_exactly_the_threshold_flags() {
+    // effort=high, ctx=72 (crit), dirty → effort/ctx/git ink flags all light.
+    let config = rail_config();
+    let p = &config.palette;
+    let s = render(&frame("high", 72, 30.0, 90.0, true, true), &config).join("\n");
     assert!(
-        !s.contains("\x1b[48;5;"),
-        "no background fills without colour"
+        s.contains(&ink_marker(p.color_for_effort_level("high"))),
+        "effort ink lights at high"
     );
     assert!(
-        !s.contains(SEAM_R) && !s.contains(SEAM_L),
-        "no seam glyphs in the floor"
+        s.contains(&ink_marker(p.color_for_ctx_pct(72))),
+        "ctx ink lights past threshold"
     );
-    assert!(s.contains(" | "), "collapses to the ` | ` separator floor");
+    assert!(
+        s.contains(&ink_marker(&p.alert_orange)),
+        "git ink lights when dirty"
+    );
 }
 
 #[test]
-fn seam_string_visible_width_fits_terminal() {
-    // The new escape shapes (48;5 bg, mid-row resets, fg+bg seam pairs) must
-    // still measure correctly via strip_ansi so width math holds.
+fn tokens_headline_is_not_tinted() {
+    // Row 2's headline (tokens) has no band → stays ramp; the values render as
+    // plain text, never a reverse-video fill.
+    let config = rail_config();
+    let plain = strip_ansi(&render(&frame("low", 40, 20.0, 20.0, false, true), &config)[1]);
+    assert!(
+        plain.contains("↓12.8k ↑24.6k"),
+        "tokens render as text: {plain}"
+    );
+}
+
+#[test]
+fn headline_column_shares_an_axis_across_rows() {
     let mut config = rail_config();
     config.terminal_width = Some(120);
-    let lines = render(&default_frame(), &config);
-    let w = visible_width(&lines[0]);
-    assert!(w <= 116, "bar fits the cc-margin-adjusted width (got {w})");
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    assert_eq!(lines.len(), 3);
+    let starts: Vec<usize> = lines.iter().map(|l| headline_start(l)).collect();
+    assert!(
+        starts.iter().all(|&c| c == starts[0]),
+        "headline left-edges align on a shared axis: {starts:?}"
+    );
 }
 
 #[test]
-fn narrow_width_drops_version_first_keeps_model_and_ctx() {
+fn ink_survives_the_ascii_floor() {
     let mut config = rail_config();
-    config.terminal_width = Some(70); // forces a few drops, still > min_width
-    let lines = render(&default_frame(), &config);
-    assert_eq!(lines.len(), 1, "still one row");
-    let bar = strip_ansi(&lines[0]);
-    assert!(bar.contains("Opus 4.6"), "model never drops: {bar}");
-    assert!(bar.contains("43%"), "ctx never drops: {bar}");
+    config.glyph_mode = GlyphMode::Ascii;
+    let p = config.palette.clone();
+    let s = render(&frame("high", 72, 30.0, 90.0, true, true), &config).join("\n");
+    assert!(!has_pua(&s), "ASCII floor has zero PUA: {s:?}");
     assert!(
-        !bar.contains("v2.1.153"),
-        "version drops first under pressure: {bar}"
+        !s.contains("\x1b[48;5;"),
+        "no background fills in the floor"
     );
+    // No seams in the floor, so a role fg can only come from an ink flag.
+    assert!(
+        s.contains(p.color_for_ctx_pct(72)),
+        "ctx ink survives as fg"
+    );
+    assert!(
+        s.contains(p.alert_orange.as_str()),
+        "git ink survives as fg"
+    );
+}
+
+#[test]
+fn blocks_tier_uses_half_block_not_seam_glyph() {
+    let mut config = rail_config();
+    config.pane_seams = LayoutSeams::Blocks;
+    let s = render(&frame("high", 43, 62.0, 41.0, false, true), &config).join("\n");
+    assert!(
+        s.contains(HALF_R) || s.contains(HALF_L),
+        "blocks emits half-blocks"
+    );
+    assert!(!s.contains(SEAM_R), "blocks emits no PUA seam glyph");
 }
 
 #[test]
 fn below_min_width_falls_back_to_flat() {
     let mut config = rail_config();
     config.terminal_width = Some(40); // < pane_min_width (60) after margin
-    let lines = render(&default_frame(), &config);
-    // Flat `none` renders multiple rows and never emits the rail's bg fills.
-    let joined = lines.join("\n");
+    let s = render(&frame("high", 43, 62.0, 41.0, false, true), &config).join("\n");
     assert!(
-        !joined.contains("\x1b[48;5;241m"),
-        "no rail ramp fill in fallback"
+        !s.contains("\x1b[48;5;"),
+        "flat fallback has no powerline bg fills"
     );
-    assert!(lines.len() >= 2, "flat fallback renders >1 row: {lines:?}");
 }
 
 #[test]
-fn dirty_tree_tints_only_the_modified_count() {
-    let mut f = default_frame();
-    f.line1.git_modified = 2;
-    f.line1.git_added = 1;
-    let config = rail_config();
-    let lines = render(&f, &config);
-    let s = &lines[0];
-    // git stays a ramp segment (not a reverse-video tint): the tint count is
-    // unchanged — still just effort.
-    assert_eq!(
-        s.matches(TINT_FG_ESC).count(),
-        1,
-        "git dirtiness adds no tinted segment"
-    );
-    // The `~2` modified count is painted alert_orange; the branch is not.
-    let orange = &config.palette.alert_orange;
+fn narrow_width_drops_identity_cells_to_fit() {
+    // A width above min_width but below the natural row width forces per-row
+    // cell-drop (version first); the row must end up within budget.
+    let mut config = rail_config();
+    config.terminal_width = Some(80);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    for l in &lines {
+        assert!(
+            visible_width(l) <= 76,
+            "row fits the cc-margin-adjusted width: {}",
+            visible_width(l)
+        );
+    }
     assert!(
-        s.contains(&format!("{orange}~2")),
-        "modified count tints alert_orange"
-    );
-    let bar = strip_ansi(s);
-    assert!(bar.contains("main"), "branch text present (on the ramp)");
-    assert!(bar.contains("+1"), "staged count present");
-}
-
-#[test]
-fn all_absent_fields_renders_one_row() {
-    // Only a session id — every optional field is None. The bar stays height 1
-    // with no panic and no stray seam from a missing cell.
-    let input = json!({ "session_id": "x" }).to_string();
-    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
-    let frame = RenderFrame::from_payload(&payload);
-    let lines = render(&frame, &rail_config());
-    assert_eq!(
-        lines.len(),
-        1,
-        "rail returns one row even with all fields absent"
+        strip_ansi(&lines[0]).contains("Opus 4.6"),
+        "model never drops"
     );
 }

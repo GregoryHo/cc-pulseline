@@ -630,11 +630,7 @@ fn cache_row_body(
 
 fn cost_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
     let total = line3.total_cost_usd.unwrap_or(0.0);
-    let per_hour = line3
-        .total_duration_ms
-        .filter(|d| *d > 0)
-        .map(|d| total / ((d as f64) / 3_600_000.0))
-        .unwrap_or(0.0);
+    let per_hour = crate::render::fmt::burn_rate_per_hour(total, line3.total_duration_ms);
     let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color);
     let rate_color = p.color_for_burn_rate(per_hour);
     let rate_str = colorize(&format!("${per_hour:.2}/h"), rate_color, color);

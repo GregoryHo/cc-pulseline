@@ -91,12 +91,20 @@ pub enum Fill {
 
 /// One bar cell. `icon` is the MD glyph (Icon tiers); `ascii` is the
 /// floor-mode prefix (e.g. `"M:"`); `text` is the value.
+///
+/// `fill` is the background (ramp gray or reverse-video tint). `ink` is an
+/// independent **text** channel: a ramp segment can paint its glyphs a
+/// render-role colour (a mid-bar state flag — dirty branch, effort band, ctx
+/// threshold) while keeping its quiet gray bg. `ink` is ignored on a `Tint`
+/// (a fill already owns its fg). This generalises v1's hand-spliced orange
+/// `~N` escape into a first-class field.
 #[derive(Debug, Clone)]
 pub struct Segment {
     pub icon: &'static str,
     pub ascii: &'static str,
     pub text: String,
     pub fill: Fill,
+    pub ink: Option<u8>,
 }
 
 impl Segment {
@@ -111,6 +119,24 @@ impl Segment {
             ascii,
             text: text.into(),
             fill: Fill::Ramp(lvl),
+            ink: None,
+        }
+    }
+    /// A ramp segment that flags its text in a render-role colour while
+    /// keeping the gray bg (the `ink` channel). `ink_code` is a 256 index.
+    pub fn ramp_ink(
+        icon: &'static str,
+        ascii: &'static str,
+        text: impl Into<String>,
+        lvl: RampLevel,
+        ink_code: u8,
+    ) -> Self {
+        Segment {
+            icon,
+            ascii,
+            text: text.into(),
+            fill: Fill::Ramp(lvl),
+            ink: Some(ink_code),
         }
     }
     pub fn tint(
@@ -124,6 +150,7 @@ impl Segment {
             ascii,
             text: text.into(),
             fill: Fill::Tint(code),
+            ink: None,
         }
     }
     pub fn is_tinted(&self) -> bool {
@@ -162,19 +189,28 @@ fn seg_bg(seg: &Segment) -> u8 {
 
 fn seg_fg(seg: &Segment, palette: &ThemePalette) -> u8 {
     match seg.fill {
-        Fill::Ramp(RampLevel::High) => idx(&palette.primary, 252),
-        Fill::Ramp(_) => idx(&palette.secondary, 250),
+        // A fill owns its fg (reverse-video) — `ink` is ignored on a Tint.
         Fill::Tint(_) => TINT_FG,
+        // Ramp: an `ink` flag (if present) wins over the plain text tier.
+        Fill::Ramp(level) => seg.ink.unwrap_or(match level {
+            RampLevel::High => idx(&palette.primary, 252),
+            _ => idx(&palette.secondary, 250),
+        }),
     }
 }
 
-/// Foreground escape for a cell in the ASCII floor (no fills): tints show in
-/// the role colour, ramp cells in their text tier.
+/// Foreground escape for a cell in the ASCII floor (no fills): tints and `ink`
+/// flags show in the role colour, plain ramp cells in their text tier.
 fn ascii_fg(seg: &Segment, palette: &ThemePalette) -> String {
     match seg.fill {
-        Fill::Ramp(RampLevel::High) => palette.primary.clone(),
-        Fill::Ramp(_) => palette.secondary.clone(),
         Fill::Tint(c) => fg_code(c),
+        Fill::Ramp(level) => match seg.ink {
+            Some(c) => fg_code(c),
+            None => match level {
+                RampLevel::High => palette.primary.clone(),
+                _ => palette.secondary.clone(),
+            },
+        },
     }
 }
 
@@ -309,10 +345,33 @@ fn ascii_bar(
 /// Render a two-cluster Powerline bar into one row. The left cluster runs
 /// identity → pressure; the right cluster (pushed toward the far edge when
 /// `target_width` is known) has its seams pointing inward at the middle gap.
+/// Visible width of a rendered right cluster — used to derive the shared
+/// headline-column width across rows. Zero in the ASCII floor (no
+/// right-justification there). Never a literal: callers take the max.
+pub fn right_cluster_width(
+    right: &[Segment],
+    tier: SeamTier,
+    mode: GlyphMode,
+    palette: &ThemePalette,
+) -> usize {
+    if tier == SeamTier::AsciiFloor {
+        return 0;
+    }
+    visible_width(&emit_right_cluster(right, tier, mode, palette))
+}
+
+/// Render a two-cluster bar. `headline_width`, when `Some(hc)`, reserves a
+/// fixed right-edge column of width `hc` so the right cluster's left edge sits
+/// at `target - hc` on every row that shares the axis (the headline column).
+/// `None` is v1 behaviour: the gap is derived from this row's own widths.
+// The four trailing params are the render context (tier/mode/color/palette);
+// splitting them into a struct would obscure more than it clarifies here.
+#[allow(clippy::too_many_arguments)]
 pub fn render_bar(
     left: &[Segment],
     right: &[Segment],
     target_width: Option<usize>,
+    headline_width: Option<usize>,
     tier: SeamTier,
     mode: GlyphMode,
     color: bool,
@@ -326,11 +385,19 @@ pub fn render_bar(
     if right_str.is_empty() {
         return left_str;
     }
-    let used = visible_width(&left_str) + visible_width(&right_str);
-    let gap = target_width
-        .map(|w| w.saturating_sub(used))
-        .filter(|p| *p >= 2)
-        .unwrap_or(2);
+    let left_w = visible_width(&left_str);
+    let gap = match headline_width {
+        // Shared headline axis: right cluster's left edge at target - hc.
+        Some(hc) => target_width
+            .map(|w| w.saturating_sub(hc).saturating_sub(left_w))
+            .filter(|p| *p >= 1)
+            .unwrap_or(1),
+        // v1 behaviour, byte-identical: gap from this row's own widths.
+        None => target_width
+            .map(|w| w.saturating_sub(left_w + visible_width(&right_str)))
+            .filter(|p| *p >= 2)
+            .unwrap_or(2),
+    };
     format!("{left_str}{}{right_str}", " ".repeat(gap))
 }
 

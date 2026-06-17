@@ -1,48 +1,61 @@
-//! `anchor` layout — hero capsule + dim trail (height 1, stdin-only).
+//! `anchor` v2 — three grouped capsule+trail rows.
 //!
-//! Covers the design's Must/Should checks from
-//! `designs/powerline-rail-anchor.md`:
-//! - height 1 from stdin fields only
-//! - a reverse-video capsule (model) + a dim trail
-//! - exactly one trail item lights up (shape = identity, colour = state)
-//! - ASCII floor degrades the capsule to `[model]`, no PUA
-//! - blocks mode swaps the caps for half-blocks (no PUA seam)
+//! Covers the Must/Should of `designs/rail-anchor-grouped-rows.md`:
+//! - default = 3 rows; quota-less = 2; `max_total_lines = 1` = the v1 single bar
+//! - rounded capsule heroes (always filled); row 2 carries the shipped gauge
+//! - trail flags (effort / git) light only past threshold (anti-rainbow)
+//! - ` ❯ ` (PL_TICK) trail separator in Powerline, ` · ` in the ASCII floor
+//! - capsule degrades to `[model]`, no PUA; blocks tier uses half-blocks
+//!
+//! Flag detection is precise: a lit trail flag is `38;5;<role>` immediately
+//! followed by the cell's icon glyph. A capsule cap also emits a role colour as
+//! fg, but followed by a CAP glyph — never the cell icon — so the marker can't
+//! false-match a cap leak.
 
 use cc_pulseline::config::{GlyphMode, LayoutSeams, RenderConfig};
 use cc_pulseline::render::color::strip_ansi;
+use cc_pulseline::render::icons::{ICON_EFFORT, ICON_GIT};
 use cc_pulseline::render::pane::LayoutStyle;
-use cc_pulseline::types::{RenderFrame, StdinPayload};
+use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload};
 use serde_json::json;
 
 const SEAM_R: char = '\u{e0b0}';
-const SEAM_L: char = '\u{e0b2}';
+const CAP_ROUND_L: char = '\u{e0b6}';
+const PL_TICK: char = '\u{e0b1}';
 const HALF_R: char = '\u{2590}';
 const HALF_L: char = '\u{258c}';
-const TINT_FG_ESC: &str = "\x1b[38;5;16m"; // reverse-video capsule text
+const TINT_FG_ESC: &str = "\x1b[38;5;16m"; // reverse-video capsule body
 
 fn payload() -> StdinPayload {
-    let input = json!({
-        "session_id": "anchor-test",
-        "model": {"display_name": "Opus 4.6"},
-        "version": "2.1.153",
-        "workspace": {"current_dir": "/home/me/cc-pulseline"},
-        "context_window": {"context_window_size": 200000, "used_percentage": 43},
-        "cost": {"total_cost_usd": 3.47}
-    })
-    .to_string();
-    serde_json::from_str(&input).unwrap()
+    serde_json::from_str(&json!({"session_id": "anchor-v2"}).to_string()).unwrap()
 }
 
-fn default_frame() -> RenderFrame {
+fn frame(effort: &str, ctx: u64, q5: f64, q7: f64, dirty: bool, quota: bool) -> RenderFrame {
     let mut f = RenderFrame::from_payload(&payload());
     f.line1.model = "Opus 4.6".into();
     f.line1.claude_code_version = "2.1.153".into();
     f.line1.project_path = "/home/me/cc-pulseline".into();
     f.line1.git_branch = "main".into();
-    f.line1.effort_level = Some("high".into());
-    f.line3.context_used_percentage = Some(43);
-    f.line3.context_window_size = Some(200000);
+    f.line1.effort_level = Some(effort.into());
+    f.line1.git_dirty = dirty;
+    if dirty {
+        f.line1.git_modified = 2;
+    }
+    f.line3.context_used_percentage = Some(ctx);
+    f.line3.context_window_size = Some(200_000);
     f.line3.total_cost_usd = Some(3.47);
+    f.line3.total_duration_ms = Some(2_700_000);
+    f.line3.input_tokens = Some(12_800);
+    f.line3.output_tokens = Some(24_600);
+    f.line3.cache_read_tokens = Some(68_200);
+    if quota {
+        f.quota = QuotaMetrics {
+            five_hour_pct: Some(q5),
+            five_hour_reset_minutes: Some(119),
+            seven_day_pct: Some(q7),
+            seven_day_reset_minutes: Some(5_760),
+        };
+    }
     f
 }
 
@@ -64,8 +77,8 @@ fn anchor_config() -> RenderConfig {
     }
 }
 
-fn render(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
-    cc_pulseline::render::layout::render_frame(frame, config)
+fn render(f: &RenderFrame, c: &RenderConfig) -> Vec<String> {
+    cc_pulseline::render::layout::render_frame(f, c)
 }
 
 fn has_pua(s: &str) -> bool {
@@ -77,167 +90,188 @@ fn has_pua(s: &str) -> bool {
     })
 }
 
-#[test]
-fn renders_single_row_with_capsule_and_trail() {
-    let lines = render(&default_frame(), &anchor_config());
-    assert_eq!(lines.len(), 1, "anchor is height 1");
-    let plain = strip_ansi(&lines[0]);
-    assert!(plain.contains("Opus 4.6"), "hero model present: {plain}");
-    assert!(plain.contains("43%"), "trail ctx present: {plain}");
-    assert!(plain.contains(" · "), "trail joined by ` · `");
+/// A lit trail flag: the role fg escape immediately followed by the cell icon.
+fn flag_marker(role_escape: &str, icon: &str) -> String {
+    format!("{role_escape}{icon}")
 }
 
 #[test]
-fn capsule_is_reverse_video_with_caps() {
-    let lines = render(&default_frame(), &anchor_config());
-    let s = &lines[0];
+fn default_renders_three_capsule_rows() {
+    let lines = render(
+        &frame("high", 43, 62.0, 41.0, false, true),
+        &anchor_config(),
+    );
+    assert_eq!(lines.len(), 3);
+    let plain: Vec<String> = lines.iter().map(|l| strip_ansi(l)).collect();
+    assert!(plain[0].contains("Opus 4.6"), "row1 hero: {}", plain[0]);
+    assert!(
+        plain[1].contains("CTX 43%") && plain[1].contains("in 12.8k"),
+        "row2: {}",
+        plain[1]
+    );
+    assert!(
+        plain[2].contains("5H 62%") && plain[2].contains("7D 41%"),
+        "row3: {}",
+        plain[2]
+    );
+}
+
+#[test]
+fn quota_less_fixture_renders_two_rows() {
+    let lines = render(&frame("high", 43, 0.0, 0.0, false, false), &anchor_config());
+    assert_eq!(lines.len(), 2);
+    let joined: String = lines
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("5H") && !joined.contains("7D"),
+        "the dropped row is quota"
+    );
+}
+
+#[test]
+fn context_row_drops_cleanly_when_no_api_data() {
+    let mut f = frame("high", 43, 62.0, 41.0, false, true);
+    f.line3.context_used_percentage = None;
+    let lines = render(&f, &anchor_config());
+    assert!(
+        lines.iter().all(|l| !l.is_empty()),
+        "no blank rows: {lines:?}"
+    );
+    assert!(lines.len() < 3, "the empty context row dropped: {lines:?}");
+}
+
+#[test]
+fn max_total_lines_one_is_single_capsule_bar() {
+    let mut config = anchor_config();
+    config.max_total_lines = Some(1);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    assert_eq!(lines.len(), 1);
+    let bar = strip_ansi(&lines[0]);
+    assert!(
+        bar.contains("Opus 4.6") && bar.contains("43%"),
+        "fused capsule bar: {bar}"
+    );
+}
+
+#[test]
+fn max_total_lines_two_keeps_identity_and_context() {
+    let mut config = anchor_config();
+    config.max_total_lines = Some(2);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    assert_eq!(lines.len(), 2);
+    assert!(strip_ansi(&lines[1]).contains("CTX 43%"), "row1 is context");
+    let joined: String = lines
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!joined.contains("5H 62%"), "quota is the dropped row");
+}
+
+#[test]
+fn capsules_are_rounded_and_filled() {
+    let s = render(
+        &frame("high", 43, 62.0, 41.0, false, true),
+        &anchor_config(),
+    )
+    .join("\n");
+    assert!(
+        s.contains(CAP_ROUND_L),
+        "v2 anchors with rounded caps (e0b6)"
+    );
+    assert!(
+        !s.contains(SEAM_R),
+        "rounded caps, not the angled rail seam"
+    );
     assert!(
         s.contains(TINT_FG_ESC),
-        "capsule body is reverse-video (term-bg text)"
-    );
-    assert!(
-        s.contains(SEAM_L) || s.contains(SEAM_R),
-        "angled caps use Powerline cap glyphs"
+        "capsule body is reverse-video (always filled)"
     );
 }
 
 #[test]
-fn exactly_one_trail_item_lights_up() {
-    // Default fixture: effort=high (lights), ctx=43% calm (dim), clean tree.
-    // Isolation, not presence: the effort role colour appears exactly once and
-    // NO other signal colour (ctx warn/crit, git orange) appears at all.
+fn row_two_carries_the_shipped_gauge() {
+    let plain = strip_ansi(
+        &render(
+            &frame("high", 43, 62.0, 41.0, false, true),
+            &anchor_config(),
+        )[1],
+    );
+    assert!(
+        plain.contains('▰') || plain.contains('─') || plain.contains('·'),
+        "context row reuses widgets::gauge: {plain}"
+    );
+}
+
+#[test]
+fn trail_separator_is_pl_tick_in_powerline() {
+    let s = render(
+        &frame("high", 43, 62.0, 41.0, false, true),
+        &anchor_config(),
+    )
+    .join("\n");
+    assert!(s.contains(PL_TICK), "powerline trail uses the thin tick");
+}
+
+#[test]
+fn calm_fixture_has_no_lit_trail_flags() {
     let config = anchor_config();
     let p = &config.palette;
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
-    let effort_color = p.color_for_effort_level("high");
-    assert_eq!(
-        s.matches(effort_color).count(),
-        1,
-        "effort=high is the single lit trail item: {s}"
-    );
-    // ctx is calm and the tree is clean → neither lights up.
+    let s = render(&frame("low", 40, 20.0, 20.0, false, true), &config).join("\n");
     assert!(
-        !s.contains(p.color_for_ctx_pct(72)),
-        "calm ctx does not use a ctx signal colour"
+        !s.contains(&flag_marker(p.color_for_effort_level("high"), ICON_EFFORT)),
+        "no effort flag when calm"
     );
     assert!(
-        !s.contains(p.alert_orange.as_str()),
-        "clean tree does not light the git count"
+        !s.contains(&flag_marker(&p.alert_orange, ICON_GIT)),
+        "no git flag when clean"
     );
+    assert!(s.contains(TINT_FG_ESC), "capsule heroes are still filled");
 }
 
 #[test]
-fn second_signal_lights_only_when_its_state_crosses() {
-    // Pushing ctx over threshold adds a second lit item — proving the test
-    // above isn't tautological (the rule is `tint ⟺ threshold crossed`).
-    let mut f = default_frame();
-    f.line3.context_used_percentage = Some(72); // crit → lights
+fn high_fixture_lights_the_trail_flags() {
     let config = anchor_config();
-    let s = &render(&f, &config)[0];
+    let p = &config.palette;
+    let s = render(&frame("high", 72, 30.0, 90.0, true, true), &config).join("\n");
     assert!(
-        s.contains(config.palette.color_for_ctx_pct(72)),
-        "ctx over threshold now lights in its crit colour: {s}"
+        s.contains(&flag_marker(p.color_for_effort_level("high"), ICON_EFFORT)),
+        "effort flag lights at high"
+    );
+    assert!(
+        s.contains(&flag_marker(&p.alert_orange, ICON_GIT)),
+        "git flag lights when dirty"
     );
 }
 
 #[test]
-fn ascii_floor_capsule_is_bracketed_no_pua() {
+fn ascii_floor_brackets_capsule_no_pua() {
     let mut config = anchor_config();
     config.glyph_mode = GlyphMode::Ascii;
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
-    assert!(!has_pua(s), "ASCII floor has zero PUA: {s:?}");
-    let plain = strip_ansi(s);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    let s = lines.join("\n");
+    assert!(!has_pua(&s), "ASCII floor has zero PUA: {s:?}");
     assert!(
-        plain.contains("[Opus 4.6]"),
-        "capsule degrades to [model]: {plain}"
+        strip_ansi(&lines[0]).contains("[Opus 4.6]"),
+        "capsule degrades to [model]"
     );
+    assert!(s.contains(" · "), "trail separator degrades to a middot");
 }
 
 #[test]
-fn blocks_mode_caps_are_half_blocks_no_seam_glyph() {
+fn blocks_tier_uses_half_block_caps() {
     let mut config = anchor_config();
     config.pane_seams = LayoutSeams::Blocks;
-    let lines = render(&default_frame(), &config);
-    let s = &lines[0];
+    let s = render(&frame("high", 43, 62.0, 41.0, false, true), &config).join("\n");
     assert!(
         s.contains(HALF_R) || s.contains(HALF_L),
-        "blocks caps are half-blocks: {s}"
+        "blocks caps are half-blocks"
     );
     assert!(
-        !s.contains(SEAM_L) && !s.contains(SEAM_R),
-        "blocks mode emits no PUA cap glyph"
-    );
-}
-
-#[test]
-fn dirty_tree_lights_only_the_modified_count() {
-    let mut f = default_frame();
-    f.line1.effort_level = Some("low".into()); // remove the effort signal
-    f.line1.git_modified = 3;
-    let config = anchor_config();
-    let p = &config.palette;
-    let lines = render(&f, &config);
-    let s = &lines[0];
-    // Isolation: orange appears exactly once (the `~3`), not on the branch.
-    assert_eq!(
-        s.matches(p.alert_orange.as_str()).count(),
-        1,
-        "alert_orange lights only the modified count, not the branch: {s}"
-    );
-    assert!(
-        s.contains(&format!("{} ~3", p.alert_orange)),
-        "the lit fragment is the `~3` count"
-    );
-    // effort is low and ctx is calm → no other trail item lights.
-    assert!(
-        !s.contains(p.color_for_effort_level("high")),
-        "low effort stays dim"
-    );
-    assert!(!s.contains(p.color_for_ctx_pct(72)), "calm ctx stays dim");
-}
-
-#[test]
-fn all_absent_fields_renders_one_row() {
-    // Payload with only a session id — every optional field is None. The row
-    // must stay height 1 with no panic, no empty capsule, no double seam.
-    let input = json!({ "session_id": "x" }).to_string();
-    let payload: StdinPayload = serde_json::from_str(&input).unwrap();
-    let frame = RenderFrame::from_payload(&payload);
-    let lines = render(&frame, &anchor_config());
-    assert_eq!(
-        lines.len(),
-        1,
-        "anchor returns one row even with all fields absent"
-    );
-}
-
-#[test]
-fn below_min_width_falls_back_to_flat() {
-    let mut config = anchor_config();
-    config.terminal_width = Some(40); // < pane_min_width (60) after margin
-    let lines = render(&default_frame(), &config);
-    assert!(
-        lines.len() >= 2,
-        "narrow terminal bypasses to flat `none`: {lines:?}"
-    );
-}
-
-#[test]
-fn narrow_width_drops_trail_keeps_capsule_and_ctx() {
-    let mut config = anchor_config();
-    config.terminal_width = Some(72); // forces trail drops, still > min_width
-    let lines = render(&default_frame(), &config);
-    assert_eq!(lines.len(), 1, "still one row");
-    let plain = strip_ansi(&lines[0]);
-    assert!(
-        plain.contains("Opus 4.6"),
-        "capsule (hero) never drops: {plain}"
-    );
-    assert!(plain.contains("43%"), "ctx (signal) never drops: {plain}");
-    assert!(
-        !plain.contains("v2.1.153"),
-        "version trail item drops first: {plain}"
+        !s.contains(SEAM_R) && !s.contains(CAP_ROUND_L),
+        "no PUA cap glyphs in blocks"
     );
 }

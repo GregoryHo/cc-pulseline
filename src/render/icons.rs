@@ -48,6 +48,7 @@ pub const SEAM_R: &str = "\u{e0b0}"; //  right-pointing seam (left cluster)
 pub const SEAM_L: &str = "\u{e0b2}"; //  left-pointing seam (right cluster)
 pub const CAP_ROUND_L: &str = "\u{e0b6}"; //  rounded left cap (anchor capsule)
 pub const CAP_ROUND_R: &str = "\u{e0b4}"; //  rounded right cap (anchor capsule)
+pub const PL_TICK: &str = "\u{e0b1}"; //  powerline thin separator (anchor trail)
 
 // Frame-corner constants for test assertions (tests/console_layout.rs).
 // The actual frame chrome — full corner/edge/junction set with Ascii

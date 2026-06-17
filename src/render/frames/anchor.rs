@@ -1,220 +1,338 @@
-//! `anchor` — hero capsule + dim trail (height 1, stdin-only).
+//! `anchor` v2 — three grouped capsule+trail rows (identity · context · quota).
 //!
-//! One reverse-video **capsule** (angled Powerline caps) anchors the line by
-//! silhouette; the remaining fields trail as dim text. Two orthogonal
-//! channels: **shape = identity, colour = state.** They don't compete, so the
-//! capsule is a stable identity colour *and* the trail can still flash one
-//! signal.
+//! Each row leads with a banded **capsule hero** (`render_capsule`,
+//! `CapStyle::Round` — the canonical capsule silhouette; `rail` keeps angled
+//! seams, the contrast is intentional) and trails as dim text where state
+//! flags light in their role colour. Two channels, no competition: shape (the
+//! capsule) = the row's subject; colour = state. The capsule is always filled;
+//! only trail flags light up.
 //!
-//! - **Hero** = `model.display_name` (capsule body = the model role colour,
-//!   text = reverse-video).
-//! - **Trail** = `effort · cwd · git · ctx · cost · version`, joined by ` · `
-//!   in the structural tier. Every item is dim **except** the one whose state
-//!   crosses threshold (same tinting rule as `rail`), which renders in its
-//!   full render-role colour.
+//! Trail separator: ` ❯ ` (`PL_TICK`) in the Powerline tier; ` · ` (structural)
+//! in Blocks / AsciiFloor. Row 2 carries an inline gauge — the shipped
+//! `widgets::gauge` (one gauge dialect across the product).
 //!
-//! Owns its full pipeline (dispatched from `layout::render_frame`). Single row,
-//! so no height ladder; under width pressure trail cells drop in priority order
-//! (version → cost → cwd → git → effort — the capsule + ctx survive longest),
-//! then it bypasses to flat `none` below `min_width`. See
-//! `designs/powerline-rail-anchor.md`.
+//! Height ladder (reuses `max_total_lines`): 3 rows → 2 (drop quota) → the v1
+//! single capsule+trail bar. Quota drops when `!quota.has_data()`. See
+//! `designs/rail-anchor-grouped-rows.md`.
 
 use crate::config::RenderConfig;
 use crate::render::color::{colorize, extract_ansi_code, visible_width, ThemePalette};
-use crate::render::frames::powerline::{self, CapStyle};
+use crate::render::fmt::{format_number, format_reset_duration};
+use crate::render::frames::powerline::{self, CapStyle, SeamTier};
 use crate::render::icons::{
-    glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_VERSION,
+    glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA, PL_TICK,
 };
 use crate::render::layout;
 use crate::render::pane::LayoutStyle;
+use crate::render::widgets::gauge;
 use crate::types::{Line1Metrics, RenderFrame};
 
-/// CTX tints at/above this percentage (first `ctx_marks()` mark).
+// The capsule hero is always filled with its band colour (quota included), so
+// anchor has no left-flag threshold for quota — only ctx in the fused rung.
 const CTX_TINT_AT: u64 = 55;
+const GAUGE_WIDTH: usize = 14;
 
-/// Droppable trail cells, in the order they shed under width pressure. The
-/// capsule (model) and ctx (the live signal) are never dropped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrailCell {
-    Version,
-    Cost,
-    Cwd,
-    Git,
-    Effort,
+fn code(escape: &str) -> u8 {
+    extract_ansi_code(escape).unwrap_or(0)
 }
 
-const TRAIL_DROP_ORDER: [TrailCell; 5] = [
-    TrailCell::Version,
-    TrailCell::Cost,
-    TrailCell::Cwd,
-    TrailCell::Git,
-    TrailCell::Effort,
-];
-
 pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette) -> Vec<String> {
-    // Below min_width a single dense line can't read — bypass to flat `none`.
     if let Some(w) = config.terminal_width {
         if w < config.pane_min_width {
             return fallback_to_none(frame, config);
         }
     }
 
-    let l1 = &frame.line1;
-    let tier = powerline::tier(config);
-    let mode = config.glyph_mode;
-    let color = config.color_enabled;
+    let budget = config.max_total_lines.unwrap_or(3).max(1);
+    if budget == 1 {
+        return vec![build_fused_row(frame, config, palette)];
+    }
 
-    // Capsule = model. Built once — it never drops (it's the hero silhouette).
-    let capsule = if config.show_model && !l1.model.is_empty() {
-        let bg = extract_ansi_code(&palette.stable_blue).unwrap_or(111);
-        powerline::render_capsule(
-            ICON_MODEL,
-            &l1.model,
-            bg,
-            tier,
-            CapStyle::Angle,
-            mode,
-            color,
-        )
+    let mut rows: Vec<String> = vec![
+        row_identity(frame, config, palette),
+        row_context(frame, config, palette),
+    ];
+    if budget >= 3 && frame.quota.has_data() {
+        rows.push(row_quota(frame, config, palette));
+    }
+    // Drop blank rows (e.g. context before the first API call) — never emit an
+    // empty line; the row simply isn't there, like the lazy quota row.
+    rows.retain(|r| visible_width(r) > 0);
+    rows
+}
+
+// ── Trail plumbing ──────────────────────────────────────────────────────────
+
+/// The trail separator for the active tier: powerline thin tick, else a
+/// structural middot. Coloured structural either way.
+fn trail_sep(tier: SeamTier, palette: &ThemePalette, color: bool) -> String {
+    let glyph = if tier == SeamTier::Powerline {
+        format!(" {PL_TICK} ")
+    } else {
+        " · ".to_string()
+    };
+    colorize(&glyph, &palette.structural, color)
+}
+
+/// A dim (or flag-lit) trail text cell.
+fn cell(
+    icon: &'static str,
+    text: &str,
+    lit: Option<&str>,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+) -> String {
+    let body = format!("{}{}", glyph(config.glyph_mode, icon, ""), text);
+    let fg = lit.unwrap_or(&palette.structural);
+    colorize(&body, fg, config.color_enabled)
+}
+
+/// Assemble a row (capsule + dim trail), dropping trailing trail cells under
+/// width pressure until it fits the terminal. The capsule (the hero) always
+/// survives; the trail sheds from the end.
+fn assemble(
+    capsule: &str,
+    mut trail: Vec<String>,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+) -> String {
+    let tier = powerline::tier(config);
+    let color = config.color_enabled;
+    loop {
+        let mut out = String::from(capsule);
+        if !trail.is_empty() {
+            if !out.is_empty() {
+                out.push_str("  ");
+            }
+            out.push_str(&trail.join(&trail_sep(tier, palette, color)));
+        }
+        match config.terminal_width {
+            None => return out,
+            Some(w) if visible_width(&out) <= w => return out,
+            // Too wide: shed the lowest-priority (trailing) trail cell; if the
+            // trail is exhausted, render the capsule as-is.
+            Some(_) => {
+                if trail.pop().is_none() {
+                    return out;
+                }
+            }
+        }
+    }
+}
+
+fn capsule(icon: &'static str, text: &str, bg: u8, config: &RenderConfig) -> String {
+    powerline::render_capsule(
+        icon,
+        text,
+        bg,
+        powerline::tier(config),
+        CapStyle::Round,
+        config.glyph_mode,
+        config.color_enabled,
+    )
+}
+
+// ── Row 1 · identity ──────────────────────────────────────────────────────
+fn row_identity(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette) -> String {
+    let l1 = &frame.line1;
+    let hero = if !l1.model.is_empty() {
+        capsule(ICON_MODEL, &l1.model, code(&palette.stable_blue), config)
     } else {
         String::new()
     };
 
-    let mut dropped: Vec<TrailCell> = Vec::new();
-    loop {
-        let trail = build_trail(frame, config, palette, &dropped);
-        let row = assemble(&capsule, &trail, palette, color);
-        match config.terminal_width {
-            None => return vec![row],
-            Some(w) if visible_width(&row) <= w => return vec![row],
-            Some(_) => match TRAIL_DROP_ORDER.iter().find(|c| !dropped.contains(c)) {
-                Some(next) => dropped.push(*next),
-                // Capsule + ctx still overflow → bypass to flat.
-                None => return fallback_to_none(frame, config),
-            },
-        }
+    let mut trail: Vec<String> = Vec::new();
+    if let Some(level) = &l1.effort_level {
+        let lit = powerline::effort_tints(level).then(|| palette.color_for_effort_level(level));
+        trail.push(cell(ICON_EFFORT, level, lit, config, palette));
     }
+    if !l1.claude_code_version.is_empty() {
+        trail.push(cell(
+            "",
+            &format!("v{}", l1.claude_code_version),
+            None,
+            config,
+            palette,
+        ));
+    }
+    if !l1.project_path.is_empty() {
+        trail.push(cell(
+            ICON_PROJECT,
+            &basename(&l1.project_path),
+            None,
+            config,
+            palette,
+        ));
+    }
+    if l1.has_git_branch() {
+        let lit = l1.git_dirty.then_some(palette.alert_orange.as_str());
+        trail.push(cell(ICON_GIT, &git_text(l1), lit, config, palette));
+    }
+    assemble(&hero, trail, config, palette)
 }
 
-/// Join the capsule and the dim trail into one row (trail cells separated by
-/// a structural ` · `).
-fn assemble(capsule: &str, trail: &[String], palette: &ThemePalette, color: bool) -> String {
-    let mut out = String::from(capsule);
-    if !trail.is_empty() {
-        let sep = colorize(" · ", &palette.structural, color);
-        if !out.is_empty() {
+// ── Row 2 · context ─────────────────────────────────────────────────────────
+fn row_context(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette) -> String {
+    let l3 = &frame.line3;
+    let Some(pct) = l3.context_used_percentage else {
+        return String::new();
+    };
+    let hero = capsule(
+        ICON_CONTEXT,
+        &format!("CTX {pct}%"),
+        code(palette.color_for_ctx_pct(pct)),
+        config,
+    );
+
+    let mut trail: Vec<String> = Vec::new();
+    // Inline gauge — the one shipped gauge dialect (ctx marks, ctx fill).
+    let g = gauge::render(
+        pct,
+        GAUGE_WIDTH,
+        &ThemePalette::ctx_marks(),
+        palette.color_for_ctx_pct(pct),
+        palette,
+        config.glyph_mode,
+        config.color_enabled,
+    );
+    if !g.is_empty() {
+        trail.push(g);
+    }
+    if let Some(size) = l3.context_window_size {
+        let used = size.saturating_mul(pct) / 100;
+        trail.push(cell(
+            "",
+            &format!("{}/{}", format_number(used), format_number(size)),
+            None,
+            config,
+            palette,
+        ));
+    }
+    if let Some(i) = l3.input_tokens {
+        trail.push(cell(
+            "",
+            &format!("in {}", format_number(i)),
+            None,
+            config,
+            palette,
+        ));
+    }
+    if let Some(o) = l3.output_tokens {
+        trail.push(cell(
+            "",
+            &format!("out {}", format_number(o)),
+            None,
+            config,
+            palette,
+        ));
+    }
+    assemble(&hero, trail, config, palette)
+}
+
+// ── Row 3 · quota ───────────────────────────────────────────────────────────
+fn row_quota(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette) -> String {
+    let q = &frame.quota;
+    let tier = powerline::tier(config);
+    let color = config.color_enabled;
+    let mut out = String::new();
+
+    if let Some(pct) = q.five_hour_pct {
+        let pct_u = pct.round() as u64;
+        out.push_str(&capsule(
+            ICON_QUOTA,
+            &format!("5H {pct_u}%"),
+            code(palette.color_for_quota_pct(pct)),
+            config,
+        ));
+        if let Some(m) = q.five_hour_reset_minutes {
             out.push_str("  ");
+            out.push_str(&cell(
+                "",
+                &format!("resets {}", format_reset_duration(m)),
+                None,
+                config,
+                palette,
+            ));
         }
-        out.push_str(&trail.join(&sep));
+    }
+    if let Some(pct) = q.seven_day_pct {
+        let pct_u = pct.round() as u64;
+        if !out.is_empty() {
+            out.push_str(&trail_sep(tier, palette, color));
+        }
+        out.push_str(&capsule(
+            ICON_QUOTA,
+            &format!("7D {pct_u}%"),
+            code(palette.color_for_quota_pct(pct)),
+            config,
+        ));
+        if let Some(m) = q.seven_day_reset_minutes {
+            out.push_str("  ");
+            out.push_str(&cell(
+                "",
+                &format!("resets {}", format_reset_duration(m)),
+                None,
+                config,
+                palette,
+            ));
+        }
     }
     out
 }
 
-/// Each trail cell, pre-coloured. Dim (`structural`) by default; the single
-/// state-crossing cell renders in its full render-role colour. Droppable cells
-/// honour the `dropped` set; ctx is never dropped.
-fn build_trail(
-    frame: &RenderFrame,
-    config: &RenderConfig,
-    palette: &ThemePalette,
-    dropped: &[TrailCell],
-) -> Vec<String> {
+// ── Bottom rung: v1 single capsule + trail bar ──────────────────────────────
+fn build_fused_row(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette) -> String {
     let l1 = &frame.line1;
     let l3 = &frame.line3;
-    let mode = config.glyph_mode;
-    let color = config.color_enabled;
-    let dim = &palette.structural;
-    let mut cells: Vec<String> = Vec::new();
+    let hero = if !l1.model.is_empty() {
+        capsule(ICON_MODEL, &l1.model, code(&palette.stable_blue), config)
+    } else {
+        String::new()
+    };
 
-    // effort — lights up from high upward.
-    if config.show_effort && !dropped.contains(&TrailCell::Effort) {
-        if let Some(level) = &l1.effort_level {
-            let body = format!("{}{}", glyph(mode, ICON_EFFORT, "E:"), level);
-            let c = if powerline::effort_tints(level) {
-                palette.color_for_effort_level(level)
-            } else {
-                dim
-            };
-            cells.push(colorize(&body, c, color));
-        }
+    let mut trail: Vec<String> = Vec::new();
+    if let Some(level) = &l1.effort_level {
+        let lit = powerline::effort_tints(level).then(|| palette.color_for_effort_level(level));
+        trail.push(cell(ICON_EFFORT, level, lit, config, palette));
     }
-
-    // cwd — basename, always dim.
-    if config.show_project && !dropped.contains(&TrailCell::Cwd) && !l1.project_path.is_empty() {
-        let body = format!(
-            "{}{}",
-            glyph(mode, ICON_PROJECT, "P:"),
-            basename(&l1.project_path)
-        );
-        cells.push(colorize(&body, dim, color));
+    if !l1.project_path.is_empty() {
+        trail.push(cell(
+            ICON_PROJECT,
+            &basename(&l1.project_path),
+            None,
+            config,
+            palette,
+        ));
     }
-
-    // git — branch dim; `~N` modified count lights orange (dirty).
-    if config.show_git && !dropped.contains(&TrailCell::Git) && l1.has_git_branch() {
-        cells.push(git_cell(l1, mode, color, palette));
+    if l1.has_git_branch() {
+        let lit = l1.git_dirty.then_some(palette.alert_orange.as_str());
+        trail.push(cell(ICON_GIT, &git_text(l1), lit, config, palette));
     }
-
-    // ctx — the canonical live signal; lights warn≥55 / crit≥70. Never drops.
-    if config.show_context {
-        if let Some(pct) = l3.context_used_percentage {
-            let body = format!("{}{pct}%", glyph(mode, ICON_CONTEXT, "CTX:"));
-            let c = if pct >= CTX_TINT_AT {
-                palette.color_for_ctx_pct(pct)
-            } else {
-                dim
-            };
-            cells.push(colorize(&body, c, color));
-        }
+    if let Some(pct) = l3.context_used_percentage {
+        let lit = (pct >= CTX_TINT_AT).then(|| palette.color_for_ctx_pct(pct));
+        trail.push(cell(ICON_CONTEXT, &format!("{pct}%"), lit, config, palette));
     }
-
-    // cost — informational, always dim (not a signal).
-    if config.show_cost && !dropped.contains(&TrailCell::Cost) {
-        if let Some(cost) = l3.total_cost_usd {
-            cells.push(colorize(&format!("${cost:.2}"), dim, color));
-        }
+    if let Some(cost) = l3.total_cost_usd {
+        trail.push(cell("", &format!("${cost:.2}"), None, config, palette));
     }
-
-    // version — always dim, first to drop.
-    if config.show_version
-        && !dropped.contains(&TrailCell::Version)
-        && !l1.claude_code_version.is_empty()
-    {
-        let body = format!(
-            "{}v{}",
-            glyph(mode, ICON_VERSION, "CC:"),
-            l1.claude_code_version
-        );
-        cells.push(colorize(&body, dim, color));
-    }
-
-    cells
+    assemble(&hero, trail, config, palette)
 }
 
-/// git trail cell: dim branch + staged, with the `~N` modified count in
-/// alert_orange. Built as one coloured string so the ` · ` join stays clean.
-fn git_cell(
-    l1: &Line1Metrics,
-    mode: crate::config::GlyphMode,
-    color: bool,
-    palette: &ThemePalette,
-) -> String {
-    let mut body = format!("{}{}", glyph(mode, ICON_GIT, "G:"), l1.git_branch);
+// ── shared helpers ──────────────────────────────────────────────────────────
+fn git_text(l1: &Line1Metrics) -> String {
+    let mut t = l1.git_branch.clone();
     if l1.git_added > 0 {
-        body.push_str(&format!(" +{}", l1.git_added));
+        t.push_str(&format!(" +{}", l1.git_added));
     }
-    let dim_str = colorize(&body, &palette.structural, color);
-    if l1.git_modified == 0 {
-        return dim_str;
+    if l1.git_modified > 0 {
+        t.push_str(&format!(" ~{}", l1.git_modified));
     }
-    let tail = colorize(
-        &format!(" ~{}", l1.git_modified),
-        &palette.alert_orange,
-        color,
-    );
-    format!("{dim_str}{tail}")
+    if l1.git_dirty {
+        t.push_str(" *");
+    }
+    t
 }
 
-/// Last path component (single row favours basename).
 fn basename(path: &str) -> String {
     let base = path
         .trim_end_matches('/')
@@ -228,9 +346,6 @@ fn basename(path: &str) -> String {
     }
 }
 
-/// Narrow-terminal escape hatch: flat `none` is content-sized and never
-/// overflows. `render_frame` already subtracted `pane_cc_margin`; restore it so
-/// the re-entrant call doesn't subtract twice (same pattern as rail / ledger).
 fn fallback_to_none(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let mut shrunk = config.clone();
     shrunk.pane_style = LayoutStyle::None;

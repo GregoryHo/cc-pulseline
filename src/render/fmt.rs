@@ -65,6 +65,17 @@ pub fn format_speed(toks_per_sec: f64) -> String {
     }
 }
 
+/// Burn rate in $/hour from a session total and its elapsed duration. Zero
+/// when no positive duration is known (cost-per-hour is undefined then). The
+/// single definition for the ledger COST row, the L3 cost segment, and the
+/// rail headline — feed the result to `ThemePalette::color_for_burn_rate`.
+pub fn burn_rate_per_hour(total_cost_usd: f64, total_duration_ms: Option<u64>) -> f64 {
+    total_duration_ms
+        .filter(|d| *d > 0)
+        .map(|d| total_cost_usd / ((d as f64) / 3_600_000.0))
+        .unwrap_or(0.0)
+}
+
 /// Format elapsed seconds for agent/todo display. Sub-minute values render
 /// as seconds; everything above delegates to `format_duration` so long
 /// runs roll into h/d tiers instead of accumulating minutes.

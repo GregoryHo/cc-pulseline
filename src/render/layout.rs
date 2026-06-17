@@ -1089,11 +1089,7 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePal
     let color = config.color_enabled;
 
     let total_cost = line3.total_cost_usd.unwrap_or(0.0);
-    let per_hour = line3
-        .total_duration_ms
-        .filter(|duration| *duration > 0)
-        .map(|duration| total_cost / ((duration as f64) / 3_600_000.0))
-        .unwrap_or(0.0);
+    let per_hour = super::fmt::burn_rate_per_hour(total_cost, line3.total_duration_ms);
 
     let rate_color = p.color_for_burn_rate(per_hour);
 
