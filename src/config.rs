@@ -93,6 +93,12 @@ fn default_layout_ledger_dense() -> bool {
 fn default_layout_seams() -> String {
     "powerline".to_string()
 }
+fn default_layout_color_budget() -> String {
+    "signal".to_string()
+}
+fn default_layout_headline() -> String {
+    "column".to_string()
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LayoutSection {
@@ -118,6 +124,22 @@ pub struct LayoutSection {
     /// `designs/powerline-rail-anchor.md`.
     #[serde(default = "default_layout_seams")]
     pub seams: String,
+    /// `rail` only: how much of the bar takes colour. `"signal"` (default) —
+    /// one reverse-video fill per line (the headline); flags add letter colour
+    /// only past threshold (the anti-rainbow default). `"vivid"` — every banded
+    /// or lit cell fills; context rides a raised ramp. `"mono"` — no fills at
+    /// all: role-coloured text joined by thin `\u{e0b1}` ticks. Unknown values
+    /// warn and fall back to `"signal"`. See
+    /// `docs/layouts.md`.
+    #[serde(default = "default_layout_color_budget")]
+    pub color_budget: String,
+    /// `rail` only: where a watch-value headline (cost, 7d) sits on its row.
+    /// `"column"` (default) — right-hugged, so the rows share a right-edge
+    /// axis; `"inline"` — trails the left cluster, no right gap. The model is
+    /// always left-anchored. Ignored when `color_budget = "mono"` or under the
+    /// ASCII floor. See `docs/layouts.md`.
+    #[serde(default = "default_layout_headline")]
+    pub headline: String,
     /// Hard cap on TOTAL output rows (chrome included). When exceeded the
     /// height-degradation ladder collapses groups in order until the render
     /// fits. `None` = unlimited (current behavior). Ledger is exempt (it
@@ -146,6 +168,8 @@ impl Default for LayoutSection {
             tonal_strata: default_layout_tonal_strata(),
             ledger_dense: default_layout_ledger_dense(),
             seams: default_layout_seams(),
+            color_budget: default_layout_color_budget(),
+            headline: default_layout_headline(),
             max_total_lines: None,
         }
     }
@@ -691,6 +715,19 @@ ledger_dense = false
 # plain ` | ` separator floor.
 seams = "powerline"
 
+# rail only: how much of the bar takes colour.
+#   "signal" (default) — one reverse-video fill per line (the headline);
+#                        state flags add letter colour only past threshold.
+#   "vivid"            — every banded/lit cell fills; context rides a raised ramp.
+#   "mono"             — no fills: role-coloured text + thin powerline ticks.
+color_budget = "signal"
+
+# rail only: where a watch-value headline (cost / 7d) sits on its row.
+#   "column" (default) — right-hugged; the rows share a right-edge axis.
+#   "inline"           — trails the left cluster, no right gap.
+# The model is always left-anchored. Ignored when color_budget = "mono".
+headline = "column"
+
 # Hard cap on TOTAL statusline rows, frame chrome included. When the render
 # exceeds it, groups collapse in order (running tools → completed tools →
 # agents → todo → merged activity row → quota into L3 → drop config row →
@@ -727,6 +764,8 @@ pub struct ProjectLayoutOverride {
     pub tonal_strata: Option<bool>,
     pub ledger_dense: Option<bool>,
     pub seams: Option<String>,
+    pub color_budget: Option<String>,
+    pub headline: Option<String>,
     pub max_total_lines: Option<MaxTotalLines>,
 }
 
@@ -1077,6 +1116,12 @@ pub fn merge_configs(
         if let Some(v) = &layout.seams {
             user.layout.seams = v.clone();
         }
+        if let Some(v) = &layout.color_budget {
+            user.layout.color_budget = v.clone();
+        }
+        if let Some(v) = &layout.headline {
+            user.layout.headline = v.clone();
+        }
         if let Some(v) = &layout.max_total_lines {
             user.layout.max_total_lines = Some(v.clone());
         }
@@ -1252,6 +1297,8 @@ pub fn default_project_config_toml() -> &'static str {
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
 # seams = "powerline"       # rail/anchor only: "powerline" | "blocks" (unicode fallback)
+# color_budget = "signal"   # rail only: "signal" | "vivid" | "mono"
+# headline = "column"       # rail only: "column" | "inline" (ignored when mono)
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
 #                           # ladder ends at fuse-core (identity+budget on one row)
 "#
@@ -1385,6 +1432,38 @@ pub struct RenderConfig {
     pub pane_ledger_dense: bool,
     /// `rail`/`anchor` seam glyph tier (powerline PUA vs unicode blocks).
     pub pane_seams: LayoutSeams,
+    /// `rail` colour budget: `signal` (one fill/line) · `vivid` (all banded
+    /// cells fill) · `mono` (no fills, role-coloured text).
+    pub pane_color_budget: ColorBudget,
+    /// `rail` headline placement: `column` (right-hugged axis) · `inline`
+    /// (headline trails the left cluster).
+    pub pane_headline: Headline,
+}
+
+/// `rail` colour budget — how much of the bar takes colour. Picked by the
+/// `[layout] color_budget` config string. Inert for non-rail layouts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorBudget {
+    /// One reverse-video fill per line (the headline); flags ink past
+    /// threshold; nothing else lit. The anti-rainbow default.
+    #[default]
+    Signal,
+    /// Every banded or lit cell fills; context rides a raised ramp.
+    Vivid,
+    /// No fills: role-coloured text joined by thin `\u{e0b1}` ticks.
+    Mono,
+}
+
+/// `rail` headline placement — where a watch-value headline sits on its row.
+/// Picked by the `[layout] headline` config string. The model is always
+/// left-anchored regardless of this dial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Headline {
+    /// Right-hugged to the target edge; the rows share a right-edge axis.
+    #[default]
+    Column,
+    /// Trails the end of the left cluster; no right gap.
+    Inline,
 }
 
 /// Seam glyph tier for the `rail`/`anchor` Powerline layouts. Picked by the
@@ -1535,6 +1614,8 @@ impl Default for RenderConfig {
             pane_tonal_strata: true,
             pane_ledger_dense: false,
             pane_seams: LayoutSeams::Powerline,
+            pane_color_budget: ColorBudget::Signal,
+            pane_headline: Headline::Column,
         }
     }
 }
@@ -1552,6 +1633,39 @@ fn parse_layout_seams(value: &str) -> LayoutSeams {
                  \"powerline\" (valid: powerline | blocks)"
             );
             LayoutSeams::Powerline
+        }
+    }
+}
+
+/// Parse the `[layout] color_budget` string into a `ColorBudget`. Unknown
+/// values warn and fall back to the `signal` default (forward-compatible).
+fn parse_layout_color_budget(value: &str) -> ColorBudget {
+    match value.to_lowercase().as_str() {
+        "signal" => ColorBudget::Signal,
+        "vivid" => ColorBudget::Vivid,
+        "mono" => ColorBudget::Mono,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.color_budget {unknown:?}; falling back to \
+                 \"signal\" (valid: signal | vivid | mono)"
+            );
+            ColorBudget::Signal
+        }
+    }
+}
+
+/// Parse the `[layout] headline` string into a `Headline` placement. Unknown
+/// values warn and fall back to the `column` default (forward-compatible).
+fn parse_layout_headline(value: &str) -> Headline {
+    match value.to_lowercase().as_str() {
+        "column" => Headline::Column,
+        "inline" => Headline::Inline,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.headline {unknown:?}; falling back to \
+                 \"column\" (valid: column | inline)"
+            );
+            Headline::Column
         }
     }
 }
@@ -1826,6 +1940,8 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_tonal_strata: pulseline.layout.tonal_strata,
         pane_ledger_dense: pulseline.layout.ledger_dense,
         pane_seams: parse_layout_seams(&pulseline.layout.seams),
+        pane_color_budget: parse_layout_color_budget(&pulseline.layout.color_budget),
+        pane_headline: parse_layout_headline(&pulseline.layout.headline),
         max_total_lines: resolve_max_total_lines(pulseline.layout.max_total_lines.as_ref()),
         transcript_window_events: pulseline.performance.transcript_window_events,
         transcript_poll_throttle_ms: pulseline.performance.transcript_poll_throttle_ms,

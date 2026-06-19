@@ -342,36 +342,15 @@ fn ascii_bar(
         .join(" | ")
 }
 
-/// Render a two-cluster Powerline bar into one row. The left cluster runs
-/// identity → pressure; the right cluster (pushed toward the far edge when
-/// `target_width` is known) has its seams pointing inward at the middle gap.
-/// Visible width of a rendered right cluster — used to derive the shared
-/// headline-column width across rows. Zero in the ASCII floor (no
-/// right-justification there). Never a literal: callers take the max.
-pub fn right_cluster_width(
-    right: &[Segment],
-    tier: SeamTier,
-    mode: GlyphMode,
-    palette: &ThemePalette,
-) -> usize {
-    if tier == SeamTier::AsciiFloor {
-        return 0;
-    }
-    visible_width(&emit_right_cluster(right, tier, mode, palette))
-}
-
-/// Render a two-cluster bar. `headline_width`, when `Some(hc)`, reserves a
-/// fixed right-edge column of width `hc` so the right cluster's left edge sits
-/// at `target - hc` on every row that shares the axis (the headline column).
-/// `None` is v1 behaviour: the gap is derived from this row's own widths.
-// The four trailing params are the render context (tier/mode/color/palette);
-// splitting them into a struct would obscure more than it clarifies here.
-#[allow(clippy::too_many_arguments)]
+/// Render a two-cluster bar into one row. The left cluster runs identity →
+/// pressure and hugs the left edge; the right cluster (the headline) is pushed
+/// flush to the right edge at `target_width` — so left-hug / right-hug, like a
+/// conventional Powerline/tmux bar. Rows therefore share a clean right edge
+/// (all pad to `target_width`) rather than a floating mid-row axis.
 pub fn render_bar(
     left: &[Segment],
     right: &[Segment],
     target_width: Option<usize>,
-    headline_width: Option<usize>,
     tier: SeamTier,
     mode: GlyphMode,
     color: bool,
@@ -385,19 +364,11 @@ pub fn render_bar(
     if right_str.is_empty() {
         return left_str;
     }
-    let left_w = visible_width(&left_str);
-    let gap = match headline_width {
-        // Shared headline axis: right cluster's left edge at target - hc.
-        Some(hc) => target_width
-            .map(|w| w.saturating_sub(hc).saturating_sub(left_w))
-            .filter(|p| *p >= 1)
-            .unwrap_or(1),
-        // v1 behaviour, byte-identical: gap from this row's own widths.
-        None => target_width
-            .map(|w| w.saturating_sub(left_w + visible_width(&right_str)))
-            .filter(|p| *p >= 2)
-            .unwrap_or(2),
-    };
+    let used = visible_width(&left_str) + visible_width(&right_str);
+    let gap = target_width
+        .map(|w| w.saturating_sub(used))
+        .filter(|p| *p >= 2)
+        .unwrap_or(2);
     format!("{left_str}{}{right_str}", " ".repeat(gap))
 }
 

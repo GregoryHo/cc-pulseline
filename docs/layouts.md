@@ -10,7 +10,7 @@ rows. The shipping layouts:
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
-| `rail` | **1–3 rows.** Grouped Powerline rows (identity · context · quota): each a gray ink ramp with one always-filled, band-coloured headline; left cells flag in `ink` only past threshold. Collapses to a single fused bar via `max_total_lines`. Nerd-font tier, stdin-only. See `seams`. |
+| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier, stdin-only. See `seams`, `color_budget`, `headline`. |
 | `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge. Nerd-font tier, stdin-only. See `seams`. |
 
 All share the same theme palette, segment toggles, and per-segment
@@ -324,40 +324,82 @@ TOOL, and AGENT+TODO groups).
 ### `rail` — three grouped Powerline rows
 
 **1–3 rows, stdin-only, nerd-font tier.** Three grouped rows
-(`identity · context · quota`), each a two-cluster bar: a left
-identity/pressure cluster on the gray ink ramp, and a right **headline**
-cluster — the value that row is about — always filled and band-coloured. The
-headline left edges align across rows (shared axis, like `budgets`).
+(`identity · usage · quota`), each a two-cluster bar (layout 方案 A): a left
+identity/pressure cluster hugging the left edge, and a right **headline** flush
+to the right edge. Left-hug / right-hug, like a conventional Powerline bar.
 
 ```
- Opus 4.6  high  v2.1.153  cc-pulseline  feat/ledger-quota +2 ~1 *          $3.47
- CTX 43% 86.0k/200.0k                              TOK ↓12.8k ↑24.6k  CACHE 68.2k
+ Opus 4.6  high  cc-pulseline  feat/ledger-quota +2 ~1 *                  v2.1.153
+ CTX 43% 86.0k/200.0k  ↓12.8k ↑24.6k  CACHE 68.2k                            $3.47
  5H 62% 1h59m                                                          7D 41% 4d06h
-└──────────── left: ramp + ink flags ───────────┘        └─ headline: one tone fill ─┘
+└──────── left: detail (left-hug) ────────┘                  └─ headline (right-hug) ─┘
 ```
 
-Two colour channels, deliberately **asymmetric** (the anti-rainbow gate):
+| Row | Left (detail) | Right cluster (under `column`) |
+|---|---|---|
+| identity | `model · effort · cwd · git` | `version` |
+| usage | `CTX% · tokens · cache` | `$cost` |
+| quota | `5H%` | `7D%` |
 
-- **Headlines** (cost on row 1, 7d on row 3) are *always* filled and
-  band-coloured — the row's hero value, not an alarm. Row 2's headline
-  (tokens) has no band, so it stays on the ramp.
-- **Left `ink` flags** light *only* past threshold — a ramp segment paints its
-  *text* a role colour while keeping its gray bg (the `ink` channel; this is
-  the first-class form of v1's hand-spliced orange `~N` hack):
+The identity row's headline is the **model** (left-anchored — see `headline`);
+`version` is a context cell that simply occupies the right axis. The usage /
+quota headlines are `cost` and `7d`.
 
-  | Cell | Inks when | Colour |
-  |---|---|---|
-  | effort | level ≥ `high` | `color_for_effort_level` |
-  | ctx | pct ≥ 55 | `color_for_ctx_pct` |
-  | git | working tree dirty | `alert_orange` |
+**Colour budget** (`color_budget`, default `signal`) governs how much of the bar
+takes colour. Each cell is classified once as a **headline** (the value the row
+is about — `model` · `cost` · `7d`), a **flag** (a live state — `effort` · `ctx`
+· `5h` · `git` · `cache`), or **context** (quiet structure — `version` · `cwd` ·
+`tokens`). The budget is a transform over those kinds:
 
-A calm session is a near-monochrome bar with one or two filled headlines and
-**zero** left flags. `model` is the bar's head (an always-filled `Tint`).
+| Cell kind | `signal` (default) | `vivid` | `mono` |
+|---|---|---|---|
+| Headline | reverse-video `Tint` fill | `Tint` fill | role-coloured text |
+| Flag, past threshold | `ink` (letter on gray) | `Tint` fill | role-coloured text |
+| Flag, below threshold | neutral gray | raised ramp | neutral text |
+| Context | neutral gray | raised ramp | neutral text |
 
-**Height ladder** (reuses `max_total_lines`): 3 rows → 2 (drop quota) → the
-**v1 single fused bar** (`model · effort · cwd · git · ctx │ cost · version`),
-so the dense one-liner is still reachable. Quota drops when there's no Pro/Max
-data (`!quota.has_data()`). Below `min_width` the bar bypasses to flat `none`.
+Under the `signal` default a calm session is gray with exactly **three fills**
+(`model · cost · 7d`); flags add **letter** colour only when they cross threshold
+(effort ≥ `high`, ctx ≥ 55%, 5h ≥ 50%, git dirty, cache hit ≥ 80%) — the
+anti-rainbow stance. `vivid` fills every headline + lit flag (context and
+below-threshold flags ride a raised ramp); `mono` drops all fills for
+role-coloured text joined by thin `\u{e0b1}` ticks (` · ` on the Blocks tier).
+`git` is the one **partial** cell in every budget: only its `~N`/`*` dirty marks
+light (neutral branch), via a fg-only splice. Bands route through the
+polarity-correct `color_for_*` helpers — ctx/quota saturate green→amber→red,
+effort/cost run cool→hot, cache dim→green (never red). No new palette fields.
+NO_COLOR / `display.icons = false` drops to the ASCII floor (` | `-joined letter
+cells, no fills; both dials inert).
+
+> The gray ramp bed (235/238/241) is **not** theme-derived — it's a fixed
+> grayscale stand-in for the design's truecolor `term_bg` blend (no `term_bg`
+> source in the payload). Theme colour enters via the `Tint` bg and the
+> `ramp_ink`/letter fg (the `color_for_*` ladders). Making the bed itself
+> theme-driven is a separate, deferred change.
+
+**Width:** the bar is capped at `pane_max_width` so it never spreads across an
+ultra-wide terminal. **Height ladder** (`max_total_lines`): 3 rows → 2 (drop
+quota) → the **single fused bar** (`model · effort · cwd · git · ctx │ cost ·
+version`). Quota / usage rows drop lazily when their data is absent
+(`!quota.has_data()` / no API call yet). Below `min_width` → flat `none`. The
+fused bar honours `color_budget` too.
+
+#### Dials: `color_budget` / `headline`
+
+```toml
+[layout]
+color_budget = "signal"   # signal | vivid | mono   (default: signal)
+headline     = "column"   # column | inline         (default: column)
+```
+
+`color_budget` is the colour transform tabled above. `headline` governs where a
+watch-value headline (`cost` on the usage row, `7d` on the quota row) sits:
+`column` (default) right-hugs it so the three rows share a right-edge axis;
+`inline` folds it onto the end of the left cluster (content-width, no gap). The
+**model is always left-anchored** — it leads the identity row in both. `headline`
+is ignored when `color_budget = "mono"` and under the ASCII floor (one flat run
+per row). Both dials are `rail`-only and inert elsewhere; unknown values warn and
+fall back to the default.
 
 ### `anchor` — three grouped capsule+trail rows
 

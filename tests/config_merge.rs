@@ -331,3 +331,67 @@ show_cache_trend = true
         "show_speed should inherit default (false)"
     );
 }
+
+#[test]
+fn layout_dials_parse_valid_and_fall_back_on_unknown() {
+    use cc_pulseline::config::{ColorBudget, Headline};
+
+    // valid strings parse to their enums.
+    let cfg: PulselineConfig = toml::from_str(
+        r#"
+[layout]
+color_budget = "vivid"
+headline = "inline"
+"#,
+    )
+    .unwrap();
+    let rc = build_render_config(&cfg);
+    assert_eq!(rc.pane_color_budget, ColorBudget::Vivid);
+    assert_eq!(rc.pane_headline, Headline::Inline);
+
+    // unknown strings warn (stderr) and fall back to the defaults — the Must.
+    let cfg: PulselineConfig = toml::from_str(
+        r#"
+[layout]
+color_budget = "bogus"
+headline = "nonsense"
+"#,
+    )
+    .unwrap();
+    let rc = build_render_config(&cfg);
+    assert_eq!(rc.pane_color_budget, ColorBudget::Signal);
+    assert_eq!(rc.pane_headline, Headline::Column);
+
+    // absent fields default to signal / column.
+    let rc = build_render_config(&PulselineConfig::default());
+    assert_eq!(rc.pane_color_budget, ColorBudget::Signal);
+    assert_eq!(rc.pane_headline, Headline::Column);
+}
+
+#[test]
+fn merge_project_overrides_layout_dials() {
+    use cc_pulseline::config::{ColorBudget, Headline};
+
+    let user = PulselineConfig::default();
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[layout]
+color_budget = "mono"
+headline = "inline"
+"#,
+    )
+    .unwrap();
+
+    let merged = merge_configs(user, &project);
+    let rc = build_render_config(&merged);
+    assert_eq!(
+        rc.pane_color_budget,
+        ColorBudget::Mono,
+        "project color_budget should win"
+    );
+    assert_eq!(
+        rc.pane_headline,
+        Headline::Inline,
+        "project headline should win"
+    );
+}
