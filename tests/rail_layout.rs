@@ -612,3 +612,53 @@ fn below_min_width_falls_back_to_flat() {
         "flat fallback has no powerline bg fills"
     );
 }
+
+#[test]
+fn fit_row_drops_low_priority_cells_under_width_pressure() {
+    // A width above min_width but below the identity row's natural width forces
+    // fit_row's per-cell drop ladder: cwd sheds first (drops<1), model + version
+    // never drop. (Guards the newly-written drop loop the old narrow_width test
+    // used to cover.)
+    let mut config = rail_config();
+    config.terminal_width = Some(84);
+    let mut f = frame("high", 43, 62.0, 41.0, false, true);
+    f.line1.project_path = "/home/me/a-very-long-project-directory-name".into();
+    f.line1.git_branch = "feature/some-long-branch-name".into();
+    let lines = render(&f, &config);
+    let id = strip_ansi(&lines[0]);
+    assert!(id.contains("Opus 4.6"), "model survives the drop: {id}");
+    assert!(
+        !id.contains("a-very-long-project-directory-name"),
+        "cwd shed first under width pressure: {id}"
+    );
+    assert!(
+        visible_width(&lines[0]) <= 84,
+        "identity row fit to the capped target: {}",
+        visible_width(&lines[0])
+    );
+}
+
+#[test]
+fn pre_api_cost_only_usage_row_is_dropped() {
+    // Session start: cost is present (0.0) but no API usage yet (ctx/tokens/cache
+    // all None). The usage row must NOT render a lone right-flushed `$0.00` — it
+    // drops like any blank row.
+    let mut config = rail_config();
+    config.terminal_width = Some(120); // a target, so column would right-flush.
+    let mut f = frame("high", 43, 62.0, 41.0, false, true);
+    f.line3.context_used_percentage = None;
+    f.line3.input_tokens = None;
+    f.line3.output_tokens = None;
+    f.line3.cache_read_tokens = None;
+    f.line3.total_cost_usd = Some(0.0);
+    let joined: String = render(&f, &config)
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !joined.contains("$0.00"),
+        "no lone floating $0.00 pre-API: {joined:?}"
+    );
+    assert!(joined.contains("Opus 4.6"), "identity row still renders");
+}

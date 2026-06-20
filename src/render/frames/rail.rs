@@ -26,7 +26,9 @@
 //! folds it onto the end of the left cluster. The model is always left-anchored.
 //! `mono` and the ASCII floor ignore placement (one flat run per row).
 //!
-//! Width: the bar is capped at `pane_max_width`. Height ladder
+//! Width: when a terminal width is known the bar is capped at `pane_max_width`
+//! (won't spread across an ultra-wide terminal); with no width it is
+//! content-sized. Height ladder
 //! (`max_total_lines`): 3 → 2 (drop quota) → the single fused bar, which honours
 //! `color_budget` too. Lazy-drops any empty row. Bands route through the
 //! polarity-correct `color_for_*` helpers — no new palette fields or colour fns.
@@ -153,10 +155,16 @@ impl RailCell {
 /// The colour-budget transform: a classified cell → a `powerline::Segment`.
 /// `mono` never reaches here (it uses `emit_mono_line`).
 fn to_segment(c: &RailCell, budget: ColorBudget) -> Segment {
-    // git-style partial cells carry their own splices — render plain, never
-    // re-colour the whole cell.
+    // git-style partial cells carry their own splices — skip the colour
+    // transform, but still ride the budget's ramp tier so the cell matches its
+    // row-mates (context rides Raised under vivid, Base otherwise; mono never
+    // reaches here).
     if c.prebaked {
-        return Segment::ramp(c.icon, c.ascii, c.text.clone(), RampLevel::Base);
+        let level = match budget {
+            ColorBudget::Vivid => RampLevel::Raised,
+            _ => RampLevel::Base,
+        };
+        return Segment::ramp(c.icon, c.ascii, c.text.clone(), level);
     }
     match budget {
         ColorBudget::Signal => match c.kind {
@@ -471,11 +479,17 @@ fn context_cells(
         }
     }
 
+    // The cost headline only rides the usage row when the row carries actual
+    // usage detail. Pre-first-API (ctx/tokens/cache all absent) the left cluster
+    // is empty; without this gate the always-present `cost = Some(0.0)` would
+    // render a lone right-flushed `$0.00` instead of the blank row dropping.
     let mut right: Vec<RailCell> = Vec::new();
-    if let Some(cost) = l3.total_cost_usd {
-        let band =
-            code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
-        right.push(RailCell::headline("", "", format!("${cost:.2}"), band));
+    if !left.is_empty() {
+        if let Some(cost) = l3.total_cost_usd {
+            let band =
+                code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
+            right.push(RailCell::headline("", "", format!("${cost:.2}"), band));
+        }
     }
     (left, right)
 }
