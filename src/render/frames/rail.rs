@@ -40,7 +40,7 @@ use crate::render::color::{colorize, extract_ansi_code, fg_code, visible_width, 
 use crate::render::fmt::{burn_rate_per_hour, format_number, format_reset_duration};
 use crate::render::frames::powerline::{self, RampLevel, SeamTier, Segment};
 use crate::render::icons::{
-    glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA,
+    glyph, ICON_COMPACT, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA,
     ICON_TOKEN_OUTPUT, ICON_VERSION, PL_TICK,
 };
 use crate::render::layout;
@@ -58,7 +58,7 @@ const CACHE_FLAG_AT: f64 = 80.0;
 /// the user's `rail_*_order` is empty. The built-in hero per row is the first
 /// hero-capable cell: identity → `model`, usage → `cost`, quota → `7d`.
 const IDENTITY_CELLS: [&str; 5] = ["model", "effort", "cwd", "git", "version"];
-const USAGE_CELLS: [&str; 4] = ["ctx", "tokens", "cache", "cost"];
+const USAGE_CELLS: [&str; 5] = ["ctx", "compact", "tokens", "cache", "cost"];
 const QUOTA_CELLS: [&str; 2] = ["5h", "7d"];
 
 /// Resolve a palette role escape to its 256 index (for `Tint` / ink codes).
@@ -482,7 +482,11 @@ fn build_cell(
         }),
         "cache" => l3
             .cache_read_tokens
-            .map(|cache| cache_cell(l3, cache, palette)),
+            .is_some()
+            .then(|| cache_cell(l3, palette)),
+        // Context-compaction marker `⟳N` — only once a compaction has happened.
+        "compact" => (frame.compact_count > 0)
+            .then(|| RailCell::context(ICON_COMPACT, "~", frame.compact_count.to_string())),
         "cost" => l3.total_cost_usd.map(|cost| {
             let band =
                 code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
@@ -518,6 +522,7 @@ fn drop_priority(name: &str) -> Option<usize> {
         "git" => Some(2),
         "effort" => Some(3),
         "cache" => Some(1),
+        "compact" => Some(1),
         "tokens" => Some(2),
         _ => None,
     }
@@ -643,21 +648,21 @@ fn ctx_cell(icon: &'static str, text: String, pct: u64, palette: &ThemePalette) 
     )
 }
 
-/// Cache as an EFFICIENCY Flag: lights its band only on good reuse (hit ≥ 80,
-/// the helper's green boundary); a cold/absent hit-rate stays a quiet Context
+/// Cache as an EFFICIENCY Flag, shown as the **hit %** (`CACHE 84%`, same number
+/// as L3's `C:%`). Lights its band only on good reuse (hit ≥ 80, the helper's
+/// green boundary); a cold/absent hit-rate (`CACHE --%`) stays a quiet Context
 /// ramp and is never red. Band via the canonical `cache_hit_pct` +
 /// `cache_creation_share` pairing (same as `layout.rs`).
-fn cache_cell(l3: &Line3Metrics, cache: u64, palette: &ThemePalette) -> RailCell {
-    let text = format!("CACHE {}", format_number(cache));
+fn cache_cell(l3: &Line3Metrics, palette: &ThemePalette) -> RailCell {
     match l3.cache_hit_pct() {
         Some(hit) => RailCell::flag(
             "",
             "",
-            text,
+            format!("CACHE {}%", hit.round() as u64),
             code(palette.color_for_cache_hit_pct(hit, l3.cache_creation_share())),
             hit >= CACHE_FLAG_AT,
         ),
-        None => RailCell::context("", "", text),
+        None => RailCell::context("", "", "CACHE --%".to_string()),
     }
 }
 

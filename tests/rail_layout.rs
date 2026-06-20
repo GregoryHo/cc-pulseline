@@ -677,7 +677,7 @@ fn empty_arrangement_equals_built_in_default() {
     let default = render(&f, &rail_config());
     let mut explicit = rail_config();
     explicit.rail_identity_order = order(&["model", "effort", "cwd", "git", "version"]);
-    explicit.rail_usage_order = order(&["ctx", "tokens", "cache", "cost"]);
+    explicit.rail_usage_order = order(&["ctx", "compact", "tokens", "cache", "cost"]);
     explicit.rail_quota_order = order(&["5h", "7d"]);
     explicit.rail_identity_hero = "model".into();
     explicit.rail_usage_hero = "cost".into();
@@ -687,6 +687,22 @@ fn empty_arrangement_equals_built_in_default() {
         render(&f, &explicit),
         "explicit default == built-in"
     );
+}
+
+#[test]
+fn compaction_count_shows_on_usage_row_when_nonzero() {
+    let config = rail_config();
+    // No compaction → no marker; the default look is unchanged.
+    let f0 = frame("high", 43, 62.0, 41.0, false, true);
+    assert!(
+        !render(&f0, &config).join("\n").contains('\u{27f3}'),
+        "no ⟳ marker at compact_count 0"
+    );
+    // After compactions → ⟳N on the usage row.
+    let mut f = frame("high", 43, 62.0, 41.0, false, true);
+    f.compact_count = 3;
+    let usage = strip_ansi(&render(&f, &config)[1]);
+    assert!(usage.contains("\u{27f3} 3"), "⟳ 3 on usage row: {usage}");
 }
 
 #[test]
