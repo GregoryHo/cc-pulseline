@@ -140,6 +140,29 @@ pub struct LayoutSection {
     /// ASCII floor. See `docs/layouts.md`.
     #[serde(default = "default_layout_headline")]
     pub headline: String,
+    /// `rail` only: per-row cell **order** (left→right). Each is a TOML array of
+    /// cell-name strings; an empty array `[]` (default) uses the built-in order.
+    /// Cells not listed are hidden; unknown names warn and are skipped. The
+    /// rightmost listed cell right-hugs under `headline = "column"`. Cell names —
+    /// identity: `model effort cwd git version`; usage: `ctx tokens cache cost`;
+    /// quota: `5h 7d`. See `docs/layouts.md`.
+    #[serde(default)]
+    pub rail_identity_order: Vec<String>,
+    #[serde(default)]
+    pub rail_usage_order: Vec<String>,
+    #[serde(default)]
+    pub rail_quota_order: Vec<String>,
+    /// `rail` only: which cell on each row is the **hero** (the filled,
+    /// reverse-video headline; a displaced hero falls back to a letter flag).
+    /// Empty `""` (default) uses the built-in hero (identity → `model`, usage →
+    /// `cost`, quota → `7d`). Distinct from `headline` above, which is the hero's
+    /// *position* (`column`/`inline`), not which cell. See `docs/layouts.md`.
+    #[serde(default)]
+    pub rail_identity_hero: String,
+    #[serde(default)]
+    pub rail_usage_hero: String,
+    #[serde(default)]
+    pub rail_quota_hero: String,
     /// Hard cap on TOTAL output rows (chrome included). When exceeded the
     /// height-degradation ladder collapses groups in order until the render
     /// fits. `None` = unlimited (current behavior). Ledger is exempt (it
@@ -170,6 +193,12 @@ impl Default for LayoutSection {
             seams: default_layout_seams(),
             color_budget: default_layout_color_budget(),
             headline: default_layout_headline(),
+            rail_identity_order: Vec::new(),
+            rail_usage_order: Vec::new(),
+            rail_quota_order: Vec::new(),
+            rail_identity_hero: String::new(),
+            rail_usage_hero: String::new(),
+            rail_quota_hero: String::new(),
             max_total_lines: None,
         }
     }
@@ -728,6 +757,23 @@ color_budget = "signal"
 # The model is always left-anchored. Ignored when color_budget = "mono".
 headline = "column"
 
+# rail only: per-row cell ARRANGEMENT (order + which cell is the hero).
+#   *_order — cells left→right; [] (default) uses the built-in order; omitted
+#             cells are hidden; unknown names warn+skip; the LAST listed cell
+#             right-hugs under headline = "column".
+#   *_hero  — which cell is the filled reverse-video headline; "" (default) is
+#             the built-in (identity→model, usage→cost, quota→7d); a displaced
+#             hero falls back to a letter flag. (Distinct from `headline` above,
+#             which is the hero's POSITION, not which cell.)
+# Cells — identity: model effort cwd git version | usage: ctx tokens cache cost
+#         | quota: 5h 7d
+# rail_identity_order = ["model", "effort", "cwd", "git", "version"]
+# rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+# rail_quota_order    = ["5h", "7d"]
+# rail_identity_hero  = "model"
+# rail_usage_hero     = "cost"
+# rail_quota_hero     = "7d"
+
 # Hard cap on TOTAL statusline rows, frame chrome included. When the render
 # exceeds it, groups collapse in order (running tools → completed tools →
 # agents → todo → merged activity row → quota into L3 → drop config row →
@@ -766,6 +812,12 @@ pub struct ProjectLayoutOverride {
     pub seams: Option<String>,
     pub color_budget: Option<String>,
     pub headline: Option<String>,
+    pub rail_identity_order: Option<Vec<String>>,
+    pub rail_usage_order: Option<Vec<String>>,
+    pub rail_quota_order: Option<Vec<String>>,
+    pub rail_identity_hero: Option<String>,
+    pub rail_usage_hero: Option<String>,
+    pub rail_quota_hero: Option<String>,
     pub max_total_lines: Option<MaxTotalLines>,
 }
 
@@ -1122,6 +1174,24 @@ pub fn merge_configs(
         if let Some(v) = &layout.headline {
             user.layout.headline = v.clone();
         }
+        if let Some(v) = &layout.rail_identity_order {
+            user.layout.rail_identity_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_usage_order {
+            user.layout.rail_usage_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_quota_order {
+            user.layout.rail_quota_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_identity_hero {
+            user.layout.rail_identity_hero = v.clone();
+        }
+        if let Some(v) = &layout.rail_usage_hero {
+            user.layout.rail_usage_hero = v.clone();
+        }
+        if let Some(v) = &layout.rail_quota_hero {
+            user.layout.rail_quota_hero = v.clone();
+        }
         if let Some(v) = &layout.max_total_lines {
             user.layout.max_total_lines = Some(v.clone());
         }
@@ -1299,6 +1369,10 @@ pub fn default_project_config_toml() -> &'static str {
 # seams = "powerline"       # rail/anchor only: "powerline" | "blocks" (unicode fallback)
 # color_budget = "signal"   # rail only: "signal" | "vivid" | "mono"
 # headline = "column"       # rail only: "column" | "inline" (ignored when mono)
+# rail only: per-row cell arrangement ([] / "" = built-in; *_hero = which cell fills)
+#   cells — identity: model effort cwd git version | usage: ctx tokens cache cost | quota: 5h 7d
+# rail_usage_order  = ["ctx", "tokens", "cache", "cost"]   # reorder / omit to hide
+# rail_usage_hero   = "ctx"                                # which cell is the filled headline
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
 #                           # ladder ends at fuse-core (identity+budget on one row)
 "#
@@ -1438,6 +1512,15 @@ pub struct RenderConfig {
     /// `rail` headline placement: `column` (right-hugged axis) · `inline`
     /// (headline trails the left cluster).
     pub pane_headline: Headline,
+    /// `rail` per-row cell order (left→right). Empty = the layout's built-in
+    /// order; `rail.rs` resolves and validates the names at render time.
+    pub rail_identity_order: Vec<String>,
+    pub rail_usage_order: Vec<String>,
+    pub rail_quota_order: Vec<String>,
+    /// `rail` per-row hero cell (the filled headline). Empty = built-in hero.
+    pub rail_identity_hero: String,
+    pub rail_usage_hero: String,
+    pub rail_quota_hero: String,
 }
 
 /// `rail` colour budget — how much of the bar takes colour. Picked by the
@@ -1616,6 +1699,12 @@ impl Default for RenderConfig {
             pane_seams: LayoutSeams::Powerline,
             pane_color_budget: ColorBudget::Signal,
             pane_headline: Headline::Column,
+            rail_identity_order: Vec::new(),
+            rail_usage_order: Vec::new(),
+            rail_quota_order: Vec::new(),
+            rail_identity_hero: String::new(),
+            rail_usage_hero: String::new(),
+            rail_quota_hero: String::new(),
         }
     }
 }
@@ -1942,6 +2031,12 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_seams: parse_layout_seams(&pulseline.layout.seams),
         pane_color_budget: parse_layout_color_budget(&pulseline.layout.color_budget),
         pane_headline: parse_layout_headline(&pulseline.layout.headline),
+        rail_identity_order: pulseline.layout.rail_identity_order.clone(),
+        rail_usage_order: pulseline.layout.rail_usage_order.clone(),
+        rail_quota_order: pulseline.layout.rail_quota_order.clone(),
+        rail_identity_hero: pulseline.layout.rail_identity_hero.clone(),
+        rail_usage_hero: pulseline.layout.rail_usage_hero.clone(),
+        rail_quota_hero: pulseline.layout.rail_quota_hero.clone(),
         max_total_lines: resolve_max_total_lines(pulseline.layout.max_total_lines.as_ref()),
         transcript_window_events: pulseline.performance.transcript_window_events,
         transcript_poll_throttle_ms: pulseline.performance.transcript_poll_throttle_ms,

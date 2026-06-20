@@ -395,3 +395,48 @@ headline = "inline"
         "project headline should win"
     );
 }
+
+#[test]
+fn default_templates_parse_cleanly() {
+    use cc_pulseline::config::{default_config_toml, default_project_config_toml};
+
+    // The active --init template must round-trip (it had no parse test before).
+    let user: PulselineConfig =
+        toml::from_str(default_config_toml()).expect("default user template must parse");
+    // The commented rail_* arrangement examples are inert → fields stay empty.
+    assert!(user.layout.rail_identity_order.is_empty());
+    assert!(user.layout.rail_usage_hero.is_empty());
+    // ...while the active dials parse to their documented defaults.
+    assert_eq!(user.layout.color_budget, "signal");
+    assert_eq!(user.layout.headline, "column");
+
+    let _project: ProjectOverrideConfig =
+        toml::from_str(default_project_config_toml()).expect("default project template must parse");
+}
+
+#[test]
+fn merge_project_overrides_rail_arrangement() {
+    let user = PulselineConfig::default();
+    // Distinct per-row values so a cross-field mis-wire in merge_configs or
+    // build_render_config (6 near-identical lines each) can't pass.
+    let project: ProjectOverrideConfig = toml::from_str(
+        r#"
+[layout]
+rail_identity_order = ["git", "model"]
+rail_identity_hero = "git"
+rail_usage_order = ["cost", "ctx"]
+rail_usage_hero = "ctx"
+rail_quota_order = ["7d", "5h"]
+rail_quota_hero = "5h"
+"#,
+    )
+    .unwrap();
+
+    let rc = build_render_config(&merge_configs(user, &project));
+    assert_eq!(rc.rail_identity_order, vec!["git", "model"]);
+    assert_eq!(rc.rail_identity_hero, "git");
+    assert_eq!(rc.rail_usage_order, vec!["cost", "ctx"]);
+    assert_eq!(rc.rail_usage_hero, "ctx");
+    assert_eq!(rc.rail_quota_order, vec!["7d", "5h"]);
+    assert_eq!(rc.rail_quota_hero, "5h");
+}

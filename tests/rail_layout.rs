@@ -662,3 +662,123 @@ fn pre_api_cost_only_usage_row_is_dropped() {
     );
     assert!(joined.contains("Opus 4.6"), "identity row still renders");
 }
+
+// ── arrangement: rail_*_order / rail_*_hero ─────────────────────────────────
+
+fn order(names: &[&str]) -> Vec<String> {
+    names.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn empty_arrangement_equals_built_in_default() {
+    // The byte guard for the arrangement refactor: an explicit default order +
+    // hero must render byte-for-byte identical to leaving the config empty.
+    let f = frame("high", 72, 62.0, 90.0, true, true);
+    let default = render(&f, &rail_config());
+    let mut explicit = rail_config();
+    explicit.rail_identity_order = order(&["model", "effort", "cwd", "git", "version"]);
+    explicit.rail_usage_order = order(&["ctx", "tokens", "cache", "cost"]);
+    explicit.rail_quota_order = order(&["5h", "7d"]);
+    explicit.rail_identity_hero = "model".into();
+    explicit.rail_usage_hero = "cost".into();
+    explicit.rail_quota_hero = "7d".into();
+    assert_eq!(
+        default,
+        render(&f, &explicit),
+        "explicit default == built-in"
+    );
+}
+
+#[test]
+fn order_reorders_cells_within_a_row() {
+    // Move cost to the front of the usage row: it now leads (still filled), and
+    // the rightmost listed cell (cache) takes the right axis.
+    let mut config = rail_config();
+    config.rail_usage_order = order(&["cost", "ctx", "tokens", "cache"]);
+    let p = config.palette.clone();
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    let usage = strip_ansi(&lines[1]);
+    assert!(
+        usage.find("$3.47").unwrap() < usage.find("43%").unwrap(),
+        "cost moved before ctx: {usage}"
+    );
+    // cost is still the hero → still fills as a Tint.
+    let rate = burn_rate_per_hour(3.47, Some(2_700_000));
+    assert!(
+        lines[1].contains(&tint_bg(p.color_for_burn_rate(rate))),
+        "cost still fills after reorder"
+    );
+}
+
+#[test]
+fn hero_swap_fills_the_chosen_cell_and_demotes_the_old_one() {
+    // usage_hero = ctx → ctx fills (Tint); the displaced cost falls back to a
+    // letter flag (inks its burn band as fg, no fill).
+    let mut config = rail_config();
+    config.rail_usage_hero = "ctx".into();
+    let p = config.palette.clone();
+    // ctx=72 → critical band; 7d=41 → a different (green) band, so the ctx fill
+    // bg is unambiguous on the usage row.
+    let s = render(&frame("high", 72, 62.0, 41.0, false, true), &config).join("\n");
+    assert!(
+        s.contains(&tint_bg(p.color_for_ctx_pct(72))),
+        "ctx fills as the usage hero: {s}"
+    );
+    let rate = burn_rate_per_hour(3.47, Some(2_700_000));
+    assert!(
+        !s.contains(&tint_bg(p.color_for_burn_rate(rate))),
+        "displaced cost no longer fills"
+    );
+    assert!(
+        s.contains(p.color_for_burn_rate(rate)),
+        "displaced cost still inks its burn band as a flag"
+    );
+}
+
+#[test]
+fn order_omission_hides_a_cell() {
+    // Listing only model + version drops effort / cwd / git from the identity row.
+    let mut config = rail_config();
+    config.rail_identity_order = order(&["model", "version"]);
+    let lines = render(&frame("high", 43, 62.0, 41.0, true, true), &config);
+    let id = strip_ansi(&lines[0]);
+    assert!(
+        id.contains("Opus 4.6") && id.contains("v2.1.153"),
+        "kept: {id}"
+    );
+    assert!(
+        !id.contains("cc-pulseline") && !id.contains("main"),
+        "cwd + git dropped by omission: {id}"
+    );
+}
+
+#[test]
+fn unknown_cell_name_is_skipped_not_fatal() {
+    // A typo'd cell name warns (stderr) and is skipped; the rest still render.
+    let mut config = rail_config();
+    config.rail_usage_order = order(&["ctx", "bogus", "cost"]);
+    let lines = render(&frame("high", 43, 62.0, 41.0, false, true), &config);
+    let usage = strip_ansi(&lines[1]);
+    assert!(
+        usage.contains("43%") && usage.contains("$3.47"),
+        "valid cells render, bogus skipped: {usage}"
+    );
+    assert!(!usage.contains("bogus"), "unknown name not rendered");
+}
+
+#[test]
+fn quota_row_renders_with_only_seven_day() {
+    // Regression guard: the usage-only "drop when left empty" rule must NOT drop
+    // the quota row when only the 7d window is present (5h absent).
+    let mut f = frame("high", 43, 62.0, 90.0, true, true);
+    f.quota.five_hour_pct = None;
+    f.quota.five_hour_reset_minutes = None;
+    let lines = render(&f, &rail_config());
+    let joined: String = lines
+        .iter()
+        .map(|l| strip_ansi(l))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(joined.contains("7D 90%"), "lone 7d still renders: {joined}");
+    assert!(!joined.contains("5H"), "5h absent");
+}

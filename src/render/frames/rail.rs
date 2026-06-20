@@ -54,6 +54,13 @@ const QUOTA_TINT_AT: f64 = 50.0; // first quota mark
 /// cache cell stays a quiet Context ramp (a cold cache is never lit, never red).
 const CACHE_FLAG_AT: f64 = 80.0;
 
+/// Per-row cell vocabulary — also the built-in default order (left→right) when
+/// the user's `rail_*_order` is empty. The built-in hero per row is the first
+/// hero-capable cell: identity → `model`, usage → `cost`, quota → `7d`.
+const IDENTITY_CELLS: [&str; 5] = ["model", "effort", "cwd", "git", "version"];
+const USAGE_CELLS: [&str; 4] = ["ctx", "tokens", "cache", "cost"];
+const QUOTA_CELLS: [&str; 2] = ["5h", "7d"];
+
 /// Resolve a palette role escape to its 256 index (for `Tint` / ink codes).
 fn code(escape: &str) -> u8 {
     extract_ansi_code(escape).unwrap_or(0)
@@ -149,6 +156,15 @@ impl RailCell {
             lit: false,
             prebaked: true,
         }
+    }
+
+    /// Promote a natural cell to its row's **hero** (the filled reverse-video
+    /// headline), keeping its band. A prebaked (git) cell can't fill, so it
+    /// renders unchanged. For model/cost/7d this reproduces today's `headline()`.
+    fn into_hero(mut self) -> Self {
+        self.kind = CellKind::Headline;
+        self.lit = true;
+        self
     }
 }
 
@@ -302,12 +318,35 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
         palette,
     };
 
+    // Resolve each row's order + hero once (validate names, warn on unknown,
+    // empty → built-in default) — kept out of the fit loop so a bad name warns
+    // at most once per render, like the `parse_layout_*` parsers.
+    let id_order = resolve_order(&config.rail_identity_order, &IDENTITY_CELLS, "identity");
+    let us_order = resolve_order(&config.rail_usage_order, &USAGE_CELLS, "usage");
+    let id_hero = effective_hero(&config.rail_identity_hero, "model", &id_order, "identity");
+    let us_hero = effective_hero(&config.rail_usage_hero, "cost", &us_order, "usage");
+
     let mut out = vec![
-        render_row(|n| identity_cells(frame, palette, color, n), 3, &ctx),
-        render_row(|n| context_cells(frame, palette, n), 2, &ctx),
+        render_row(
+            |n| assemble(&id_order, id_hero, false, frame, palette, color, n),
+            max_drops(&id_order),
+            &ctx,
+        ),
+        // usage row drops the lone hero when there's no detail (pre-API `$0.00`).
+        render_row(
+            |n| assemble(&us_order, us_hero, true, frame, palette, color, n),
+            max_drops(&us_order),
+            &ctx,
+        ),
     ];
     if max_lines >= 3 && frame.quota.has_data() {
-        out.push(render_row(|_| quota_cells(frame, palette), 0, &ctx));
+        let qu_order = resolve_order(&config.rail_quota_order, &QUOTA_CELLS, "quota");
+        let qu_hero = effective_hero(&config.rail_quota_hero, "7d", &qu_order, "quota");
+        out.push(render_row(
+            |n| assemble(&qu_order, qu_hero, false, frame, palette, color, n),
+            max_drops(&qu_order),
+            &ctx,
+        ));
     }
     // Drop blank rows (e.g. the usage row before the first API call) — lazy,
     // like quota; never emit an empty line.
@@ -376,147 +415,209 @@ fn fit_row(
     powerline::render_bar(&l, &r, target, tier, mode, color, palette)
 }
 
-// ── Row 1 · identity ──────────────────────────────────────────────────────
-// Headline = model (the only constant Tint, always left). effort flags its word
-// ≥high; git flags its dirty marks; cwd neutral. version is a Context cell (the
-// right-cluster occupant under `column`). Drop order (left): cwd → git → effort.
-fn identity_cells(
+// ── Cell registry + order-driven assembly ──────────────────────────────────
+// Each cell builds with its NATURAL kind; the row's hero is promoted to a fill
+// via `into_hero`. model/cost/7d are always-banded heroes (a `Flag(lit=true)`
+// when displaced, so they ink their band instead of going gray); effort/ctx/5h/
+// cache are threshold flags; cwd/version/tokens are context; git is prebaked.
+
+/// Build a single named cell with its natural kind, or `None` if its data is
+/// absent. Unknown names never reach here (filtered by `resolve_order`).
+fn build_cell(
+    name: &str,
     frame: &RenderFrame,
     palette: &ThemePalette,
     color: bool,
-    drops: usize,
-) -> (Vec<RailCell>, Vec<RailCell>) {
+) -> Option<RailCell> {
     let l1 = &frame.line1;
-    let mut left: Vec<RailCell> = Vec::new();
-
-    if !l1.model.is_empty() {
-        left.push(RailCell::headline(
-            ICON_MODEL,
-            "M:",
-            l1.model.clone(),
-            code(&palette.stable_blue),
-        ));
-    }
-    if drops < 3 {
-        if let Some(level) = &l1.effort_level {
-            left.push(RailCell::flag(
+    let l3 = &frame.line3;
+    let q = &frame.quota;
+    match name {
+        "model" => (!l1.model.is_empty()).then(|| {
+            RailCell::flag(
+                ICON_MODEL,
+                "M:",
+                l1.model.clone(),
+                code(&palette.stable_blue),
+                true,
+            )
+        }),
+        "effort" => l1.effort_level.as_ref().map(|level| {
+            RailCell::flag(
                 ICON_EFFORT,
                 "E:",
                 level.clone(),
                 code(palette.color_for_effort_level(level)),
                 powerline::effort_tints(level),
-            ));
-        }
-    }
-    if drops < 1 && !l1.project_path.is_empty() {
-        left.push(RailCell::context(
-            ICON_PROJECT,
-            "P:",
-            basename(&l1.project_path),
-        ));
-    }
-    if drops < 2 && l1.has_git_branch() {
-        let text = git_cell_text(l1, &palette.alert_orange, &palette.secondary, color);
-        left.push(RailCell::prebaked(ICON_GIT, "G:", text));
-    }
-
-    let mut right: Vec<RailCell> = Vec::new();
-    if !l1.claude_code_version.is_empty() {
-        right.push(RailCell::context(
-            ICON_VERSION,
-            "",
-            format!("v{}", l1.claude_code_version),
-        ));
-    }
-    (left, right)
-}
-
-// ── Row 2 · usage ──────────────────────────────────────────────────────────
-// ctx flags the whole value past 55; tokens neutral; cache is an EFFICIENCY flag
-// (lights green only on good reuse). Headline = $cost (burn-rate band). Drop
-// order: cache → tokens.
-fn context_cells(
-    frame: &RenderFrame,
-    palette: &ThemePalette,
-    drops: usize,
-) -> (Vec<RailCell>, Vec<RailCell>) {
-    let l3 = &frame.line3;
-    let mut left: Vec<RailCell> = Vec::new();
-
-    if let Some(pct) = l3.context_used_percentage {
-        let denom = match l3.context_window_size {
-            Some(size) => {
-                let used = size.saturating_mul(pct) / 100;
-                format!(" {}/{}", format_number(used), format_number(size))
-            }
-            None => String::new(),
-        };
-        left.push(ctx_cell(
-            ICON_CONTEXT,
-            format!("{pct}%{denom}"),
-            pct,
-            palette,
-        ));
-    }
-    if drops < 2 && (l3.input_tokens.is_some() || l3.output_tokens.is_some()) {
-        let in_v = l3
-            .input_tokens
-            .map(format_number)
-            .unwrap_or_else(|| "--".into());
-        let out_v = l3
-            .output_tokens
-            .map(format_number)
-            .unwrap_or_else(|| "--".into());
-        left.push(RailCell::context(
-            ICON_TOKEN_OUTPUT,
-            "TOK",
-            format!("↓{in_v} ↑{out_v}"),
-        ));
-    }
-    if drops < 1 {
-        if let Some(cache) = l3.cache_read_tokens {
-            left.push(cache_cell(l3, cache, palette));
-        }
-    }
-
-    // The cost headline only rides the usage row when the row carries actual
-    // usage detail. Pre-first-API (ctx/tokens/cache all absent) the left cluster
-    // is empty; without this gate the always-present `cost = Some(0.0)` would
-    // render a lone right-flushed `$0.00` instead of the blank row dropping.
-    let mut right: Vec<RailCell> = Vec::new();
-    if !left.is_empty() {
-        if let Some(cost) = l3.total_cost_usd {
+            )
+        }),
+        "cwd" => (!l1.project_path.is_empty())
+            .then(|| RailCell::context(ICON_PROJECT, "P:", basename(&l1.project_path))),
+        "git" => l1.has_git_branch().then(|| {
+            let text = git_cell_text(l1, &palette.alert_orange, &palette.secondary, color);
+            RailCell::prebaked(ICON_GIT, "G:", text)
+        }),
+        "version" => (!l1.claude_code_version.is_empty())
+            .then(|| RailCell::context(ICON_VERSION, "", format!("v{}", l1.claude_code_version))),
+        "ctx" => l3.context_used_percentage.map(|pct| {
+            let denom = match l3.context_window_size {
+                Some(size) => {
+                    let used = size.saturating_mul(pct) / 100;
+                    format!(" {}/{}", format_number(used), format_number(size))
+                }
+                None => String::new(),
+            };
+            ctx_cell(ICON_CONTEXT, format!("{pct}%{denom}"), pct, palette)
+        }),
+        "tokens" => (l3.input_tokens.is_some() || l3.output_tokens.is_some()).then(|| {
+            let in_v = l3
+                .input_tokens
+                .map(format_number)
+                .unwrap_or_else(|| "--".into());
+            let out_v = l3
+                .output_tokens
+                .map(format_number)
+                .unwrap_or_else(|| "--".into());
+            RailCell::context(ICON_TOKEN_OUTPUT, "TOK", format!("↓{in_v} ↑{out_v}"))
+        }),
+        "cache" => l3
+            .cache_read_tokens
+            .map(|cache| cache_cell(l3, cache, palette)),
+        "cost" => l3.total_cost_usd.map(|cost| {
             let band =
                 code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
-            right.push(RailCell::headline("", "", format!("${cost:.2}"), band));
-        }
+            RailCell::flag("", "", format!("${cost:.2}"), band, true)
+        }),
+        "5h" => q.five_hour_pct.map(|pct| {
+            RailCell::flag(
+                ICON_QUOTA,
+                "",
+                quota_text("5H", pct, q.five_hour_reset_minutes),
+                code(palette.color_for_quota_pct(pct)),
+                pct >= QUOTA_TINT_AT,
+            )
+        }),
+        "7d" => q.seven_day_pct.map(|pct| {
+            RailCell::flag(
+                ICON_QUOTA,
+                "",
+                quota_text("7D", pct, q.seven_day_reset_minutes),
+                code(palette.color_for_quota_pct(pct)),
+                pct >= QUOTA_TINT_AT,
+            )
+        }),
+        _ => None,
     }
-    (left, right)
 }
 
-// ── Row 3 · quota ───────────────────────────────────────────────────────────
-// 5h is a SATURATION flag (lights its whole value ≥50). Headline = 7d (always a
-// fill — the row's hero, not an alarm).
-fn quota_cells(frame: &RenderFrame, palette: &ThemePalette) -> (Vec<RailCell>, Vec<RailCell>) {
-    let q = &frame.quota;
-    let mut left: Vec<RailCell> = Vec::new();
-    if let Some(pct) = q.five_hour_pct {
-        left.push(RailCell::flag(
-            ICON_QUOTA,
-            "",
-            quota_text("5H", pct, q.five_hour_reset_minutes),
-            code(palette.color_for_quota_pct(pct)),
-            pct >= QUOTA_TINT_AT,
-        ));
+/// Intrinsic width-fit drop priority (lower = drops first). Reproduces the v3
+/// `drops < N` gates regardless of display order; cells not listed never drop.
+fn drop_priority(name: &str) -> Option<usize> {
+    match name {
+        "cwd" => Some(1),
+        "git" => Some(2),
+        "effort" => Some(3),
+        "cache" => Some(1),
+        "tokens" => Some(2),
+        _ => None,
     }
+}
+
+/// The fit ladder's depth for a row = its deepest droppable cell.
+fn max_drops(order: &[String]) -> usize {
+    order
+        .iter()
+        .filter_map(|n| drop_priority(n))
+        .max()
+        .unwrap_or(0)
+}
+
+/// Validate a configured order against the row's vocabulary: empty → built-in
+/// default; unknown names warn (once per render) and are skipped; all-unknown
+/// falls back to the default.
+fn resolve_order(raw: &[String], default: &[&'static str], label: &str) -> Vec<String> {
+    if raw.is_empty() {
+        return default.iter().map(|s| s.to_string()).collect();
+    }
+    let kept: Vec<String> = raw
+        .iter()
+        .filter(|name| {
+            let ok = default.contains(&name.as_str());
+            if !ok {
+                eprintln!(
+                    "warning: unknown layout.rail_{label}_order cell {name:?}; skipping \
+                     (valid: {})",
+                    default.join(" ")
+                );
+            }
+            ok
+        })
+        .cloned()
+        .collect();
+    if kept.is_empty() {
+        default.iter().map(|s| s.to_string()).collect()
+    } else {
+        kept
+    }
+}
+
+/// The effective hero name: empty → built-in default; a non-empty hero that
+/// isn't in the resolved order warns (the row then has no filled headline).
+fn effective_hero<'a>(raw: &'a str, default: &'a str, order: &[String], label: &str) -> &'a str {
+    if raw.is_empty() {
+        return default;
+    }
+    if !order.iter().any(|c| c == raw) {
+        eprintln!(
+            "warning: layout.rail_{label}_hero {raw:?} is not in rail_{label}_order; \
+             the row will have no filled headline"
+        );
+    }
+    raw
+}
+
+/// Build a row's `(left, right)` clusters from a resolved order: cells in order,
+/// the hero promoted to a fill, the last rendered-by-index cell to the right
+/// cluster (the right-hug under `column`). `drop_if_left_empty` (usage only)
+/// drops a lone hero so the pre-API `$0.00` row falls away.
+#[allow(clippy::too_many_arguments)]
+fn assemble(
+    order: &[String],
+    hero: &str,
+    drop_if_left_empty: bool,
+    frame: &RenderFrame,
+    palette: &ThemePalette,
+    color: bool,
+    drops: usize,
+) -> (Vec<RailCell>, Vec<RailCell>) {
+    let n = order.len();
+    let mut left: Vec<RailCell> = Vec::new();
     let mut right: Vec<RailCell> = Vec::new();
-    if let Some(pct) = q.seven_day_pct {
-        right.push(RailCell::headline(
-            ICON_QUOTA,
-            "",
-            quota_text("7D", pct, q.seven_day_reset_minutes),
-            code(palette.color_for_quota_pct(pct)),
-        ));
+    for (i, name) in order.iter().enumerate() {
+        let is_last = i + 1 == n;
+        let is_hero = name.as_str() == hero;
+        // The hero and the right-hug (last) cell never drop for width.
+        if !is_last && !is_hero {
+            if let Some(p) = drop_priority(name) {
+                if drops >= p {
+                    continue;
+                }
+            }
+        }
+        let Some(mut cell) = build_cell(name, frame, palette, color) else {
+            continue;
+        };
+        if is_hero {
+            cell = cell.into_hero();
+        }
+        if is_last {
+            right.push(cell);
+        } else {
+            left.push(cell);
+        }
+    }
+    if drop_if_left_empty && left.is_empty() {
+        return (Vec::new(), Vec::new());
     }
     (left, right)
 }

@@ -401,6 +401,33 @@ is ignored when `color_budget = "mono"` and under the ASCII floor (one flat run
 per row). Both dials are `rail`-only and inert elsewhere; unknown values warn and
 fall back to the default.
 
+#### Arrangement: `rail_*_order` / `rail_*_hero`
+
+The default order and the hero (filled) cell of each row are overridable per row.
+
+```toml
+[layout]
+# cells left→right; [] (default) = built-in order; omitted cells are hidden.
+rail_identity_order = ["model", "effort", "cwd", "git", "version"]
+rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+rail_quota_order    = ["5h", "7d"]
+# which cell is the filled hero; "" (default) = built-in (model / cost / 7d).
+rail_identity_hero  = "model"
+rail_usage_hero     = "cost"
+rail_quota_hero     = "7d"
+```
+
+| Knob | Effect |
+|---|---|
+| `rail_<row>_order` | the row's cells in display order. **Omitting a cell hides it**; unknown names warn (stderr) and are skipped; `[]` uses the built-in order. The **rightmost listed cell takes the right axis** (right-hugged under `headline = "column"`) — that's what keeps `model` filled-but-left while `version` right-hugs on the identity row. |
+| `rail_<row>_hero` | which cell is the **hero** (the filled reverse-video headline). `""` uses the built-in hero. A **displaced hero** (e.g. `cost` when `rail_usage_hero = "ctx"`) falls back to a **letter flag** — it still inks its band, just doesn't fill. A hero not present in the order warns and the row renders with no fill. |
+
+Cell names — identity: `model effort cwd git version`; usage: `ctx tokens cache
+cost`; quota: `5h 7d`. Each `_order` is restricted to its own row's cells. The
+arrangement applies to the three grouped rows; the **fused bar** (`max_total_lines
+= 1`) keeps its built-in arrangement. Empty config reproduces today's layout
+byte-for-byte.
+
 ### `anchor` — three grouped capsule+trail rows
 
 **1–3 rows, stdin-only, nerd-font tier.** Each row leads with a banded
