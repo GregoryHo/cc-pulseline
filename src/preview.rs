@@ -226,6 +226,12 @@ fn busy_frame() -> RenderFrame {
             is_task_api: true,
             sub_agent_count: None,
         }),
+        // Honest uncapped totals (12 Read + 8 Bash + 5 Edit = 25; 2 Bash
+        // failures) — the rail/anchor `tools` cell + the compact/ledger ticker
+        // total read these, so the preview must set them or the feature is
+        // invisible in `--preview-layouts`.
+        completed_tool_total: 25,
+        failed_tool_total: 2,
         ..RenderFrame::default()
     }
 }
@@ -236,6 +242,8 @@ fn idle_frame() -> RenderFrame {
     let mut f = busy_frame();
     f.tools.clear();
     f.completed_tools.clear();
+    f.completed_tool_total = 0;
+    f.failed_tool_total = 0;
     f.agents.clear();
     f.todo = None;
     f

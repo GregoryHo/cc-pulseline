@@ -20,7 +20,8 @@ use crate::render::color::{colorize, extract_ansi_code, visible_width, ThemePale
 use crate::render::fmt::{format_number, format_reset_duration};
 use crate::render::frames::powerline::{self, CapStyle, SeamTier};
 use crate::render::icons::{
-    glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA, PL_TICK,
+    fail_mark, glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA,
+    ICON_TODO, ICON_TOOL, PL_TICK,
 };
 use crate::render::layout;
 use crate::render::pane::LayoutStyle;
@@ -226,7 +227,54 @@ fn row_context(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalett
             palette,
         ));
     }
+    push_traceability(&mut trail, frame, config, palette);
     assemble(&hero, trail, config, palette)
+}
+
+/// Append the traceability trail cells (task progress + tool-use volume) at the
+/// trail tail, so they shed FIRST under width pressure (volatile activity, like
+/// rail's drop-tier-1). Gated on the same `show_todo`/`show_tools` toggles as
+/// the flat activity rows; colour stays structural except `✘M` failures light
+/// `alert_red` (anchor's shape=subject / colour=state grammar). Honest counts:
+/// `completed_tool_total` / `failed_tool_total` are the uncapped frame totals.
+///
+/// Note: anchor rides traceability on the CONTEXT row, so it shares that row's
+/// lifecycle — absent until the first API call lands a context%. (rail's
+/// usage-row cells render independently of ctx%.) The asymmetry is intentional:
+/// anchor has no always-present detail row to host them, and a completed tool
+/// implies an API turn has already occurred, so the gap is a narrow transient.
+fn push_traceability(
+    trail: &mut Vec<String>,
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+) {
+    if config.show_todo {
+        if let Some(t) = frame.todo.as_ref().filter(|t| t.total > 0) {
+            trail.push(cell(
+                ICON_TODO,
+                &format!("{}/{}", t.completed, t.total),
+                None,
+                config,
+                palette,
+            ));
+        }
+    }
+    if config.show_tools && frame.completed_tool_total > 0 {
+        let failed = frame.failed_tool_total;
+        let text = if failed > 0 {
+            format!(
+                "{} {}{}",
+                frame.completed_tool_total,
+                fail_mark(config.glyph_mode),
+                failed
+            )
+        } else {
+            frame.completed_tool_total.to_string()
+        };
+        let lit = (failed > 0).then_some(palette.alert_red.as_str());
+        trail.push(cell(ICON_TOOL, &text, lit, config, palette));
+    }
 }
 
 // ── Row 3 · quota ───────────────────────────────────────────────────────────
@@ -290,6 +338,8 @@ fn build_fused_row(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePa
         String::new()
     };
 
+    // Traceability (todo/tools) is intentionally omitted from the most-compressed
+    // fused rung — volatile activity sheds first (mirrors rail's build_fused_cells).
     let mut trail: Vec<String> = Vec::new();
     if let Some(level) = &l1.effort_level {
         let lit = powerline::effort_tints(level).then(|| palette.color_for_effort_level(level));

@@ -735,6 +735,7 @@ fn ledger_dense_false_preserves_legacy_spacing() {
 #[test]
 fn ledger_tools_ticker_fuses_to_one_tool_row() {
     let mut f = frame_basic();
+    f.completed_tool_total = 20;
     f.completed_tools = vec![
         cc_pulseline::types::CompletedToolCount {
             name: "Bash".to_string(),

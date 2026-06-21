@@ -424,6 +424,15 @@ pub struct RenderFrame {
     pub line3: Line3Metrics,
     pub tools: Vec<ToolSummary>,
     pub completed_tools: Vec<CompletedToolCount>,
+    /// Uncapped session total of completed tool invocations (honest grand
+    /// total). `completed_tools` is capped at `max_completed_tools`, so summing
+    /// it undercounts; this is the never-truncated total. Consumed by the
+    /// activity ticker total + the rail/anchor traceability cell.
+    pub completed_tool_total: u32,
+    /// Uncapped session total of failed tool invocations (a tool ranked below
+    /// the score cap is dropped from `completed_tools` with its failures, so
+    /// summing `.failed` there can read 0 — this is the honest tally).
+    pub failed_tool_total: u32,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
     pub quota: QuotaMetrics,
@@ -525,6 +534,8 @@ impl RenderFrame {
             },
             tools: Vec::new(),
             completed_tools: Vec::new(),
+            completed_tool_total: 0,
+            failed_tool_total: 0,
             agents: Vec::new(),
             todo: None,
             quota: payload

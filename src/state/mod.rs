@@ -424,6 +424,26 @@ impl SessionState {
         scored.into_iter().map(|(tool, _)| tool).collect()
     }
 
+    /// Uncapped session total of completed tool invocations across ALL tool
+    /// names — the honest grand total. `scored_completed_tools` truncates at
+    /// `max_completed_tools`, so summing that capped vector undercounts; this
+    /// sums the never-truncated source.
+    pub fn completed_tool_total(&self) -> u32 {
+        self.completed_tool_counts
+            .values()
+            .map(|(count, _)| *count)
+            .sum()
+    }
+
+    /// Uncapped session total of failed tool invocations across ALL tool names.
+    /// A tool ranked below the score cap is dropped from `scored_completed_tools`
+    /// *with* its `failed` count, so a failure tally summed over the capped
+    /// vector can read 0 while real failures occurred; this sums the
+    /// never-truncated `completed_tool_failures`.
+    pub fn failed_tool_total(&self) -> u32 {
+        self.completed_tool_failures.values().copied().sum()
+    }
+
     pub fn upsert_agent(
         &mut self,
         id: String,
@@ -893,6 +913,48 @@ mod tests {
             "alphabetical tiebreak: Bash before Edit"
         );
         assert_eq!(top[1].name, "Edit");
+    }
+
+    #[test]
+    fn uncapped_totals_count_failures_below_the_score_cap() {
+        let mut state = SessionState::default();
+        let now = cache::now_epoch_ms();
+        // Five distinct tools; the failing one (`Fetch`) has the lowest score,
+        // so it ranks below a cap of 4 and is dropped from the scored vector —
+        // taking its failure with it.
+        for (name, count) in [("Read", 20), ("Edit", 15), ("Bash", 12), ("Grep", 8)] {
+            state
+                .completed_tool_counts
+                .insert(name.to_string(), (count, now));
+        }
+        state
+            .completed_tool_counts
+            .insert("Fetch".to_string(), (1, now.saturating_sub(180_000)));
+        state.completed_tool_failures.insert("Fetch".to_string(), 2);
+
+        // The capped vector drops `Fetch` entirely — its failure is invisible.
+        let scored = state.scored_completed_tools(4);
+        assert!(
+            !scored.iter().any(|t| t.name == "Fetch"),
+            "the low-scored failing tool is dropped from the capped vector"
+        );
+        assert_eq!(
+            scored.iter().map(|t| t.failed).sum::<u32>(),
+            0,
+            "summing the capped vector's failures undercounts to 0"
+        );
+
+        // The uncapped totals tell the truth.
+        assert_eq!(
+            state.completed_tool_total(),
+            20 + 15 + 12 + 8 + 1,
+            "uncapped completion total counts every tool"
+        );
+        assert_eq!(
+            state.failed_tool_total(),
+            2,
+            "uncapped failure total counts the dropped tool's failure"
+        );
     }
 
     // ── Cache-trend state ─────────────────────────────────────────────

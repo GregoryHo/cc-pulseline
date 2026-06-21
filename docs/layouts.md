@@ -10,8 +10,8 @@ rows. The shipping layouts:
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
-| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier, stdin-only. See `seams`, `color_budget`, `headline`. |
-| `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge. Nerd-font tier, stdin-only. See `seams`. |
+| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Optional `todo`/`tools` traceability cells fold into the usage-row gap. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier. See `seams`, `color_budget`, `headline`. |
+| `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge + optional `todo`/`tools` traceability. Nerd-font tier. See `seams`. |
 
 All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
@@ -323,7 +323,7 @@ TOOL, and AGENT+TODO groups).
 
 ### `rail` — three grouped Powerline rows
 
-**1–3 rows, stdin-only, nerd-font tier.** Three grouped rows
+**1–3 rows, nerd-font tier.** Three grouped rows
 (`identity · usage · quota`), each a two-cluster bar (layout 方案 A): a left
 identity/pressure cluster hugging the left edge, and a right **headline** flush
 to the right edge. Left-hug / right-hug, like a conventional Powerline bar.
@@ -423,16 +423,36 @@ rail_quota_hero     = "7d"
 | `rail_<row>_hero` | which cell is the **hero** (the filled reverse-video headline). `""` uses the built-in hero. A **displaced hero** (e.g. `cost` when `rail_usage_hero = "ctx"`) falls back to a **letter flag** — it still inks its band, just doesn't fill. A hero not present in the order warns and the row renders with no fill. |
 
 Cell names — identity: `model effort cwd git version`; usage: `ctx compact
-tokens cache cost`; quota: `5h 7d`. Each `_order` is restricted to its own row's
-cells. `compact` is the context-compaction marker `⟳N` — it only renders once a
-compaction has happened (absent otherwise, so it never changes the calm look).
+tokens cache todo tools cost`; quota: `5h 7d`. Each `_order` is restricted to its
+own row's cells. `compact` is the context-compaction marker `⟳N` — it only
+renders once a compaction has happened (absent otherwise, so it never changes the
+calm look). `todo`/`tools` are the **traceability** cells (see below): quiet
+counts in the usage-row gap, gated by `[segments.todo]` / `[segments.tools]`.
 The arrangement applies to the three grouped rows; the **fused bar**
 (`max_total_lines = 1`) keeps its built-in arrangement. Empty config reproduces
 today's layout byte-for-byte.
 
+#### Traceability: `todo` / `tools`
+
+rail/anchor surface tool-use and task progress as a single quiet signal folded
+into existing-row whitespace — never a new row (that detail lives in `ledger` /
+`console`). On rail they ride the **usage row** to the left of the `$cost` hero
+and shed first under width pressure; on anchor they trail the **context row**.
+
+| Cell | Shows | Colour |
+|---|---|---|
+| `todo` | task progress `c/t` from the todo state | quiet `Context` — progress never lights |
+| `tools` | uncapped session tool-use total `N`, plus `✘M` when failures occurred | quiet until `M > 0`, then lights `alert_red` |
+
+The `tools` total is the **honest uncapped** count (`completed_tool_total` /
+`failed_tool_total`): summing the capped `completed_tools` vector undercounts
+because a tool ranked below `max_completed_tools` is dropped with its failures.
+That same honest total now backs `compact`'s `✓ N tools` ticker and `ledger`'s
+tool total too.
+
 ### `anchor` — three grouped capsule+trail rows
 
-**1–3 rows, stdin-only, nerd-font tier.** Each row leads with a banded
+**1–3 rows, nerd-font tier.** Each row leads with a banded
 **capsule hero** (rounded caps) and trails as dim text where state flags light
 in their role colour. Two orthogonal channels, no competition: shape (the
 capsule silhouette) = the row's subject; colour = state. The capsule is always
@@ -546,14 +566,14 @@ than flowing through the dispatch hubs. Consequently `context_visual` /
 alignment is the layout's identity (the same stance ledger takes toward
 its TAG rhythm).
 
-³ Informational: `rail`/`anchor` are stdin-only grouped rows — context and
-quota render as inline bar segments / capsules (not via the
-`render_context_visual` / `render_quota_visual` hubs), and there are no
-transcript activity rows. The `*_visual` hubs are therefore **inert**; the
-defaults document intent. `effort_visual` stays `word` because the ordinal
-pip ramp would double the bar's own colour signal. (`anchor` row 2 does
-reuse `widgets::gauge` directly — the one exception, the single gauge
-dialect.)
+³ Informational: on `rail`/`anchor`, context and quota render as inline bar
+segments / capsules (not via the `render_context_visual` /
+`render_quota_visual` hubs), and traceability folds in as dedicated
+`todo`/`tools` cells rather than the activity `*_visual` hubs. Those hubs are
+therefore **inert**; the defaults document intent. `effort_visual` stays
+`word` because the ordinal pip ramp would double the bar's own colour signal.
+(`anchor` row 2 does reuse `widgets::gauge` directly — the one exception, the
+single gauge dialect.)
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only

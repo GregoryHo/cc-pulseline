@@ -40,8 +40,8 @@ use crate::render::color::{colorize, extract_ansi_code, fg_code, visible_width, 
 use crate::render::fmt::{burn_rate_per_hour, format_number, format_reset_duration};
 use crate::render::frames::powerline::{self, RampLevel, SeamTier, Segment};
 use crate::render::icons::{
-    glyph, ICON_COMPACT, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA,
-    ICON_TOKEN_OUTPUT, ICON_VERSION, PL_TICK,
+    fail_mark, glyph, ICON_COMPACT, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT,
+    ICON_QUOTA, ICON_TODO, ICON_TOKEN_OUTPUT, ICON_TOOL, ICON_VERSION, PL_TICK,
 };
 use crate::render::layout;
 use crate::render::pane::LayoutStyle;
@@ -58,7 +58,12 @@ const CACHE_FLAG_AT: f64 = 80.0;
 /// the user's `rail_*_order` is empty. The built-in hero per row is the first
 /// hero-capable cell: identity → `model`, usage → `cost`, quota → `7d`.
 const IDENTITY_CELLS: [&str; 5] = ["model", "effort", "cwd", "git", "version"];
-const USAGE_CELLS: [&str; 5] = ["ctx", "compact", "tokens", "cache", "cost"];
+// `todo` / `tools` are the traceability cells — quiet counts that ride the
+// inter-cluster gap (left of the `cost` hero) and shed first under width
+// pressure. They render only when their data exists AND the segment toggle is
+// on; the order filter in `render()` drops them when `show_todo`/`show_tools`
+// is off (build_cell has no config handle).
+const USAGE_CELLS: [&str; 7] = ["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"];
 const QUOTA_CELLS: [&str; 2] = ["5h", "7d"];
 
 /// Resolve a palette role escape to its 256 index (for `Tint` / ink codes).
@@ -322,19 +327,48 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
     // empty → built-in default) — kept out of the fit loop so a bad name warns
     // at most once per render, like the `parse_layout_*` parsers.
     let id_order = resolve_order(&config.rail_identity_order, &IDENTITY_CELLS, "identity");
-    let us_order = resolve_order(&config.rail_usage_order, &USAGE_CELLS, "usage");
+    let mut us_order = resolve_order(&config.rail_usage_order, &USAGE_CELLS, "usage");
+    // Segment toggles gate the traceability cells (build_cell has no config
+    // handle); removing them here keeps `cost` the last/right-hug cell.
+    us_order.retain(|c| match c.as_str() {
+        "todo" => config.show_todo,
+        "tools" => config.show_tools,
+        _ => true,
+    });
     let id_hero = effective_hero(&config.rail_identity_hero, "model", &id_order, "identity");
     let us_hero = effective_hero(&config.rail_usage_hero, "cost", &us_order, "usage");
 
     let mut out = vec![
         render_row(
-            |n| assemble(&id_order, id_hero, false, frame, palette, color, n),
+            |n| {
+                assemble(
+                    &id_order,
+                    id_hero,
+                    false,
+                    frame,
+                    palette,
+                    color,
+                    config.glyph_mode,
+                    n,
+                )
+            },
             max_drops(&id_order),
             &ctx,
         ),
         // usage row drops the lone hero when there's no detail (pre-API `$0.00`).
         render_row(
-            |n| assemble(&us_order, us_hero, true, frame, palette, color, n),
+            |n| {
+                assemble(
+                    &us_order,
+                    us_hero,
+                    true,
+                    frame,
+                    palette,
+                    color,
+                    config.glyph_mode,
+                    n,
+                )
+            },
             max_drops(&us_order),
             &ctx,
         ),
@@ -343,7 +377,18 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
         let qu_order = resolve_order(&config.rail_quota_order, &QUOTA_CELLS, "quota");
         let qu_hero = effective_hero(&config.rail_quota_hero, "7d", &qu_order, "quota");
         out.push(render_row(
-            |n| assemble(&qu_order, qu_hero, false, frame, palette, color, n),
+            |n| {
+                assemble(
+                    &qu_order,
+                    qu_hero,
+                    false,
+                    frame,
+                    palette,
+                    color,
+                    config.glyph_mode,
+                    n,
+                )
+            },
             max_drops(&qu_order),
             &ctx,
         ));
@@ -428,6 +473,7 @@ fn build_cell(
     frame: &RenderFrame,
     palette: &ThemePalette,
     color: bool,
+    mode: GlyphMode,
 ) -> Option<RailCell> {
     let l1 = &frame.line1;
     let l3 = &frame.line3;
@@ -487,6 +533,29 @@ fn build_cell(
         // Context-compaction marker `⟳N` — only once a compaction has happened.
         "compact" => (frame.compact_count > 0)
             .then(|| RailCell::context(ICON_COMPACT, "~", frame.compact_count.to_string())),
+        // Task progress `c/t` — a quiet Context count (progress is never an
+        // alert, so it never lights). Absent when there's no todo state.
+        "todo" => {
+            frame.todo.as_ref().filter(|t| t.total > 0).map(|t| {
+                RailCell::context(ICON_TODO, "TODO", format!("{}/{}", t.completed, t.total))
+            })
+        }
+        // Tool-use volume `N` (honest uncapped total) — a quiet Flag that lights
+        // its alert band only when failures occurred this session (`✘M`).
+        "tools" => (frame.completed_tool_total > 0).then(|| {
+            let failed = frame.failed_tool_total;
+            let text = if failed > 0 {
+                format!(
+                    "{} {}{}",
+                    frame.completed_tool_total,
+                    fail_mark(mode),
+                    failed
+                )
+            } else {
+                frame.completed_tool_total.to_string()
+            };
+            RailCell::flag(ICON_TOOL, "T:", text, code(&palette.alert_red), failed > 0)
+        }),
         "cost" => l3.total_cost_usd.map(|cost| {
             let band =
                 code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
@@ -524,6 +593,9 @@ fn drop_priority(name: &str) -> Option<usize> {
         "cache" => Some(1),
         "compact" => Some(1),
         "tokens" => Some(2),
+        // Traceability sheds first (lowest tier) — core identity/usage survives.
+        "todo" => Some(1),
+        "tools" => Some(1),
         _ => None,
     }
 }
@@ -593,6 +665,7 @@ fn assemble(
     frame: &RenderFrame,
     palette: &ThemePalette,
     color: bool,
+    mode: GlyphMode,
     drops: usize,
 ) -> (Vec<RailCell>, Vec<RailCell>) {
     let n = order.len();
@@ -609,7 +682,7 @@ fn assemble(
                 }
             }
         }
-        let Some(mut cell) = build_cell(name, frame, palette, color) else {
+        let Some(mut cell) = build_cell(name, frame, palette, color, mode) else {
             continue;
         };
         if is_hero {
@@ -739,6 +812,9 @@ fn build_fused_cells(
     color: bool,
     dropped: &[FusedCell],
 ) -> (Vec<RailCell>, Vec<RailCell>) {
+    // The fused bar keeps its own built-in arrangement (NOT the order-driven
+    // vocab): traceability (todo/tools) is intentionally absent here — the
+    // single most-compressed rung sheds volatile activity first.
     let l1 = &frame.line1;
     let l3 = &frame.line3;
     let mut left: Vec<RailCell> = Vec::new();

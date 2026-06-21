@@ -47,6 +47,9 @@ fn busy_frame() -> RenderFrame {
             failed: 0,
         })
         .collect();
+    // Honest uncapped total (10+11+…+15) — consumers now read this, not the
+    // capped `completed_tools` sum.
+    frame.completed_tool_total = (0..6).map(|i| 10 + i as u32).sum();
     frame.tools = vec![
         ToolSummary {
             id: "t1".to_string(),
@@ -305,6 +308,8 @@ fn fuse_core_not_reached_when_idle_ladder_stops_early() {
     // MergeQuotaIntoL3 (L1 / L3+quota fits cap=2) — the head never fuses.
     let mut frame = busy_frame();
     frame.completed_tools.clear();
+    frame.completed_tool_total = 0;
+    frame.failed_tool_total = 0;
     frame.tools.clear();
     frame.agents.clear();
     frame.todo = None;
@@ -432,6 +437,8 @@ fn compact_layout_is_three_rows_when_busy() {
 fn compact_layout_is_two_rows_when_idle() {
     let mut frame = busy_frame();
     frame.completed_tools.clear();
+    frame.completed_tool_total = 0;
+    frame.failed_tool_total = 0;
     frame.tools.clear();
     frame.agents.clear();
     frame.todo = None;

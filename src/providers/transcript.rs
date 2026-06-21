@@ -95,6 +95,12 @@ use crate::{
 pub struct TranscriptSnapshot {
     pub tools: Vec<ToolSummary>,
     pub completed_counts: Vec<CompletedToolCount>,
+    /// Uncapped session total of completed tool invocations (honest grand
+    /// total; `completed_counts` is capped at `max_completed_tools` and
+    /// undercounts — see `SessionState::completed_tool_total`).
+    pub completed_total: u32,
+    /// Uncapped session total of failed tool invocations.
+    pub failed_total: u32,
     pub agents: Vec<AgentSummary>,
     pub todo: Option<TodoSummary>,
     /// Number of `compact_boundary` events seen this session.
@@ -951,6 +957,8 @@ fn snapshot_from_state(state: &SessionState, config: &RenderConfig) -> Transcrip
     TranscriptSnapshot {
         tools: state.capped_tools(config.max_tool_lines),
         completed_counts: state.scored_completed_tools(config.max_completed_tools),
+        completed_total: state.completed_tool_total(),
+        failed_total: state.failed_tool_total(),
         agents: state.agents_for_display(AGENT_SNAPSHOT_CAP),
         todo: aggregate_todo(state),
         compact_count: state.compact_count,

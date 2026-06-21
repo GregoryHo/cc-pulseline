@@ -110,11 +110,12 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             todo_visual: "text",
             effort_visual: "word",
         },
-        // Rail/Anchor are single-row, stdin-only — CTX renders as an inline
-        // tinted segment (not via `render_context_visual`), and there are no
-        // activity rows, so most hubs are inert (like `budgets`). The effort
-        // ramp would double the rail's own colour signal, so effort stays
-        // `word`. See `designs/powerline-rail-anchor.md`.
+        // Rail/Anchor are single-row — CTX renders as an inline tinted segment
+        // (not via `render_context_visual`), and traceability folds into the
+        // existing rows as dedicated `todo`/`tools` cells (NOT the activity
+        // `*_visual` hubs), so these visual defaults stay inert (like
+        // `budgets`). The effort ramp would double the rail's own colour
+        // signal, so effort stays `word`. See `designs/powerline-rail-anchor.md`.
         LayoutStyle::Rail | LayoutStyle::Anchor => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",

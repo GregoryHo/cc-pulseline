@@ -203,6 +203,8 @@ fn build_render_frame(
 
     frame.tools = transcript_snapshot.tools;
     frame.completed_tools = transcript_snapshot.completed_counts;
+    frame.completed_tool_total = transcript_snapshot.completed_total;
+    frame.failed_tool_total = transcript_snapshot.failed_total;
     frame.agents = transcript_snapshot.agents;
     frame.todo = transcript_snapshot.todo;
     frame.compact_count = transcript_snapshot.compact_count;

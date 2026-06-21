@@ -63,3 +63,14 @@ pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
         GlyphMode::Ascii => ascii.to_string(),
     }
 }
+
+/// The tool-failure mark, mode-aware: `✘` (U+2718) under Icon, `x` under Ascii.
+/// One source of truth so every failure-count site (activity rows, rail/anchor
+/// traceability cells) degrades identically and no raw dingbat leaks into the
+/// ASCII floor. Both forms are width-1.
+pub fn fail_mark(mode: GlyphMode) -> &'static str {
+    match mode {
+        GlyphMode::Icon => "\u{2718}",
+        GlyphMode::Ascii => "x",
+    }
+}
