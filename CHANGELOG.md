@@ -7,6 +7,115 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-22
+
+Feature release on the layout axis: two new Powerline-tier
+layouts — `rail` (a connected seam-joined bar) and `anchor` (a
+reverse-video hero capsule with a trailing read-out) — each
+rendering as grouped multi-row dashboards that fuse down to a
+single bar under the height ladder. Both are configurable through
+a small set of `[layout]` dials (color budget, headline placement,
+per-row cell arrangement). Additive — the new layouts are opt-in
+via `name = "rail"` / `name = "anchor"` and existing output is
+unchanged — with one correctness fix to the `compact` and `ledger`
+tool totals riding along.
+
+### Added
+
+- **`rail` layout** (`name = "rail"`) — a nerd-font Powerline
+  layout that renders as three grouped rows (identity · usage ·
+  quota), each a two-cluster bar with one always-filled,
+  band-coloured **headline** cell (model / cost / 7d) sharing a
+  right-edge axis, and left-side **flag** cells (effort, CTX,
+  git-dirty, 5h, cache) that ink only once their state crosses a
+  threshold (anti-rainbow: colour marks the live signal, not every
+  cell). Under the height ladder the rows shed (3 → drop quota → 2
+  → fuse to a single connected bar), and absent quota/usage rows
+  drop lazily without leaving a blank. Three dials tune it:
+  - **`color_budget`** (`signal` default · `vivid` · `mono`) —
+    `signal` fills one reverse-video headline per row and inks
+    flags only past threshold; `vivid` fills every banded/lit cell
+    on a raised ramp; `mono` drops all fills for role-coloured text
+    joined by thin Powerline ticks.
+  - **`headline`** (`column` default · `inline`) — right-hug the
+    watch-value headline so rows share a right-edge axis, or trail
+    it on the left cluster. The model is always left-anchored;
+    ignored under `mono` or the ASCII floor.
+  - **`rail_{identity,usage,quota}_order` / `_hero`** — per-row
+    flat `[layout]` arrays controlling cell order left→right and
+    which cell is the filled hero. `[]` / `""` (the defaults) use
+    the built-in arrangement; omit a cell to hide it, name an
+    unknown cell and it warns + is skipped. The cell vocabulary is
+    global, so any cell may be placed on any row (e.g.
+    traceability cells on the quota row). A `"|"` split marker
+    divides a row into a left cluster and a right-hugged group
+    (e.g. `["5h","7d","|","todo","tools"]`).
+- **`anchor` layout** (`name = "anchor"`) — a nerd-font sibling of
+  `rail`: three rounded-cap capsule rows where a reverse-video hero
+  capsule (model) anchors the line by silhouette and the rest trail
+  as dim text joined by a ` ❯ ` thin-tick separator, with colour
+  marking the one live signal (shape = identity, colour = state).
+  Row 2 reuses the shared `gauge` widget. Shares the height ladder,
+  per-row trail-shedding, and the `seams` / ASCII floor with `rail`.
+- **`[layout] seams`** (`powerline` default · `blocks`) — selects
+  the seam glyphs for `rail` / `anchor`: pointed Powerline
+  separators, or a unicode half-block fallback for fonts without
+  the Powerline private-use range. Both layouts also carry an
+  ASCII / `NO_COLOR` floor and fall back to flat `none` below their
+  minimum width.
+- **`todo` and `tools` traceability cells** — a quiet single-signal
+  glance folded into the `rail` / `anchor` usage row (never a new
+  row, never per-tool detail). `todo` shows task progress `c/t` as
+  a Context cell; `tools` shows the uncapped tool-use total as a
+  Flag that lights `alert_red` only on `✘N` failures. Both gate on
+  `show_todo` / `show_tools`, shed first under width pressure, and
+  inherit the color-budget / headline dials. The cache cell's
+  read-out shows the hit rate (`CACHE 84%`, the same value as L3's
+  `C:%`) as an EFFICIENCY flag (green ≥ 80%, `--%` when cold), and a
+  `⟳N` compaction cell joins the usage vocabulary once a compaction
+  has occurred.
+
+### Fixed
+
+- **`compact` and `ledger` tool totals undercounted** — both the
+  `compact` `✓ N tools` ticker and the `ledger` tool total summed
+  the `completed_tools` vector, which is capped at
+  `max_completed_tools`; any tool ranked below the cap was dropped
+  *with* its failure count, so the displayed total ran low. They
+  now read new uncapped `completed_tool_total` / `failed_tool_total`
+  fields (threaded `SessionState` → `RenderFrame`) and guard on the
+  displayed total rather than the capped vector, so upgrading
+  sessions see the honest count.
+
+### Internal
+
+- New `render/frames/{powerline,rail,anchor}.rs` (shared seam/cap
+  helper + a Powerline segment carrying an optional `ink` channel
+  that paints a band segment's text a role colour over its gray
+  background), `color::{fg_code,bg_code}`, `SEAM_*` / `CAP_*` /
+  `PL_TICK` icon constants, and a mode-gated `icons::fail_mark`
+  (`✘` / `x`) now shared by `rail`, `anchor`, and the activity
+  builder.
+- Shared `burn_rate_per_hour` helper in `fmt.rs`; `ledger` and the
+  flat layout cost paths refactored onto it (cost output
+  byte-identical).
+- `tests/{rail,anchor}_layout.rs` (~75 tests across the height
+  ladder, anti-rainbow ink markers, headline alignment, lazy
+  blank-row drop, per-row width drop, cell order/hero/split,
+  cross-row vocab, and blocks / ASCII degradation), plus
+  end-to-end tool-total honesty probes in `tests/activity_pipeline.rs`
+  and `tests/config_merge.rs` coverage of the new `[layout]` keys.
+  The `display_axes.rs` Ascii catch-net is extended to `rail` /
+  `anchor` and the `✘ → x` degradation; the `--preview-layouts`
+  fixture sets the new totals so the traceability cells show.
+- **Release-aware p95 budget** — the render-latency tests in
+  `tests/adaptive_performance.rs` enforced a 50ms ceiling on debug
+  builds (3–10× slower than the shipped release binary), flaking on
+  loaded CI runners. The budget is now env-aware (strict 50ms in
+  release, loose 250ms sanity ceiling in debug), and a dedicated CI
+  `perf` job runs the suite against a release build so the
+  production SLA is gated on the right artifact.
+
 ## [1.3.0] - 2026-06-15
 
 Feature release on the display surface: a new column-aligned
@@ -753,6 +862,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.4.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.1.5...v1.2.0
