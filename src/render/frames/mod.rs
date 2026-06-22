@@ -110,8 +110,9 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             todo_visual: "text",
             effort_visual: "word",
         },
-        // Rail/Anchor are single-row — CTX renders as an inline tinted segment
-        // (not via `render_context_visual`), and traceability folds into the
+        // Rail/Anchor are three-row grouped — CTX bypasses
+        // `render_context_visual` (rail: an inline tinted segment; anchor: a
+        // hero capsule + inline gauge), and traceability folds into the
         // existing rows as dedicated `todo`/`tools` cells (NOT the activity
         // `*_visual` hubs), so these visual defaults stay inert (like
         // `budgets`). The effort ramp would double the rail's own colour

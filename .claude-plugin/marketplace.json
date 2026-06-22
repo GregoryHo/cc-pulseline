@@ -9,7 +9,7 @@
     {
       "name": "pulseline",
       "description": "Setup and manage the cc-pulseline statusline — install binary, configure display, and diagnose issues",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "source": ".",
       "category": "productivity"
     }
