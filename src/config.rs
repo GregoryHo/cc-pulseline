@@ -712,12 +712,13 @@ visual = ""
 #                layout — favours rhythm over density. Ships sparkline +
 #                delta-time on the CTX row by default.
 #
-# Single-row (nerd-font tier — needs a patched font, see `seams`):
-#   "rail"     — one connected Powerline bar (identity → pressure). The bar
-#                rides a gray ink ramp; exactly one segment tints when its
-#                state crosses a threshold (the live signal).
-#   "anchor"   — a reverse-video hero capsule (model) anchors the line; the
-#                rest trail as dim text where colour marks the one live signal.
+# Grouped multi-row (1-3 rows, nerd-font tier — needs a patched font, see `seams`):
+#   "rail"     — three grouped Powerline rows (identity · usage · quota); one
+#                band-coloured headline per row, flags light past threshold;
+#                collapses to a single fused bar via max_total_lines.
+#   "anchor"   — three grouped capsule+trail rows; each leads with a banded
+#                rounded-capsule hero, the rest trail as dim text where colour
+#                marks the live signal; collapses via max_total_lines.
 #
 # Trend-forward is a recipe, not a layout: any layout +
 # context_visual = "plot+text" (+ quota_visual = "gauge") leads the CONTEXT

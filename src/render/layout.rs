@@ -48,8 +48,9 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let palette = &config.palette;
     match config.pane_style {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
-        // Rail/Anchor are single-row Powerline layouts that own their full
-        // pipeline (the seam rhythm doesn't compose via `apply_pane`).
+        // Rail/Anchor are three-row grouped Powerline dashboards (collapsing
+        // to a single bar via `max_total_lines`) that own their full pipeline
+        // (the seam rhythm doesn't compose via `apply_pane`).
         LayoutStyle::Rail => return frames::rail::render(frame, config, palette),
         LayoutStyle::Anchor => return frames::anchor::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below

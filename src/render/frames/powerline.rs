@@ -153,9 +153,6 @@ impl Segment {
             ink: None,
         }
     }
-    pub fn is_tinted(&self) -> bool {
-        matches!(self.fill, Fill::Tint(_))
-    }
 }
 
 /// Cap geometry for the `anchor` capsule.

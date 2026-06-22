@@ -39,16 +39,16 @@ pub enum LayoutStyle {
     /// blank rows separate groups. Tallest layout — favours typographic
     /// rhythm over density.
     Ledger,
-    /// Single connected Powerline bar (height 1, nerd-font tier). Identity
-    /// → pressure segments joined by real Powerline seams
-    /// riding a 3-step gray ink ramp; exactly one segment leaves the ramp
-    /// and tints when its state crosses a threshold (the live signal).
-    /// Owns its full pipeline (the seam rhythm doesn't compose via
+    /// Three grouped Powerline rows (identity · usage · quota), each
+    /// carrying one band-coloured headline; flags light past threshold.
+    /// Collapses to a single fused bar via `max_total_lines`. Nerd-font
+    /// tier. Owns its full pipeline (the seam rhythm doesn't compose via
     /// `apply_pane`). See `frames/rail.rs`.
     Rail,
-    /// One reverse-video hero capsule (model) anchors the line by
-    /// silhouette; the remaining fields trail as dim text where colour
-    /// marks the single live signal (height 1, nerd-font tier). Two
+    /// Three grouped capsule+trail rows (identity · context · quota); each
+    /// leads with a banded rounded capsule hero, the rest trail as dim text
+    /// where colour marks the live signal. Collapses to a single
+    /// capsule+trail bar via `max_total_lines`. Nerd-font tier. Two
     /// orthogonal channels: shape = identity, colour = state.
     /// Owns its full pipeline. See `frames/anchor.rs`.
     Anchor,

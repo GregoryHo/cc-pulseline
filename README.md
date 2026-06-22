@@ -150,7 +150,7 @@ max_lines = 2
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Several layouts ship — `none`, `compact`, `budgets`, `console`, `ledger` — see [docs/layouts.md](docs/layouts.md) for the catalog.
+`[layout].name` picks how rows are arranged and decorated. Several layouts ship, from flat to framed to single-bar — see [docs/layouts.md](docs/layouts.md) for the catalog.
 
 Each layout asserts a tasteful default for every widget-bearing segment — see [docs/layouts.md](docs/layouts.md) for the per-segment reference. The user can override per segment via `*_visual` strings — same widget, any layout:
 
