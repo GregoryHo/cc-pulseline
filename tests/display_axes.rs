@@ -174,6 +174,7 @@ const UNICODE_BLOCKS: &[char] = &[
     '\u{258F}', // ▏
     '\u{2591}', // ░
     '\u{25B6}', // ▶ (tape arrow — must become '>' in Ascii mode)
+    '\u{2718}', // ✘ (tool-failure mark — must become 'x' in Ascii mode)
 ];
 
 const ALL_LAYOUTS: &[LayoutStyle] = &[
@@ -182,6 +183,8 @@ const ALL_LAYOUTS: &[LayoutStyle] = &[
     LayoutStyle::Budgets,
     LayoutStyle::Console,
     LayoutStyle::Ledger,
+    LayoutStyle::Rail,
+    LayoutStyle::Anchor,
 ];
 
 fn frame_with_tools_for_ascii_contract() -> RenderFrame {
@@ -208,6 +211,11 @@ fn frame_with_tools_for_ascii_contract() -> RenderFrame {
         last_completed_at: None,
         failed: 0,
     }];
+    // Drive the rail/anchor `tools` cell + its failure mark so the Ascii
+    // catch-net exercises the `✘ → x` degradation path (would leak U+2718 raw
+    // otherwise).
+    f.completed_tool_total = 5;
+    f.failed_tool_total = 2;
     f
 }
 

@@ -39,6 +39,19 @@ pub enum LayoutStyle {
     /// blank rows separate groups. Tallest layout — favours typographic
     /// rhythm over density.
     Ledger,
+    /// Single connected Powerline bar (height 1, nerd-font tier). Identity
+    /// → pressure segments joined by real Powerline seams
+    /// riding a 3-step gray ink ramp; exactly one segment leaves the ramp
+    /// and tints when its state crosses a threshold (the live signal).
+    /// Owns its full pipeline (the seam rhythm doesn't compose via
+    /// `apply_pane`). See `frames/rail.rs`.
+    Rail,
+    /// One reverse-video hero capsule (model) anchors the line by
+    /// silhouette; the remaining fields trail as dim text where colour
+    /// marks the single live signal (height 1, nerd-font tier). Two
+    /// orthogonal channels: shape = identity, colour = state.
+    /// Owns its full pipeline. See `frames/anchor.rs`.
+    Anchor,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -84,9 +97,12 @@ pub fn apply_pane(
     cfg: &PaneConfig,
 ) -> Vec<String> {
     match cfg.style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Ledger => {
-            return lines
-        }
+        LayoutStyle::None
+        | LayoutStyle::Compact
+        | LayoutStyle::Budgets
+        | LayoutStyle::Ledger
+        | LayoutStyle::Rail
+        | LayoutStyle::Anchor => return lines,
         LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {

@@ -10,6 +10,8 @@ rows. The shipping layouts:
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
+| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Optional `todo`/`tools` traceability cells fold into the usage-row gap. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier. See `seams`, `color_budget`, `headline`. |
+| `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge + optional `todo`/`tools` traceability. Nerd-font tier. See `seams`. |
 
 All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
@@ -319,6 +321,191 @@ TOOL, and AGENT+TODO groups).
 
 ---
 
+### `rail` — three grouped Powerline rows
+
+**1–3 rows, nerd-font tier.** Three grouped rows
+(`identity · usage · quota`), each a two-cluster bar (layout 方案 A): a left
+identity/pressure cluster hugging the left edge, and a right **headline** flush
+to the right edge. Left-hug / right-hug, like a conventional Powerline bar.
+
+```
+ Opus 4.6  high  cc-pulseline  feat/ledger-quota +2 ~1 *                  v2.1.153
+ CTX 43% 86.0k/200.0k  ↓12.8k ↑24.6k  CACHE 68.2k                            $3.47
+ 5H 62% 1h59m                                                          7D 41% 4d06h
+└──────── left: detail (left-hug) ────────┘                  └─ headline (right-hug) ─┘
+```
+
+| Row | Left (detail) | Right cluster (under `column`) |
+|---|---|---|
+| identity | `model · effort · cwd · git` | `version` |
+| usage | `CTX% · tokens · cache` | `$cost` |
+| quota | `5H%` | `7D%` |
+
+The identity row's headline is the **model** (left-anchored — see `headline`);
+`version` is a context cell that simply occupies the right axis. The usage /
+quota headlines are `cost` and `7d`.
+
+**Colour budget** (`color_budget`, default `signal`) governs how much of the bar
+takes colour. Each cell is classified once as a **headline** (the value the row
+is about — `model` · `cost` · `7d`), a **flag** (a live state — `effort` · `ctx`
+· `5h` · `git` · `cache`), or **context** (quiet structure — `version` · `cwd` ·
+`tokens`). The budget is a transform over those kinds:
+
+| Cell kind | `signal` (default) | `vivid` | `mono` |
+|---|---|---|---|
+| Headline | reverse-video `Tint` fill | `Tint` fill | role-coloured text |
+| Flag, past threshold | `ink` (letter on gray) | `Tint` fill | role-coloured text |
+| Flag, below threshold | neutral gray | raised ramp | neutral text |
+| Context | neutral gray | raised ramp | neutral text |
+
+Under the `signal` default a calm session is gray with exactly **three fills**
+(`model · cost · 7d`); flags add **letter** colour only when they cross threshold
+(effort ≥ `high`, ctx ≥ 55%, 5h ≥ 50%, git dirty, cache hit ≥ 80%) — the
+anti-rainbow stance. `vivid` fills every headline + lit flag (context and
+below-threshold flags ride a raised ramp); `mono` drops all fills for
+role-coloured text joined by thin `\u{e0b1}` ticks (` · ` on the Blocks tier).
+`git` is the one **partial** cell in every budget: only its `~N`/`*` dirty marks
+light (neutral branch), via a fg-only splice. Bands route through the
+polarity-correct `color_for_*` helpers — ctx/quota saturate green→amber→red,
+effort/cost run cool→hot, cache dim→green (never red). No new palette fields.
+NO_COLOR / `display.icons = false` drops to the ASCII floor (` | `-joined letter
+cells, no fills; both dials inert).
+
+> The gray ramp bed (235/238/241) is **not** theme-derived — it's a fixed
+> grayscale stand-in for the design's truecolor `term_bg` blend (no `term_bg`
+> source in the payload). Theme colour enters via the `Tint` bg and the
+> `ramp_ink`/letter fg (the `color_for_*` ladders). Making the bed itself
+> theme-driven is a separate, deferred change.
+
+**Width:** the bar is capped at `pane_max_width` so it never spreads across an
+ultra-wide terminal. **Height ladder** (`max_total_lines`): 3 rows → 2 (drop
+quota) → the **single fused bar** (`model · effort · cwd · git · ctx │ cost ·
+version`). Quota / usage rows drop lazily when their data is absent
+(`!quota.has_data()` / no API call yet). Below `min_width` → flat `none`. The
+fused bar honours `color_budget` too.
+
+#### Dials: `color_budget` / `headline`
+
+```toml
+[layout]
+color_budget = "signal"   # signal | vivid | mono   (default: signal)
+headline     = "column"   # column | inline         (default: column)
+```
+
+`color_budget` is the colour transform tabled above. `headline` governs where a
+watch-value headline (`cost` on the usage row, `7d` on the quota row) sits:
+`column` (default) right-hugs it so the three rows share a right-edge axis;
+`inline` folds it onto the end of the left cluster (content-width, no gap). The
+**model is always left-anchored** — it leads the identity row in both. `headline`
+is ignored when `color_budget = "mono"` and under the ASCII floor (one flat run
+per row). Both dials are `rail`-only and inert elsewhere; unknown values warn and
+fall back to the default.
+
+#### Arrangement: `rail_*_order` / `rail_*_hero`
+
+The default order and the hero (filled) cell of each row are overridable per row.
+
+```toml
+[layout]
+# cells left→right; [] (default) = built-in order; omitted cells are hidden.
+rail_identity_order = ["model", "effort", "cwd", "git", "version"]
+rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+rail_quota_order    = ["5h", "7d"]
+# which cell is the filled hero; "" (default) = built-in (model / cost / 7d).
+rail_identity_hero  = "model"
+rail_usage_hero     = "cost"
+rail_quota_hero     = "7d"
+```
+
+| Knob | Effect |
+|---|---|
+| `rail_<row>_order` | the row's cells in display order. **Omitting a cell hides it**; unknown names warn (stderr) and are skipped; `[]` uses the built-in order. The **rightmost listed cell takes the right axis** (right-hugged under `headline = "column"`) — that's what keeps `model` filled-but-left while `version` right-hugs on the identity row. Insert a **`"|"` marker** to split the row into an explicit left/right cluster: cells before `\|` form the left cluster, cells after right-hug as a group (e.g. `["5h", "7d", "\|", "todo", "tools"]` → quota left, traceability right). With no marker the single last cell right-hugs (the built-in behaviour). |
+| `rail_<row>_hero` | which cell is the **hero** (the filled reverse-video headline). `""` uses the built-in hero. A **displaced hero** (e.g. `cost` when `rail_usage_hero = "ctx"`) falls back to a **letter flag** — it still inks its band, just doesn't fill. A hero not present in the order warns and the row renders with no fill. |
+
+Cell names — `model effort cwd git version ctx compact tokens cache todo tools
+cost 5h 7d`. The vocabulary is **global**: any cell may be placed on any row
+(e.g. `todo`/`tools` on the quota row), so each `_order` is no longer restricted
+to its own row's defaults — only the built-in (empty-config) arrangement is
+per-row. `compact` is the context-compaction marker `⟳N` — it only renders once a
+compaction has happened (absent otherwise, so it never changes the calm look).
+`todo`/`tools` are the **traceability** cells (see below): quiet counts gated by
+`[segments.todo]` / `[segments.tools]`. The hero — and, in the no-marker form,
+the right-hug cell — never drop for width; cells in an **explicit right cluster**
+still shed by `drop_priority` (so traceability sheds first even on the right).
+The arrangement applies to the three grouped rows; the **fused bar**
+(`max_total_lines = 1`) keeps its built-in arrangement. Empty config reproduces
+today's layout byte-for-byte.
+
+#### Traceability: `todo` / `tools`
+
+rail/anchor surface tool-use and task progress as a single quiet signal folded
+into existing-row whitespace — never a new row (that detail lives in `ledger` /
+`console`). On rail they ride the **usage row** to the left of the `$cost` hero
+and shed first under width pressure; on anchor they trail the **context row**.
+
+| Cell | Shows | Colour |
+|---|---|---|
+| `todo` | task progress `c/t` from the todo state | quiet `Context` — progress never lights |
+| `tools` | uncapped session tool-use total `N`, plus `✘M` when failures occurred | quiet until `M > 0`, then lights `alert_red` |
+
+The `tools` total is the **honest uncapped** count (`completed_tool_total` /
+`failed_tool_total`): summing the capped `completed_tools` vector undercounts
+because a tool ranked below `max_completed_tools` is dropped with its failures.
+That same honest total now backs `compact`'s `✓ N tools` ticker and `ledger`'s
+tool total too.
+
+### `anchor` — three grouped capsule+trail rows
+
+**1–3 rows, nerd-font tier.** Each row leads with a banded
+**capsule hero** (rounded caps) and trails as dim text where state flags light
+in their role colour. Two orthogonal channels, no competition: shape (the
+capsule silhouette) = the row's subject; colour = state. The capsule is always
+filled; only trail flags light.
+
+```
+ Opus 4.6 ❯ high ❯ v2.1.153 ❯ cc-pulseline ❯ feat/ledger-quota *
+ CTX 43% ❯ ▰▰▰▰▰▰▰───·──  86.0k/200.0k ❯ in 12.8k ❯ out 24.6k
+ 5H 62% ❯ resets 1h59m ❯ 7D 41% ❯ resets 4d06h
+```
+
+Row 1 trails `effort · version · cwd · git`; row 2 reuses the shipped
+`widgets::gauge` inline (one gauge dialect); row 3 carries a second capsule for
+7d. The trail separator is ` ❯ ` (`PL_TICK`) in the Powerline tier, ` · ` in
+Blocks / the ASCII floor. Same height ladder as `rail` (3 → 2 → single
+capsule+trail bar). `anchor` uses **rounded** caps where `rail` uses angled
+seams — the bar is angular, the hero is rounded.
+
+#### Capability tiers: `seams`
+
+Both `rail` and `anchor` are nerd-font tier. One config knob picks the seam
+vocabulary, and every higher tier names a lower fallback so nothing renders as
+tofu:
+
+```toml
+[layout]
+seams = "powerline"   # powerline | blocks   (default: powerline)
+```
+
+| Element | `seams = "powerline"` (default) | `seams = "blocks"` | `display.icons = false` / `NO_COLOR` floor |
+|---|---|---|---|
+| rail seam | PUA `\u{e0b0}`/`\u{e0b2}` | unicode half-block `▐`/`▌` | ` \| ` separator, no fill |
+| anchor cap | rounded PUA `\u{e0b6}`/`\u{e0b4}` | reverse-cap `▐body▌` | `[model]` bracket + dim trail |
+| anchor trail | ` ❯ ` (`PL_TICK \u{e0b1}`) | ` · ` (structural) | ` · ` (structural) |
+| cell icon | MD glyph + space | MD glyph + space | ASCII prefix (`M:`, `G:`, …) |
+
+`blocks` is the unicode rung: a connected coloured bar in any UTF-8 terminal
+without a patched font. `seams` is independent of `display.icons` (which gates
+only the per-cell MD glyphs); colour is the hard gate — without it the bar
+can't read, so it collapses to the ` | ` floor (NO_COLOR / dumb terminal).
+
+> **Colour fidelity note.** The design specifies a truecolor RGB ink ramp
+> blended from `term_bg`. The renderer is 256-colour and has no `term_bg`
+> source (not in the stdin contract, not detectable), so the bed is a fixed
+> 256 grayscale ramp — the standard vim-airline / tmux Powerline approach.
+> A truecolor backend is a later swap, gated on a `term_bg` source.
+
+---
+
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
@@ -369,6 +556,8 @@ paths (mostly tests) that construct `RenderConfig` directly.
 | `budgets` | `gauge`² | `gauge`² | `counts+targets` | `name+description+model` | `text` | `word+ramp` |
 | `console` | `text` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
+| `rail` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
+| `anchor` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
@@ -380,6 +569,15 @@ than flowing through the dispatch hubs. Consequently `context_visual` /
 `quota_visual` overrides are **inert** on budgets — the three-gauge
 alignment is the layout's identity (the same stance ledger takes toward
 its TAG rhythm).
+
+³ Informational: on `rail`/`anchor`, context and quota render as inline bar
+segments / capsules (not via the `render_context_visual` /
+`render_quota_visual` hubs), and traceability folds in as dedicated
+`todo`/`tools` cells rather than the activity `*_visual` hubs. Those hubs are
+therefore **inert**; the defaults document intent. `effort_visual` stays
+`word` because the ordinal pip ramp would double the bar's own colour signal.
+(`anchor` row 2 does reuse `widgets::gauge` directly — the one exception, the
+single gauge dialect.)
 
 CTX bar (`context_visual = "gauge"`) is opt-in for every layout —
 the framed-layout defaults stay `text` for CTX and add `gauge` only
@@ -481,6 +679,11 @@ Layouts may apply additional per-segment width gating inside their
 dispatch (e.g. dropping `sparkline` from the spec below a threshold).
 These limits are layout-internal; the user-supplied spec is the
 *target*, not the guarantee.
+
+`rail`/`anchor` carry their own height ladder driven by `max_total_lines`:
+3 grouped rows → 2 (drop quota) → the single fused bar. The fused bar keeps
+the v1 cell-drop order (**version → cost → cwd → git → effort**, model + ctx
+survive longest). Below `min_width`, all rungs bypass to flat `none`.
 
 ---
 

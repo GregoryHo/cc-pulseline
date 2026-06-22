@@ -121,8 +121,12 @@ pub fn build_activity_inline_row(
     let sep = colorize(ROW_SEPARATOR, &palette.separator, color);
     let mut cells: Vec<Cell> = Vec::new();
 
-    if config.show_tools && !frame.completed_tools.is_empty() {
-        cells.push(completed_total_cell(&frame.completed_tools, palette, color));
+    if config.show_tools && frame.completed_tool_total > 0 {
+        cells.push(completed_total_cell(
+            frame.completed_tool_total as u64,
+            palette,
+            color,
+        ));
     }
 
     if config.show_tools {
@@ -210,13 +214,10 @@ impl TodoVisualSpec {
 const TODO_BAR_WIDTH: usize = 5;
 
 /// `✓ {total} tools` grand-total cell — used by the tools `ticker` atom
-/// and the fused inline activity row.
-fn completed_total_cell(
-    completed: &[crate::types::CompletedToolCount],
-    p: &ThemePalette,
-    color: bool,
-) -> Cell {
-    let total: u64 = completed.iter().map(|c| c.count as u64).sum();
+/// and the fused inline activity row. `total` is the uncapped
+/// `frame.completed_tool_total`; summing `frame.completed_tools` here would
+/// undercount (that vector is capped at `max_completed_tools`).
+fn completed_total_cell(total: u64, p: &ThemePalette, color: bool) -> Cell {
     let check = colorize("\u{2713}", &p.completed_check, color);
     let noun = if total == 1 { "tool" } else { "tools" };
     let label = colorize(&format!(" {total} {noun}"), &p.completed_check, color);
@@ -235,8 +236,12 @@ fn build_tools_ticker_row(
 ) -> Option<String> {
     let color = config.color_enabled;
     let mut cells: Vec<Cell> = Vec::new();
-    if !frame.completed_tools.is_empty() {
-        cells.push(completed_total_cell(&frame.completed_tools, palette, color));
+    if frame.completed_tool_total > 0 {
+        cells.push(completed_total_cell(
+            frame.completed_tool_total as u64,
+            palette,
+            color,
+        ));
     }
     if config.max_tool_lines > 0 {
         cells.extend(
@@ -402,12 +407,9 @@ fn build_completed_tool_cell(
     // Visible width: ✓ + space + name + " ×" + digits
     let mut head_w = 1 + 1 + c.name.chars().count() + 2 + count_digits(c.count as u64);
     let fail_part = if c.failed > 0 {
-        let (fail_glyph, glyph_w) = match mode {
-            GlyphMode::Icon => ("\u{2718}", 1usize),
-            GlyphMode::Ascii => ("x", 1usize),
-        };
+        let fail_glyph = crate::render::icons::fail_mark(mode);
         let raw = format!(" {fail_glyph}{}", c.failed);
-        head_w += 1 + glyph_w + count_digits(c.failed as u64); // space + glyph + digits
+        head_w += 1 + 1 + count_digits(c.failed as u64); // space + glyph (w1) + digits
         colorize(&raw, &p.alert_red, color)
     } else {
         String::new()
@@ -1680,6 +1682,7 @@ mod tests {
 
     fn frame_with_tools() -> RenderFrame {
         RenderFrame {
+            completed_tool_total: 20,
             completed_tools: vec![
                 CompletedToolCount {
                     name: "Bash".to_string(),

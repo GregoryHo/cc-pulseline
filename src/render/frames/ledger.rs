@@ -630,11 +630,7 @@ fn cache_row_body(
 
 fn cost_row_body(line3: &Line3Metrics, p: &ThemePalette, color: bool) -> String {
     let total = line3.total_cost_usd.unwrap_or(0.0);
-    let per_hour = line3
-        .total_duration_ms
-        .filter(|d| *d > 0)
-        .map(|d| total / ((d as f64) / 3_600_000.0))
-        .unwrap_or(0.0);
+    let per_hour = crate::render::fmt::burn_rate_per_hour(total, line3.total_duration_ms);
     let total_str = colorize(&format!("${total:.2}"), &p.cost_base, color);
     let rate_color = p.color_for_burn_rate(per_hour);
     let rate_str = colorize(&format!("${per_hour:.2}/h"), rate_color, color);
@@ -769,8 +765,12 @@ fn build_tool_ticker_row(
     let mut parts: Vec<String> = Vec::new();
     let mut used = 0usize;
 
-    if !frame.completed_tools.is_empty() {
-        let total: u64 = frame.completed_tools.iter().map(|c| c.count as u64).sum();
+    if frame.completed_tool_total > 0 {
+        // Honest uncapped total — `completed_tools` is capped, summing it
+        // undercounts (see `RenderFrame::completed_tool_total`). Guard on the
+        // uncapped total (not the capped vector) so `max_completed = 0` can't
+        // suppress the honest count — matches rail/anchor's `tools` cell guard.
+        let total: u64 = frame.completed_tool_total as u64;
         let noun = if total == 1 { "tool" } else { "tools" };
         let check = colorize("\u{2713}", &p.completed_check, color);
         let label = colorize(&format!(" {total} {noun}"), &p.completed_check, color);

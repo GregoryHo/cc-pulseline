@@ -48,6 +48,10 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     let palette = &config.palette;
     match config.pane_style {
         LayoutStyle::Ledger => return frames::ledger::render(frame, config, palette),
+        // Rail/Anchor are single-row Powerline layouts that own their full
+        // pipeline (the seam rhythm doesn't compose via `apply_pane`).
+        LayoutStyle::Rail => return frames::rail::render(frame, config, palette),
+        LayoutStyle::Anchor => return frames::anchor::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below
         // and is decorated by `apply_pane`.
         LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Console => {}
@@ -284,8 +288,9 @@ fn assemble_flat(
         // group labels (Identity/Config/Budget/Activity) top out at 8
         // chars — ~16 cols total. Budget value for width degradation.
         LayoutStyle::Console => 16,
-        // Ledger owns its own pipeline and never reaches this branch.
-        LayoutStyle::Ledger => 0,
+        // Ledger / Rail / Anchor own their own pipeline and never reach this
+        // branch.
+        LayoutStyle::Ledger | LayoutStyle::Rail | LayoutStyle::Anchor => 0,
     };
     let effective_width = config
         .terminal_width
@@ -1084,11 +1089,7 @@ fn format_cost_segment(line3: &Line3Metrics, config: &RenderConfig, p: &ThemePal
     let color = config.color_enabled;
 
     let total_cost = line3.total_cost_usd.unwrap_or(0.0);
-    let per_hour = line3
-        .total_duration_ms
-        .filter(|duration| *duration > 0)
-        .map(|duration| total_cost / ((duration as f64) / 3_600_000.0))
-        .unwrap_or(0.0);
+    let per_hour = super::fmt::burn_rate_per_hour(total_cost, line3.total_duration_ms);
 
     let rate_color = p.color_for_burn_rate(per_hour);
 

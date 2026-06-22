@@ -1890,6 +1890,81 @@ fn tool_failure_shows_error_badge() {
 }
 
 #[test]
+fn rail_tools_cell_surfaces_a_failure_ranked_below_the_cap() {
+    // End-to-end honesty guard for the v2 uncapped totals. A failing tool that
+    // ranks BELOW max_completed_tools is dropped from the capped per-tool vector
+    // (with its failure), but the rail `tools` cell must still show the honest
+    // grand total + the failure mark, sourced from completed_tool_total /
+    // failed_tool_total. This is the ONLY test exercising the
+    // snapshot_from_state → frame seam for a sub-cap failure (state + render
+    // tests bypass that assignment), so a miswire there is caught only here.
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("rail-honesty.jsonl");
+
+    let mut uid = 0;
+    let mut add = |name: &str, fail: bool| {
+        let id = format!("t{uid}");
+        uid += 1;
+        append_line(
+            &transcript,
+            &format!(
+                r#"{{"message":{{"role":"assistant","content":[{{"type":"tool_use","id":"{id}","name":"{name}","input":{{}}}}]}}}}"#
+            ),
+        );
+        append_line(
+            &transcript,
+            &format!(
+                r#"{{"content":[{{"type":"tool_result","tool_use_id":"{id}","is_error":{fail}}}]}}"#
+            ),
+        );
+    };
+    // 5 distinct tools, 11 completions. `Fetch` (1 use, failed) is the lowest
+    // score → ranks 5th, below the cap of 4, so it's dropped from the capped
+    // vector. Capped sum would read 10 with 0 failures; the honest totals are
+    // 11 with 1 failure.
+    for _ in 0..3 {
+        add("Read", false);
+    }
+    for _ in 0..3 {
+        add("Edit", false);
+    }
+    for _ in 0..2 {
+        add("Bash", false);
+    }
+    for _ in 0..2 {
+        add("Grep", false);
+    }
+    add("Fetch", true);
+
+    let mut runner = PulseLineRunner::default();
+    let config = RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        max_completed_tools: 4,
+        glyph_mode: cc_pulseline::config::GlyphMode::Icon,
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Rail,
+        ..RenderConfig::default()
+    };
+
+    let lines = runner
+        .run_from_str(
+            &payload_json(&workspace, &transcript, "rail-honesty"),
+            config,
+        )
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("11"),
+        "honest uncapped total (11, not the capped 10) on the rail tools cell: {joined}"
+    );
+    assert!(
+        joined.contains("\u{2718}1"),
+        "sub-cap failure still surfaces via failed_tool_total: {joined}"
+    );
+}
+
+#[test]
 fn tool_no_failure_no_badge() {
     // All successful → no ✘ badge at all.
     let workspace = TempDir::new().expect("temp workspace");

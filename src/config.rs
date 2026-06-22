@@ -90,6 +90,15 @@ fn default_layout_tonal_strata() -> bool {
 fn default_layout_ledger_dense() -> bool {
     false
 }
+fn default_layout_seams() -> String {
+    "powerline".to_string()
+}
+fn default_layout_color_budget() -> String {
+    "signal".to_string()
+}
+fn default_layout_headline() -> String {
+    "column".to_string()
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LayoutSection {
@@ -108,6 +117,55 @@ pub struct LayoutSection {
     /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
     #[serde(default = "default_layout_ledger_dense")]
     pub ledger_dense: bool,
+    /// `rail`/`anchor` only: seam glyph tier. `"powerline"` (default) uses
+    /// PUA Powerline seam/cap glyphs; `"blocks"` degrades to unicode
+    /// half-blocks for terminals without a patched font. Independent of
+    /// `display.icons` (which only gates per-cell glyphs). See
+    /// `designs/powerline-rail-anchor.md`.
+    #[serde(default = "default_layout_seams")]
+    pub seams: String,
+    /// `rail` only: how much of the bar takes colour. `"signal"` (default) —
+    /// one reverse-video fill per line (the headline); flags add letter colour
+    /// only past threshold (the anti-rainbow default). `"vivid"` — every banded
+    /// or lit cell fills; context rides a raised ramp. `"mono"` — no fills at
+    /// all: role-coloured text joined by thin `\u{e0b1}` ticks. Unknown values
+    /// warn and fall back to `"signal"`. See
+    /// `docs/layouts.md`.
+    #[serde(default = "default_layout_color_budget")]
+    pub color_budget: String,
+    /// `rail` only: where a watch-value headline (cost, 7d) sits on its row.
+    /// `"column"` (default) — right-hugged, so the rows share a right-edge
+    /// axis; `"inline"` — trails the left cluster, no right gap. The model is
+    /// always left-anchored. Ignored when `color_budget = "mono"` or under the
+    /// ASCII floor. See `docs/layouts.md`.
+    #[serde(default = "default_layout_headline")]
+    pub headline: String,
+    /// `rail` only: per-row cell **order** (left→right). Each is a TOML array of
+    /// cell-name strings; an empty array `[]` (default) uses the built-in order.
+    /// Cells not listed are hidden; unknown names warn and are skipped. The
+    /// rightmost listed cell right-hugs under `headline = "column"`; insert a
+    /// `"|"` marker to split the row into an explicit left/right cluster
+    /// (cells after `|` right-hug as a group). The cell vocabulary is global —
+    /// any cell may be placed on any row: `model effort cwd git version ctx
+    /// compact tokens cache todo tools cost 5h 7d` (todo/tools gated by
+    /// `[segments.todo]`/`[segments.tools]`). See `docs/layouts.md`.
+    #[serde(default)]
+    pub rail_identity_order: Vec<String>,
+    #[serde(default)]
+    pub rail_usage_order: Vec<String>,
+    #[serde(default)]
+    pub rail_quota_order: Vec<String>,
+    /// `rail` only: which cell on each row is the **hero** (the filled,
+    /// reverse-video headline; a displaced hero falls back to a letter flag).
+    /// Empty `""` (default) uses the built-in hero (identity → `model`, usage →
+    /// `cost`, quota → `7d`). Distinct from `headline` above, which is the hero's
+    /// *position* (`column`/`inline`), not which cell. See `docs/layouts.md`.
+    #[serde(default)]
+    pub rail_identity_hero: String,
+    #[serde(default)]
+    pub rail_usage_hero: String,
+    #[serde(default)]
+    pub rail_quota_hero: String,
     /// Hard cap on TOTAL output rows (chrome included). When exceeded the
     /// height-degradation ladder collapses groups in order until the render
     /// fits. `None` = unlimited (current behavior). Ledger is exempt (it
@@ -135,6 +193,15 @@ impl Default for LayoutSection {
             cc_margin: default_layout_cc_margin(),
             tonal_strata: default_layout_tonal_strata(),
             ledger_dense: default_layout_ledger_dense(),
+            seams: default_layout_seams(),
+            color_budget: default_layout_color_budget(),
+            headline: default_layout_headline(),
+            rail_identity_order: Vec::new(),
+            rail_usage_order: Vec::new(),
+            rail_quota_order: Vec::new(),
+            rail_identity_hero: String::new(),
+            rail_usage_hero: String::new(),
+            rail_quota_hero: String::new(),
             max_total_lines: None,
         }
     }
@@ -645,6 +712,13 @@ visual = ""
 #                layout — favours rhythm over density. Ships sparkline +
 #                delta-time on the CTX row by default.
 #
+# Single-row (nerd-font tier — needs a patched font, see `seams`):
+#   "rail"     — one connected Powerline bar (identity → pressure). The bar
+#                rides a gray ink ramp; exactly one segment tints when its
+#                state crosses a threshold (the live signal).
+#   "anchor"   — a reverse-video hero capsule (model) anchors the line; the
+#                rest trail as dim text where colour marks the one live signal.
+#
 # Trend-forward is a recipe, not a layout: any layout +
 # context_visual = "plot+text" (+ quota_visual = "gauge") leads the CONTEXT
 # row with a braille line-plot of the CTX% history and a delta-time tail.
@@ -663,6 +737,47 @@ tonal_strata = true
 # / TOOL / AGENT+TODO). The bottom frame always closes flush against the
 # last content row regardless of this setting.
 ledger_dense = false
+
+# rail/anchor only: seam glyph tier.
+#   "powerline" (default) — PUA Powerline seam/cap glyphs (needs a patched
+#                           Nerd Font).
+#   "blocks"              — unicode half-block seams; a connected coloured bar
+#                           in any UTF-8 terminal without a patched font.
+# Independent of display.icons. With no color (NO_COLOR) the bar drops to a
+# plain ` | ` separator floor.
+seams = "powerline"
+
+# rail only: how much of the bar takes colour.
+#   "signal" (default) — one reverse-video fill per line (the headline);
+#                        state flags add letter colour only past threshold.
+#   "vivid"            — every banded/lit cell fills; context rides a raised ramp.
+#   "mono"             — no fills: role-coloured text + thin powerline ticks.
+color_budget = "signal"
+
+# rail only: where a watch-value headline (cost / 7d) sits on its row.
+#   "column" (default) — right-hugged; the rows share a right-edge axis.
+#   "inline"           — trails the left cluster, no right gap.
+# The model is always left-anchored. Ignored when color_budget = "mono".
+headline = "column"
+
+# rail only: per-row cell ARRANGEMENT (order + which cell is the hero).
+#   *_order — cells left→right; [] (default) uses the built-in order; omitted
+#             cells are hidden; unknown names warn+skip; the LAST listed cell
+#             right-hugs under headline = "column".
+#   *_hero  — which cell is the filled reverse-video headline; "" (default) is
+#             the built-in (identity→model, usage→cost, quota→7d); a displaced
+#             hero falls back to a letter flag. (Distinct from `headline` above,
+#             which is the hero's POSITION, not which cell.)
+# Cells (global vocab — any cell on any row): model effort cwd git version ctx
+#   compact tokens cache todo tools cost 5h 7d  (todo/tools gated by
+#   [segments.todo]/[segments.tools]). Insert "|" to split a row into an explicit
+#   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
+# rail_identity_order = ["model", "effort", "cwd", "git", "version"]
+# rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+# rail_quota_order    = ["5h", "7d"]
+# rail_identity_hero  = "model"
+# rail_usage_hero     = "cost"
+# rail_quota_hero     = "7d"
 
 # Hard cap on TOTAL statusline rows, frame chrome included. When the render
 # exceeds it, groups collapse in order (running tools → completed tools →
@@ -699,6 +814,15 @@ pub struct ProjectLayoutOverride {
     pub cc_margin: Option<usize>,
     pub tonal_strata: Option<bool>,
     pub ledger_dense: Option<bool>,
+    pub seams: Option<String>,
+    pub color_budget: Option<String>,
+    pub headline: Option<String>,
+    pub rail_identity_order: Option<Vec<String>>,
+    pub rail_usage_order: Option<Vec<String>>,
+    pub rail_quota_order: Option<Vec<String>>,
+    pub rail_identity_hero: Option<String>,
+    pub rail_usage_hero: Option<String>,
+    pub rail_quota_hero: Option<String>,
     pub max_total_lines: Option<MaxTotalLines>,
 }
 
@@ -1046,6 +1170,33 @@ pub fn merge_configs(
         if let Some(v) = layout.ledger_dense {
             user.layout.ledger_dense = v;
         }
+        if let Some(v) = &layout.seams {
+            user.layout.seams = v.clone();
+        }
+        if let Some(v) = &layout.color_budget {
+            user.layout.color_budget = v.clone();
+        }
+        if let Some(v) = &layout.headline {
+            user.layout.headline = v.clone();
+        }
+        if let Some(v) = &layout.rail_identity_order {
+            user.layout.rail_identity_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_usage_order {
+            user.layout.rail_usage_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_quota_order {
+            user.layout.rail_quota_order = v.clone();
+        }
+        if let Some(v) = &layout.rail_identity_hero {
+            user.layout.rail_identity_hero = v.clone();
+        }
+        if let Some(v) = &layout.rail_usage_hero {
+            user.layout.rail_usage_hero = v.clone();
+        }
+        if let Some(v) = &layout.rail_quota_hero {
+            user.layout.rail_quota_hero = v.clone();
+        }
         if let Some(v) = &layout.max_total_lines {
             user.layout.max_total_lines = Some(v.clone());
         }
@@ -1213,13 +1364,22 @@ pub fn default_project_config_toml() -> &'static str {
 # visual = ""               # "text" | "bar+text" | "bar"
 
 # [layout]
-# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger"
+# # Layouts: "none" | "compact" | "budgets" | "console" | "ledger" | "rail" | "anchor"
 # name = "console"
 # min_width = 60
 # max_width = 140
 # cc_margin = 4             # cols subtracted for CC's slot padding
 # tonal_strata = true       # 2-tier separator tint: state rows vs activity rows
 # ledger_dense = false      # ledger-only: drop inter-group blank rows
+# seams = "powerline"       # rail/anchor only: "powerline" | "blocks" (unicode fallback)
+# color_budget = "signal"   # rail only: "signal" | "vivid" | "mono"
+# headline = "column"       # rail only: "column" | "inline" (ignored when mono)
+# rail only: per-row cell arrangement ([] / "" = built-in; *_hero = which cell fills)
+#   cells (global vocab — any cell on any row): model effort cwd git version ctx
+#   compact tokens cache todo tools cost 5h 7d. Insert "|" to split a row into a
+#   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
+# rail_usage_order  = ["ctx", "tokens", "cache", "cost"]   # reorder / omit to hide
+# rail_usage_hero   = "ctx"                                # which cell is the filled headline
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
 #                           # ladder ends at fuse-core (identity+budget on one row)
 "#
@@ -1351,6 +1511,60 @@ pub struct RenderConfig {
     pub pane_tonal_strata: bool,
     /// Ledger-only: drop all inter-group blank rows for a compact rhythm.
     pub pane_ledger_dense: bool,
+    /// `rail`/`anchor` seam glyph tier (powerline PUA vs unicode blocks).
+    pub pane_seams: LayoutSeams,
+    /// `rail` colour budget: `signal` (one fill/line) · `vivid` (all banded
+    /// cells fill) · `mono` (no fills, role-coloured text).
+    pub pane_color_budget: ColorBudget,
+    /// `rail` headline placement: `column` (right-hugged axis) · `inline`
+    /// (headline trails the left cluster).
+    pub pane_headline: Headline,
+    /// `rail` per-row cell order (left→right). Empty = the layout's built-in
+    /// order; `rail.rs` resolves and validates the names at render time.
+    pub rail_identity_order: Vec<String>,
+    pub rail_usage_order: Vec<String>,
+    pub rail_quota_order: Vec<String>,
+    /// `rail` per-row hero cell (the filled headline). Empty = built-in hero.
+    pub rail_identity_hero: String,
+    pub rail_usage_hero: String,
+    pub rail_quota_hero: String,
+}
+
+/// `rail` colour budget — how much of the bar takes colour. Picked by the
+/// `[layout] color_budget` config string. Inert for non-rail layouts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorBudget {
+    /// One reverse-video fill per line (the headline); flags ink past
+    /// threshold; nothing else lit. The anti-rainbow default.
+    #[default]
+    Signal,
+    /// Every banded or lit cell fills; context rides a raised ramp.
+    Vivid,
+    /// No fills: role-coloured text joined by thin `\u{e0b1}` ticks.
+    Mono,
+}
+
+/// `rail` headline placement — where a watch-value headline sits on its row.
+/// Picked by the `[layout] headline` config string. The model is always
+/// left-anchored regardless of this dial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Headline {
+    /// Right-hugged to the target edge; the rows share a right-edge axis.
+    #[default]
+    Column,
+    /// Trails the end of the left cluster; no right gap.
+    Inline,
+}
+
+/// Seam glyph tier for the `rail`/`anchor` Powerline layouts. Picked by the
+/// `[layout] seams` config string. Independent of `display.icons`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutSeams {
+    /// PUA Powerline seam/cap glyphs (needs a patched font). Default.
+    #[default]
+    Powerline,
+    /// Unicode half-block seams — a connected bar in any UTF-8 terminal.
+    Blocks,
 }
 
 impl RenderConfig {
@@ -1489,6 +1703,65 @@ impl Default for RenderConfig {
             pane_cc_margin: crate::render::pane::DEFAULT_PANE_CC_MARGIN,
             pane_tonal_strata: true,
             pane_ledger_dense: false,
+            pane_seams: LayoutSeams::Powerline,
+            pane_color_budget: ColorBudget::Signal,
+            pane_headline: Headline::Column,
+            rail_identity_order: Vec::new(),
+            rail_usage_order: Vec::new(),
+            rail_quota_order: Vec::new(),
+            rail_identity_hero: String::new(),
+            rail_usage_hero: String::new(),
+            rail_quota_hero: String::new(),
+        }
+    }
+}
+
+/// Parse the `[layout] seams` string into a `LayoutSeams` tier. Unknown
+/// values warn and fall back to the powerline default (forward-compatible,
+/// like `parse_layout_name`).
+fn parse_layout_seams(value: &str) -> LayoutSeams {
+    match value.to_lowercase().as_str() {
+        "powerline" => LayoutSeams::Powerline,
+        "blocks" => LayoutSeams::Blocks,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.seams {unknown:?}; falling back to \
+                 \"powerline\" (valid: powerline | blocks)"
+            );
+            LayoutSeams::Powerline
+        }
+    }
+}
+
+/// Parse the `[layout] color_budget` string into a `ColorBudget`. Unknown
+/// values warn and fall back to the `signal` default (forward-compatible).
+fn parse_layout_color_budget(value: &str) -> ColorBudget {
+    match value.to_lowercase().as_str() {
+        "signal" => ColorBudget::Signal,
+        "vivid" => ColorBudget::Vivid,
+        "mono" => ColorBudget::Mono,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.color_budget {unknown:?}; falling back to \
+                 \"signal\" (valid: signal | vivid | mono)"
+            );
+            ColorBudget::Signal
+        }
+    }
+}
+
+/// Parse the `[layout] headline` string into a `Headline` placement. Unknown
+/// values warn and fall back to the `column` default (forward-compatible).
+fn parse_layout_headline(value: &str) -> Headline {
+    match value.to_lowercase().as_str() {
+        "column" => Headline::Column,
+        "inline" => Headline::Inline,
+        unknown => {
+            eprintln!(
+                "warning: unknown layout.headline {unknown:?}; falling back to \
+                 \"column\" (valid: column | inline)"
+            );
+            Headline::Column
         }
     }
 }
@@ -1500,6 +1773,8 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "budgets" => LayoutStyle::Budgets,
         "console" => LayoutStyle::Console,
         "ledger" => LayoutStyle::Ledger,
+        "rail" => LayoutStyle::Rail,
+        "anchor" => LayoutStyle::Anchor,
         // Velocity was a config preset masquerading as a layout (none + a
         // plot CTX default); removed. The trend-forward view lives on as a
         // recipe any layout can opt into via the `plot` context_visual atom.
@@ -1508,7 +1783,7 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
                 "warning: layout.name \"velocity\" was removed; it was a preset of \
                  name = \"none\" + context_visual = \"plot+text\" + quota_visual = \"gauge\" \
                  — set those instead. Falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
@@ -1519,21 +1794,21 @@ fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | budgets | console | ledger)"
+                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | budgets | console | ledger)"
+                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
             LayoutStyle::None
         }
@@ -1760,6 +2035,15 @@ pub fn build_render_config(pulseline: &PulselineConfig) -> RenderConfig {
         pane_cc_margin: pulseline.layout.cc_margin,
         pane_tonal_strata: pulseline.layout.tonal_strata,
         pane_ledger_dense: pulseline.layout.ledger_dense,
+        pane_seams: parse_layout_seams(&pulseline.layout.seams),
+        pane_color_budget: parse_layout_color_budget(&pulseline.layout.color_budget),
+        pane_headline: parse_layout_headline(&pulseline.layout.headline),
+        rail_identity_order: pulseline.layout.rail_identity_order.clone(),
+        rail_usage_order: pulseline.layout.rail_usage_order.clone(),
+        rail_quota_order: pulseline.layout.rail_quota_order.clone(),
+        rail_identity_hero: pulseline.layout.rail_identity_hero.clone(),
+        rail_usage_hero: pulseline.layout.rail_usage_hero.clone(),
+        rail_quota_hero: pulseline.layout.rail_quota_hero.clone(),
         max_total_lines: resolve_max_total_lines(pulseline.layout.max_total_lines.as_ref()),
         transcript_window_events: pulseline.performance.transcript_window_events,
         transcript_poll_throttle_ms: pulseline.performance.transcript_poll_throttle_ms,
