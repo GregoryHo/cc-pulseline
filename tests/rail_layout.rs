@@ -27,7 +27,7 @@ use cc_pulseline::render::color::{extract_ansi_code, strip_ansi, visible_width};
 use cc_pulseline::render::fmt::burn_rate_per_hour;
 use cc_pulseline::render::icons::PL_TICK;
 use cc_pulseline::render::pane::LayoutStyle;
-use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload};
+use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload, TodoSummary};
 use serde_json::json;
 
 const SEAM_R: char = '\u{e0b0}';
@@ -677,7 +677,8 @@ fn empty_arrangement_equals_built_in_default() {
     let default = render(&f, &rail_config());
     let mut explicit = rail_config();
     explicit.rail_identity_order = order(&["model", "effort", "cwd", "git", "version"]);
-    explicit.rail_usage_order = order(&["ctx", "compact", "tokens", "cache", "cost"]);
+    explicit.rail_usage_order =
+        order(&["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"]);
     explicit.rail_quota_order = order(&["5h", "7d"]);
     explicit.rail_identity_hero = "model".into();
     explicit.rail_usage_hero = "cost".into();
@@ -797,4 +798,157 @@ fn quota_row_renders_with_only_seven_day() {
         .join("\n");
     assert!(joined.contains("7D 90%"), "lone 7d still renders: {joined}");
     assert!(!joined.contains("5H"), "5h absent");
+}
+
+// ── traceability cells (todo · tools) ───────────────────────────────────────
+
+/// Attach task + tool-use activity to a frame (honest uncapped totals).
+fn with_activity(
+    mut f: RenderFrame,
+    done: usize,
+    total: usize,
+    tools: u32,
+    failed: u32,
+) -> RenderFrame {
+    f.todo = Some(TodoSummary {
+        completed: done,
+        total,
+        ..Default::default()
+    });
+    f.completed_tool_total = tools;
+    f.failed_tool_total = failed;
+    f
+}
+
+#[test]
+fn todo_cell_renders_in_left_cluster_left_of_the_cost_hero() {
+    // `todo` sits before `cost` in USAGE_CELLS → left cluster, never the
+    // right-hug hero. `$cost` must stay the rightmost cell.
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 0, 0);
+    let usage = strip_ansi(&render(&f, &rail_config())[1]);
+    let todo_at = usage.find("1/5").expect("todo count present");
+    let cost_at = usage.find("$3.47").expect("cost present");
+    assert!(todo_at < cost_at, "todo left of the cost hero: {usage}");
+}
+
+#[test]
+fn todo_cell_absent_when_no_todo_state() {
+    let f = frame("high", 43, 62.0, 41.0, false, true); // todo defaults to None
+    let usage = strip_ansi(&render(&f, &rail_config())[1]);
+    assert!(
+        !usage.contains("/5") && !usage.contains("TODO"),
+        "no todo cell: {usage}"
+    );
+}
+
+#[test]
+fn tools_cell_shows_honest_uncapped_total_and_lights_on_failure() {
+    // The tools cell reads the uncapped frame totals: 91 with 2 failures shows
+    // `91 ✘2` and lights its alert band. (91 avoids colliding with `$3.47`.)
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
+    let lines = render(&f, &rail_config());
+    let usage_raw = &lines[1];
+    let usage = strip_ansi(usage_raw);
+    assert!(
+        usage.contains("91 \u{2718}2"),
+        "uncapped total + failure mark: {usage}"
+    );
+    let alert = extract_ansi_code(&RenderConfig::default().palette.alert_red).unwrap();
+    assert!(
+        usage_raw.contains(&format!("38;5;{alert}")),
+        "tools failure cell lights alert_red: {usage_raw:?}"
+    );
+}
+
+#[test]
+fn tools_cell_is_quiet_with_no_failures() {
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 0);
+    let usage = strip_ansi(&render(&f, &rail_config())[1]);
+    assert!(usage.contains("91"), "count present: {usage}");
+    assert!(
+        !usage.contains('\u{2718}'),
+        "no failure mark when clean: {usage}"
+    );
+}
+
+#[test]
+fn tools_failure_mark_degrades_to_ascii() {
+    // Under the ASCII floor the `✘` must become `x` (no raw dingbat).
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
+    let mut config = rail_config();
+    config.glyph_mode = GlyphMode::Ascii;
+    let usage = strip_ansi(&render(&f, &config)[1]);
+    assert!(usage.contains("91 x2"), "ascii failure mark `x2`: {usage}");
+    assert!(!usage.contains('\u{2718}'), "no raw ✘ in ascii: {usage}");
+}
+
+#[test]
+fn segment_toggles_hide_the_traceability_cells() {
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 2);
+    let mut config = rail_config();
+    config.show_todo = false;
+    config.show_tools = false;
+    let usage = strip_ansi(&render(&f, &config)[1]);
+    assert!(
+        !usage.contains("1/5"),
+        "show_todo=false hides todo: {usage}"
+    );
+    assert!(
+        !usage.contains("\u{2718}2") && !usage.contains("91"),
+        "show_tools=false hides tools: {usage}"
+    );
+    assert!(
+        usage.contains("43%") && usage.contains("$3.47"),
+        "core survives: {usage}"
+    );
+}
+
+// ── cluster split marker `|` + cross-row vocabulary ─────────────────────────
+
+#[test]
+fn split_marker_routes_quota_left_and_traceability_right() {
+    // `|` splits a row into left/right clusters, and any cell may be placed on
+    // any row (global vocab): quota row = 5H/7D left, todo/tools right-hugged.
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 0);
+    let mut config = rail_config();
+    config.rail_usage_order = order(&["ctx", "compact", "tokens", "cache", "cost"]);
+    config.rail_quota_order = order(&["5h", "7d", "|", "todo", "tools"]);
+    config.rail_quota_hero = "5h".into();
+    config.terminal_width = Some(120); // a target, so the right cluster right-hugs
+    let quota = strip_ansi(&render(&f, &config)[2]);
+    let i5 = quota.find("5H").expect("5H present");
+    let i7 = quota.find("7D").expect("7D present");
+    let it = quota
+        .find("1/5")
+        .expect("todo on the quota row (cross-row vocab)");
+    let iw = quota.find("91").expect("tools on the quota row");
+    assert!(
+        i5 < i7 && i7 < it && it < iw,
+        "left→right: 5H 7D | todo tools: {quota}"
+    );
+    assert!(
+        !quota.contains('|'),
+        "split marker consumed, not rendered: {quota}"
+    );
+    // traceability moved off the usage row entirely.
+    let usage = strip_ansi(&render(&f, &config)[1]);
+    assert!(!usage.contains("1/5"), "todo not on usage row: {usage}");
+}
+
+#[test]
+fn split_right_cluster_cells_still_shed_under_width_pressure() {
+    // Right-cluster traceability honours drop_priority (sheds first); the hero
+    // (5H) and 7D survive.
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 0);
+    let mut config = rail_config();
+    config.rail_quota_order = order(&["5h", "7d", "|", "todo", "tools"]);
+    config.rail_quota_hero = "5h".into();
+    config.pane_min_width = 0; // disable the narrow-width flat fallback
+    config.terminal_width = Some(30); // narrow → right-cluster traceability sheds
+    let quota = strip_ansi(&render(&f, &config)[2]);
+    assert!(quota.contains("5H"), "5H hero survives: {quota}");
+    assert!(
+        !quota.contains("1/5") && !quota.contains("91"),
+        "traceability sheds under width pressure: {quota}"
+    );
 }

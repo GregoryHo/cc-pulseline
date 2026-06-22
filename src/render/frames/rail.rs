@@ -66,6 +66,23 @@ const IDENTITY_CELLS: [&str; 5] = ["model", "effort", "cwd", "git", "version"];
 const USAGE_CELLS: [&str; 7] = ["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"];
 const QUOTA_CELLS: [&str; 2] = ["5h", "7d"];
 
+/// Global cell vocabulary — every buildable cell name. A configured
+/// `rail_*_order` is validated against THIS (not the per-row default), so any
+/// cell may be placed on any row (e.g. traceability on the quota row). The
+/// per-row consts above remain the built-in DEFAULT arrangement.
+const ALL_CELLS: [&str; 14] = [
+    "model", "effort", "cwd", "git", "version", "ctx", "compact", "tokens", "cache", "todo",
+    "tools", "cost", "5h", "7d",
+];
+
+/// Cluster-split marker for `rail_*_order`: cells before it form the left
+/// cluster, cells after it the right-hugged cluster (e.g.
+/// `["5h", "7d", "|", "todo", "tools"]`). With no marker the LAST cell
+/// right-hugs (the built-in behaviour). Not a cell — never rendered; the first
+/// occurrence splits. Right-cluster cells still honour `drop_priority`, so
+/// volatile cells (traceability) shed first even on the right.
+const CLUSTER_SPLIT: &str = "|";
+
 /// Resolve a palette role escape to its 256 index (for `Tint` / ink codes).
 fn code(escape: &str) -> u8 {
     extract_ansi_code(escape).unwrap_or(0)
@@ -609,9 +626,10 @@ fn max_drops(order: &[String]) -> usize {
         .unwrap_or(0)
 }
 
-/// Validate a configured order against the row's vocabulary: empty → built-in
-/// default; unknown names warn (once per render) and are skipped; all-unknown
-/// falls back to the default.
+/// Validate a configured order against the GLOBAL vocabulary (`ALL_CELLS`) plus
+/// the `|` split marker: empty → built-in default; unknown names warn (once per
+/// render) and are skipped; an order with no real cell falls back to the
+/// default. Any valid cell may be placed on any row.
 fn resolve_order(raw: &[String], default: &[&'static str], label: &str) -> Vec<String> {
     if raw.is_empty() {
         return default.iter().map(|s| s.to_string()).collect();
@@ -619,23 +637,23 @@ fn resolve_order(raw: &[String], default: &[&'static str], label: &str) -> Vec<S
     let kept: Vec<String> = raw
         .iter()
         .filter(|name| {
-            let ok = default.contains(&name.as_str());
+            let ok = name.as_str() == CLUSTER_SPLIT || ALL_CELLS.contains(&name.as_str());
             if !ok {
                 eprintln!(
                     "warning: unknown layout.rail_{label}_order cell {name:?}; skipping \
-                     (valid: {})",
-                    default.join(" ")
+                     (valid: {} — or {CLUSTER_SPLIT:?} to split left|right)",
+                    ALL_CELLS.join(" ")
                 );
             }
             ok
         })
         .cloned()
         .collect();
-    if kept.is_empty() {
-        default.iter().map(|s| s.to_string()).collect()
-    } else {
-        kept
+    // A marker alone isn't a cell — fall back if nothing real survived.
+    if kept.iter().all(|n| n == CLUSTER_SPLIT) {
+        return default.iter().map(|s| s.to_string()).collect();
     }
+    kept
 }
 
 /// The effective hero name: empty → built-in default; a non-empty hero that
@@ -653,10 +671,14 @@ fn effective_hero<'a>(raw: &'a str, default: &'a str, order: &[String], label: &
     raw
 }
 
-/// Build a row's `(left, right)` clusters from a resolved order: cells in order,
-/// the hero promoted to a fill, the last rendered-by-index cell to the right
-/// cluster (the right-hug under `column`). `drop_if_left_empty` (usage only)
-/// drops a lone hero so the pre-API `$0.00` row falls away.
+/// Build a row's `(left, right)` clusters from a resolved order. The cluster
+/// split is either an explicit `|` marker (cells before → left, after → right)
+/// or, with no marker, the LAST cell right-hugs (the built-in behaviour). The
+/// hero is promoted to a fill. The hero — and, in the no-marker form, the
+/// right-hug cell — never drop for width; an explicit right cluster still
+/// honours `drop_priority` (so traceability sheds first even on the right).
+/// `drop_if_left_empty` (usage only) drops a lone hero so the pre-API `$0.00`
+/// row falls away.
 #[allow(clippy::too_many_arguments)]
 fn assemble(
     order: &[String],
@@ -668,14 +690,24 @@ fn assemble(
     mode: GlyphMode,
     drops: usize,
 ) -> (Vec<RailCell>, Vec<RailCell>) {
-    let n = order.len();
+    let split = order.iter().position(|s| s == CLUSTER_SPLIT);
+    // No-marker right-hug: the last real (non-marker) cell.
+    let last = order.iter().rposition(|s| s != CLUSTER_SPLIT);
     let mut left: Vec<RailCell> = Vec::new();
     let mut right: Vec<RailCell> = Vec::new();
     for (i, name) in order.iter().enumerate() {
-        let is_last = i + 1 == n;
+        if name == CLUSTER_SPLIT {
+            continue;
+        }
+        let to_right = match split {
+            Some(idx) => i > idx,
+            None => Some(i) == last,
+        };
         let is_hero = name.as_str() == hero;
-        // The hero and the right-hug (last) cell never drop for width.
-        if !is_last && !is_hero {
+        // The hero never drops; the no-marker right-hug cell never drops. Cells
+        // in an explicit right cluster still honour drop_priority.
+        let protected = is_hero || (split.is_none() && to_right);
+        if !protected {
             if let Some(p) = drop_priority(name) {
                 if drops >= p {
                     continue;
@@ -688,7 +720,7 @@ fn assemble(
         if is_hero {
             cell = cell.into_hero();
         }
-        if is_last {
+        if to_right {
             right.push(cell);
         } else {
             left.push(cell);

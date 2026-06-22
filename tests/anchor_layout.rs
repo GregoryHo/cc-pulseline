@@ -16,7 +16,7 @@ use cc_pulseline::config::{GlyphMode, LayoutSeams, RenderConfig};
 use cc_pulseline::render::color::strip_ansi;
 use cc_pulseline::render::icons::{ICON_EFFORT, ICON_GIT};
 use cc_pulseline::render::pane::LayoutStyle;
-use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload};
+use cc_pulseline::types::{QuotaMetrics, RenderFrame, StdinPayload, TodoSummary};
 use serde_json::json;
 
 const SEAM_R: char = '\u{e0b0}';
@@ -273,5 +273,66 @@ fn blocks_tier_uses_half_block_caps() {
     assert!(
         !s.contains(SEAM_R) && !s.contains(CAP_ROUND_L),
         "no PUA cap glyphs in blocks"
+    );
+}
+
+// ── traceability trail cells (todo · tools) ─────────────────────────────────
+
+fn with_activity(
+    mut f: RenderFrame,
+    done: usize,
+    total: usize,
+    tools: u32,
+    failed: u32,
+) -> RenderFrame {
+    f.todo = Some(TodoSummary {
+        completed: done,
+        total,
+        ..Default::default()
+    });
+    f.completed_tool_total = tools;
+    f.failed_tool_total = failed;
+    f
+}
+
+#[test]
+fn traceability_cells_trail_the_context_row() {
+    // anchor has no render_bar gap — activity folds into the context row's
+    // trail tail (shed-from-end), honest uncapped totals, `✘M` lights on failure.
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 2);
+    let ctx_row = strip_ansi(&render(&f, &anchor_config())[1]);
+    assert!(ctx_row.contains("1/5"), "todo on context trail: {ctx_row}");
+    assert!(
+        ctx_row.contains("91 \u{2718}2"),
+        "tools on context trail: {ctx_row}"
+    );
+}
+
+#[test]
+fn traceability_failure_mark_degrades_to_ascii() {
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
+    let mut c = anchor_config();
+    c.glyph_mode = GlyphMode::Ascii;
+    let ctx_row = strip_ansi(&render(&f, &c)[1]);
+    assert!(
+        ctx_row.contains("91 x2"),
+        "ascii failure mark `x2`: {ctx_row}"
+    );
+    assert!(
+        !ctx_row.contains('\u{2718}'),
+        "no raw ✘ in ascii: {ctx_row}"
+    );
+}
+
+#[test]
+fn traceability_cells_respect_segment_toggles_on_anchor() {
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 0);
+    let mut c = anchor_config();
+    c.show_todo = false;
+    c.show_tools = false;
+    let ctx_row = strip_ansi(&render(&f, &c)[1]);
+    assert!(
+        !ctx_row.contains("1/5") && !ctx_row.contains("91"),
+        "toggles hide anchor traceability: {ctx_row}"
     );
 }

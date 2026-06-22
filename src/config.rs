@@ -143,10 +143,12 @@ pub struct LayoutSection {
     /// `rail` only: per-row cell **order** (left→right). Each is a TOML array of
     /// cell-name strings; an empty array `[]` (default) uses the built-in order.
     /// Cells not listed are hidden; unknown names warn and are skipped. The
-    /// rightmost listed cell right-hugs under `headline = "column"`. Cell names —
-    /// identity: `model effort cwd git version`; usage: `ctx compact tokens cache
-    /// todo tools cost` (todo/tools gated by `[segments.todo]`/`[segments.tools]`);
-    /// quota: `5h 7d`. See `docs/layouts.md`.
+    /// rightmost listed cell right-hugs under `headline = "column"`; insert a
+    /// `"|"` marker to split the row into an explicit left/right cluster
+    /// (cells after `|` right-hug as a group). The cell vocabulary is global —
+    /// any cell may be placed on any row: `model effort cwd git version ctx
+    /// compact tokens cache todo tools cost 5h 7d` (todo/tools gated by
+    /// `[segments.todo]`/`[segments.tools]`). See `docs/layouts.md`.
     #[serde(default)]
     pub rail_identity_order: Vec<String>,
     #[serde(default)]
@@ -766,8 +768,10 @@ headline = "column"
 #             the built-in (identity→model, usage→cost, quota→7d); a displaced
 #             hero falls back to a letter flag. (Distinct from `headline` above,
 #             which is the hero's POSITION, not which cell.)
-# Cells — identity: model effort cwd git version | usage: ctx compact tokens cache
-#         todo tools cost (todo/tools gated by [segments.todo]/[segments.tools]) | quota: 5h 7d
+# Cells (global vocab — any cell on any row): model effort cwd git version ctx
+#   compact tokens cache todo tools cost 5h 7d  (todo/tools gated by
+#   [segments.todo]/[segments.tools]). Insert "|" to split a row into an explicit
+#   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
 # rail_identity_order = ["model", "effort", "cwd", "git", "version"]
 # rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
 # rail_quota_order    = ["5h", "7d"]
@@ -1371,7 +1375,9 @@ pub fn default_project_config_toml() -> &'static str {
 # color_budget = "signal"   # rail only: "signal" | "vivid" | "mono"
 # headline = "column"       # rail only: "column" | "inline" (ignored when mono)
 # rail only: per-row cell arrangement ([] / "" = built-in; *_hero = which cell fills)
-#   cells — identity: model effort cwd git version | usage: ctx compact tokens cache todo tools cost | quota: 5h 7d
+#   cells (global vocab — any cell on any row): model effort cwd git version ctx
+#   compact tokens cache todo tools cost 5h 7d. Insert "|" to split a row into a
+#   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
 # rail_usage_order  = ["ctx", "tokens", "cache", "cost"]   # reorder / omit to hide
 # rail_usage_hero   = "ctx"                                # which cell is the filled headline
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);

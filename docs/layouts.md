@@ -419,15 +419,19 @@ rail_quota_hero     = "7d"
 
 | Knob | Effect |
 |---|---|
-| `rail_<row>_order` | the row's cells in display order. **Omitting a cell hides it**; unknown names warn (stderr) and are skipped; `[]` uses the built-in order. The **rightmost listed cell takes the right axis** (right-hugged under `headline = "column"`) — that's what keeps `model` filled-but-left while `version` right-hugs on the identity row. |
+| `rail_<row>_order` | the row's cells in display order. **Omitting a cell hides it**; unknown names warn (stderr) and are skipped; `[]` uses the built-in order. The **rightmost listed cell takes the right axis** (right-hugged under `headline = "column"`) — that's what keeps `model` filled-but-left while `version` right-hugs on the identity row. Insert a **`"|"` marker** to split the row into an explicit left/right cluster: cells before `\|` form the left cluster, cells after right-hug as a group (e.g. `["5h", "7d", "\|", "todo", "tools"]` → quota left, traceability right). With no marker the single last cell right-hugs (the built-in behaviour). |
 | `rail_<row>_hero` | which cell is the **hero** (the filled reverse-video headline). `""` uses the built-in hero. A **displaced hero** (e.g. `cost` when `rail_usage_hero = "ctx"`) falls back to a **letter flag** — it still inks its band, just doesn't fill. A hero not present in the order warns and the row renders with no fill. |
 
-Cell names — identity: `model effort cwd git version`; usage: `ctx compact
-tokens cache todo tools cost`; quota: `5h 7d`. Each `_order` is restricted to its
-own row's cells. `compact` is the context-compaction marker `⟳N` — it only
-renders once a compaction has happened (absent otherwise, so it never changes the
-calm look). `todo`/`tools` are the **traceability** cells (see below): quiet
-counts in the usage-row gap, gated by `[segments.todo]` / `[segments.tools]`.
+Cell names — `model effort cwd git version ctx compact tokens cache todo tools
+cost 5h 7d`. The vocabulary is **global**: any cell may be placed on any row
+(e.g. `todo`/`tools` on the quota row), so each `_order` is no longer restricted
+to its own row's defaults — only the built-in (empty-config) arrangement is
+per-row. `compact` is the context-compaction marker `⟳N` — it only renders once a
+compaction has happened (absent otherwise, so it never changes the calm look).
+`todo`/`tools` are the **traceability** cells (see below): quiet counts gated by
+`[segments.todo]` / `[segments.tools]`. The hero — and, in the no-marker form,
+the right-hug cell — never drop for width; cells in an **explicit right cluster**
+still shed by `drop_priority` (so traceability sheds first even on the right).
 The arrangement applies to the three grouped rows; the **fused bar**
 (`max_total_lines = 1`) keeps its built-in arrangement. Empty config reproduces
 today's layout byte-for-byte.
