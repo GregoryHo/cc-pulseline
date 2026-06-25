@@ -11,39 +11,22 @@ A multi-line statusline for [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ### What You'll See
 
-**Core Metrics** — identity (L1) and budget (L3) always visible; config counts (L2) opt-in via `[segments.config] enabled`
+Four things at a glance, re-colored live as you work:
 
-![Core metrics](docs/assets/core-metrics.png)
-
-**Context Alert** — CTX ≥70% turns red
-
-![Context alert](docs/assets/context-alert.png)
-
-**Cost Alert** — Burn rate >$50/h turns magenta
-
-![Cost alert](docs/assets/cost-alert.png)
-
-**Tool Tracking** — Running tools with targets + completed counts (noise-filtered, multi-line wrapping)
-
-![Tool tracking](docs/assets/tool-tracking.png)
-
-**Agent Tracking** — Running + completed agents on L5+
-
-![Agent tracking](docs/assets/agent-tracking.png)
-
-**Todo Tracking** — Task progress
-
-![Todo tracking](docs/assets/todo-tracking.png)
+- **Core metrics** — identity on L1 (model · style · version · project · git) and budget on L3 (`CTX% · tokens · cost`) are always visible. Config counts (CLAUDE.md / rules / MCPs / skills …) are an opt-in L2 row.
+- **Threshold alerts** — context shifts to warn at 55% and red at 70%; burn rate turns magenta past $50/h. The numbers recolor themselves — no reading required.
+- **Live activity** — running tools with their targets, agent status, and todo progress stream in on L4+, noise-filtered and capped per segment.
+- **Layouts & themes** — layouts from flat to framed to Powerline single-bar, plus built-in themes and composable per-segment widgets. See [docs/layouts.md](docs/layouts.md).
 
 ## Features
 
-- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity (layouts from flat to label-value `ledger` — see [docs/layouts.md](docs/layouts.md) for the catalog)
+- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity, across layouts from flat to framed to Powerline single-bar (`none`, `console`, `rail`, … — see [docs/layouts.md](docs/layouts.md) for the catalog)
 - **Incremental transcript parsing** — Seek-based JSONL parsing with per-session offsets
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
 - **Adaptive rendering** — Width degradation for narrow terminals
 - **Built-in themes** — ThemePalette system with custom themes, per-color TOML overrides, and `--preview` (see `src/themes/` for the full set)
-- **Minimal dependencies** — 3 runtime crates (serde, serde_json, toml)
+- **Minimal dependencies** — 4 runtime crates (serde, serde_json, toml, terminal_size)
 - **Configurable** — TOML config with per-project overrides and segment toggles
 
 ## Quickstart
@@ -116,6 +99,11 @@ show_style = true
 show_version = true
 show_project = true
 show_git = true
+show_git_stats = false  # !3 +1 ✘2 ?4 file stats after branch
+show_agent = true       # AG:agent-name when --agent is active
+show_worktree = true    # (WT) indicator when in a worktree session
+show_effort = true      # effort level pill (low/medium/high/xhigh/max, CC 2.1.119+)
+show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 
 [segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, plugins, duration
 enabled = true          # L2 row is opt-in (off by default)
@@ -132,6 +120,13 @@ show_duration = true
 show_context = true
 show_tokens = true
 show_cost = true
+show_speed = false          # output tok/s rate
+show_cache_trend = false    # cache trend: compact C-cell sparkline + ledger CACHE row (opt-in)
+
+[segments.quota]            # Usage/quota tracking (subscription plans)
+enabled = false             # opt-in: driven by CC's native rate_limits stdin field
+show_five_hour = true
+show_seven_day = false
 
 [segments.tools]
 enabled = true
@@ -141,16 +136,18 @@ max_completed_lines = 1 # max rows of completed tools (overflow folds into a ` +
 
 [segments.agents]
 enabled = true
-max_lines = 2
+max_lines = 1
 
 [segments.todo]
 enabled = true
-max_lines = 2
+max_lines = 1
 ```
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Several layouts ship, from flat to framed to single-bar — see [docs/layouts.md](docs/layouts.md) for the catalog.
+`[layout].name` picks how rows are arranged and decorated. Layouts ship from flat (`none`) to framed (`console`) to Powerline single-bar (`rail` / `anchor`) — see [docs/layouts.md](docs/layouts.md) for the catalog.
+
+![console and rail layouts](docs/assets/layouts.png)
 
 Each layout asserts a tasteful default for every widget-bearing segment — see [docs/layouts.md](docs/layouts.md) for the per-segment reference. The user can override per segment via `*_visual` strings — same widget, any layout:
 
@@ -168,7 +165,7 @@ name = "console"
 visual = "text"
 ```
 
-Recognized widgets: `gauge`, `sparkline`, `plot`, `text` for context; `gauge`, `text` for quota. Combine with `+` (e.g. `"gauge+sparkline"`). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
+Recognized context/quota widgets: `gauge`, `sparkline`, `plot`, `text` (context); `gauge`, `text` (quota). Combine with `+` (e.g. `"gauge+sparkline"`). Other segments compose too — `tools_visual` (counts/targets/ticker), `todo_visual` (text/bar), `effort_visual` (word/ramp), `agents_visual` (name/description/model). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
 
 ## CLI Usage
 
@@ -255,6 +252,7 @@ Run `cc-pulseline --check` to validate your config files and `cc-pulseline --pri
 | Guide                                          | Description                                                                            |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [Architecture](docs/architecture.md)           | Pipeline design, module responsibilities, transcript two-path event dispatcher         |
+| [Layouts](docs/layouts.md)                     | Layout catalog and per-segment visual (gauge/sparkline/plot/text) reference             |
 | [Metrics Reference](docs/metrics-reference.md) | Per-metric data sources, parsing methods, cache strategies, and output examples        |
 | [Theme & Palette](docs/theme-palette.md)       | 256-color system specification, emphasis tiers, and color-annotated rendering examples |
 | [Benchmarks](docs/benchmarks.md)               | Performance methodology and Criterion benchmark results                                |
