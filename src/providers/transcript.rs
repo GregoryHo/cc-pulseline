@@ -201,6 +201,36 @@ impl TranscriptCollector for FileTranscriptCollector {
     }
 }
 
+/// Collector for the function-hooks mod path: the activity arrives on the
+/// payload, already assembled from engine events, so nothing is read from
+/// disk and no session state is touched.
+#[derive(Debug, Default)]
+pub struct PayloadActivityCollector;
+
+impl TranscriptCollector for PayloadActivityCollector {
+    fn collect_transcript(
+        &self,
+        payload: &StdinPayload,
+        _state: &mut SessionState,
+        _config: &RenderConfig,
+    ) -> TranscriptSnapshot {
+        let Some(activity) = payload.activity.as_ref() else {
+            return TranscriptSnapshot::default();
+        };
+
+        TranscriptSnapshot {
+            tools: activity.tools.clone(),
+            completed_counts: activity.completed_counts.clone(),
+            completed_total: activity.completed_total,
+            failed_total: activity.failed_total,
+            agents: activity.agents.clone(),
+            todo: activity.todo.clone(),
+            compact_count: activity.compact_count,
+            last_api_error_ms: activity.last_api_error_ms,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StubTranscriptCollector;
 

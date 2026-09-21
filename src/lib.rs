@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use config::RenderConfig;
 use providers::{
     EnvCollector, EnvSnapshot, FileSystemEnvCollector, FileTranscriptCollector, GitCollector,
-    GitSnapshot, LocalGitCollector, TranscriptCollector, TranscriptSnapshot,
+    GitSnapshot, LocalGitCollector, PayloadActivityCollector, TranscriptCollector,
+    TranscriptSnapshot,
 };
 use state::cache;
 use state::SessionState;
@@ -56,9 +57,14 @@ impl PulseLineRunner {
             }
         }
 
-        let transcript_snapshot = self
-            .transcript_collector
-            .collect_transcript(payload, state, &config);
+        // A mod that hooks the engine's events hands the activity over on the
+        // payload; only the classic statusline path parses the transcript.
+        let transcript_snapshot = if payload.activity.is_some() {
+            PayloadActivityCollector.collect_transcript(payload, state, &config)
+        } else {
+            self.transcript_collector
+                .collect_transcript(payload, state, &config)
+        };
 
         let project_path = payload
             .resolve_project_path()

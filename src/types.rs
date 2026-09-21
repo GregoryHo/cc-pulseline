@@ -24,6 +24,33 @@ pub struct StdinPayload {
     /// Thinking mode toggle (CC 2.1.119+).
     #[serde(default)]
     pub thinking: Option<ThinkingInfo>,
+    /// Activity handed over by a function-hooks mod, already assembled from
+    /// engine events. Absent on the classic statusline path, where the
+    /// activity is parsed out of the transcript JSONL instead.
+    #[serde(default)]
+    pub activity: Option<ActivityPayload>,
+}
+
+/// The transcript-derived activity, as a mod supplies it: the serde form of
+/// `providers::TranscriptSnapshot`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActivityPayload {
+    #[serde(default)]
+    pub tools: Vec<ToolSummary>,
+    #[serde(default)]
+    pub completed_counts: Vec<CompletedToolCount>,
+    #[serde(default)]
+    pub completed_total: u32,
+    #[serde(default)]
+    pub failed_total: u32,
+    #[serde(default)]
+    pub agents: Vec<AgentSummary>,
+    #[serde(default)]
+    pub todo: Option<TodoSummary>,
+    #[serde(default)]
+    pub compact_count: u32,
+    #[serde(default)]
+    pub last_api_error_ms: Option<u64>,
 }
 
 impl StdinPayload {
