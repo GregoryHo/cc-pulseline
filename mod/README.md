@@ -20,6 +20,32 @@ under `-p`), and the flag: it defaults to off.
 
 `/pulseline` opens a pane; `/pulseline` again closes it.
 
+## Verify it
+
+```bash
+# the Rust side: the activity input and the --rows/--columns/--layout flags
+cargo test
+
+# the mod's hooks, against a fake engine, with no session
+node --experimental-strip-types --test mod/tests/register.test.ts
+
+# the loader's own static scan: hooks, `$` calls and env reads
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin validate mod
+
+# types
+tsc -p mod
+```
+
+`claude plugin test` is named inside the binary but is not a command on
+2.1.278, so `mod/tests/register.test.ts` drives the hooks itself: it
+registers them against a fake `$`, fires events, and reads the payload off
+the recorded `process.run`. That covers the tool lifecycle, failures, the
+todo fold, effort, compaction, agent timings, and that no escape sequence
+reaches a `Text` child.
+
+What only a live session can show: that the band and the pane draw at all,
+that the colours land, and that the switcher's key presses arrive.
+
 ## What it draws
 
 | Site | Rows | Layout |
