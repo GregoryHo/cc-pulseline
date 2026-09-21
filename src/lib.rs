@@ -69,7 +69,12 @@ impl PulseLineRunner {
         let project_path = payload
             .resolve_project_path()
             .unwrap_or_else(|| "unknown".to_string());
-        let env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
+        let mut env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
+        // A mod knows which of these actually loaded; the scan only knows
+        // which files exist. Correct the counts it answered for.
+        if let Some(over) = payload.env.as_ref() {
+            apply_env_override(&mut env_snapshot, over);
+        }
         let git_snapshot = collect_git_snapshot(&self.git_collector, state, &project_path);
 
         let mut frame =
@@ -141,6 +146,25 @@ impl PulseLineRunner {
 
 pub fn run_from_str(input: &str, config: RenderConfig) -> Result<Vec<String>, String> {
     PulseLineRunner::default().run_from_str(input, config)
+}
+
+/// Overwrites each count the caller answered, leaving the rest scanned.
+fn apply_env_override(snapshot: &mut EnvSnapshot, over: &types::EnvOverride) {
+    let fields: [(&mut u32, Option<u32>); 8] = [
+        (&mut snapshot.claude_md_count, over.claude_md_count),
+        (&mut snapshot.rules_count, over.rules_count),
+        (&mut snapshot.hooks_count, over.hooks_count),
+        (&mut snapshot.mcp_count, over.mcp_count),
+        (&mut snapshot.memory_count, over.memory_count),
+        (&mut snapshot.skills_count, over.skills_count),
+        (&mut snapshot.plugins_count, over.plugins_count),
+        (&mut snapshot.agents_md_count, over.agents_md_count),
+    ];
+    for (field, value) in fields {
+        if let Some(value) = value {
+            *field = value;
+        }
+    }
 }
 
 fn collect_env_snapshot(

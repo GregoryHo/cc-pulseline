@@ -41,6 +41,14 @@ function harness() {
       model: async () => 'claude-opus-5[1m]',
       id: async () => 'session-under-test',
     },
+    tool: {
+      list: async () => [
+        { name: 'Read', description: 'read a file', mcp: false },
+        { name: 'mcp__linear__create_issue', description: '', mcp: true },
+        { name: 'mcp__linear__list_issues', description: '', mcp: true },
+        { name: 'mcp__slack__send', description: '', mcp: true },
+      ],
+    },
     agent: {
       list: async () => [
         { id: 'a1', description: 'Map pain points', type: 'Explore', status: 'running' },
@@ -217,4 +225,45 @@ test('the band draws styled spans, never an escape sequence', async () => {
   const text = JSON.stringify(tree)
   assert.ok(!text.includes('\\u001b'), 'no escape sequence reaches a Text child')
   assert.ok(text.includes('row one'), 'the binary output is drawn')
+})
+
+test('the MCP count is the servers serving tools, not the ones configured', async () => {
+  const { fire, lastPayload } = harness()
+  await fire('session.start', { cwd: '/work' })
+
+  // Four MCP tools, two servers.
+  assert.equal(lastPayload().env.mcp_count, 2)
+})
+
+test('instruction counts come from what the engine loaded', async () => {
+  const { fire, lastPayload } = harness()
+  await fire('session.start', { cwd: '/work' })
+
+  await fire('classic.InstructionsLoaded', {
+    file_path: '/work/CLAUDE.md',
+    memory_type: 'Project',
+    load_reason: 'session_start',
+  })
+  await fire('classic.InstructionsLoaded', {
+    file_path: '/home/me/.claude/CLAUDE.md',
+    memory_type: 'User',
+    load_reason: 'session_start',
+  })
+  await fire('classic.InstructionsLoaded', {
+    file_path: '/work/.claude/rules/testing.md',
+    memory_type: 'Project',
+    load_reason: 'session_start',
+  })
+  // The same file twice must not count twice.
+  await fire('classic.InstructionsLoaded', {
+    file_path: '/work/CLAUDE.md',
+    memory_type: 'Project',
+    load_reason: 'compact',
+  })
+  await fire('tool.call', { tool: 'Read', tool_use_id: 'e1' }, { isError: false })
+
+  const env = lastPayload().env
+  assert.equal(env.claude_md_count, 2)
+  assert.equal(env.rules_count, 1)
+  assert.equal(env.memory_count, undefined, 'a count with nothing seen stays with the scan')
 })

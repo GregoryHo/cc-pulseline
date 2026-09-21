@@ -161,6 +161,14 @@ type State = {
   compactCount: number
   finishedAt: Map<string, number>
   agentType: Map<string, string>
+  /** MCP servers that are serving tools right now, by `$.tool.list()`. */
+  mcpServers: Set<string>
+  /** Servers that asked the person for input (an auth prompt, usually). */
+  mcpPending: Set<string>
+  /** Instruction files the engine actually loaded, by kind. */
+  claudeMd: Set<string>
+  rules: Set<string>
+  memories: Set<string>
 }
 
 /**
@@ -251,6 +259,15 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const model = await engine.session.model()
   const id = await engine.session.id()
   const agents = await engine.agent.list()
+  // Which MCP servers are actually serving tools, as against how many are
+  // written down in the settings files.
+  const tools = await engine.tool.list()
+  state.mcpServers = new Set(
+    tools
+      .filter(tool => tool.mcp)
+      .map(tool => tool.name.split('__')[1])
+      .filter((server): server is string => server !== undefined && server.length > 0),
+  )
   const now = await engine.clock.now()
   // Effort rides on every classic hook input (see the `classic.PreToolUse`
   // hook below); `$.env` does not carry it, being Claude Code's own
@@ -279,6 +296,14 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     },
     cost: usage.cost ? { total_cost_usd: usage.cost.usd } : undefined,
     rate_limits: limits,
+    // Only the counts the engine answered for; the rest stay as the
+    // binary's own filesystem scan found them.
+    env: {
+      mcp_count: state.mcpServers.size,
+      claude_md_count: state.claudeMd.size > 0 ? state.claudeMd.size : undefined,
+      rules_count: state.rules.size > 0 ? state.rules.size : undefined,
+      memory_count: state.memories.size > 0 ? state.memories.size : undefined,
+    },
     activity: {
       tools: [...state.active.values()].map(tool => ({
         id: tool.id,
@@ -408,6 +433,11 @@ export function register(on: On) {
     compactCount: 0,
     finishedAt: new Map(),
     agentType: new Map(),
+    mcpServers: new Set(),
+    mcpPending: new Set(),
+    claudeMd: new Set(),
+    rules: new Set(),
+    memories: new Set(),
   }
 
   on('session.start', async ($, e, next) => {
@@ -480,6 +510,37 @@ export function register(on: On) {
   on('classic.PostToolUse', ($, e, next) => {
     if (e.effort?.level) state.effort = e.effort.level
     return next(e)
+  })
+
+  // What actually reached the model's context, as against what exists on
+  // disk: the engine names each instruction file as it loads it.
+  on('classic.InstructionsLoaded', ($, e, next) => {
+    const path = e.file_path
+    if (path.endsWith('CLAUDE.md') || path.endsWith('AGENTS.md')) state.claudeMd.add(path)
+    else if (path.includes('/rules/')) state.rules.add(path)
+    else if (path.includes('/memory/')) state.memories.add(path)
+    return next(e)
+  })
+
+  // An MCP server asking the person for input is a server that is not
+  // serving tools yet — usually one waiting to be authenticated.
+  on('classic.Elicitation', ($, e, next) => {
+    state.mcpPending.add(e.mcp_server_name)
+    return next(e)
+  })
+
+  on('classic.ElicitationResult', ($, e, next) => {
+    state.mcpPending.delete(e.mcp_server_name)
+    return next(e)
+  })
+
+  // A settings file changed: re-read rather than wait out the binary's
+  // ten-second environment cache.
+  on('classic.ConfigChange', async ($, e, next) => {
+    const result = await next(e)
+    await refresh($, state)
+    $.ui.invalidate('ui.render')
+    return result
   })
 
   // Real agent timings, instead of inferring a stop from a list status.

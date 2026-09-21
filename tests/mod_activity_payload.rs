@@ -139,3 +139,27 @@ fn a_payload_without_activity_still_reads_the_transcript() {
         "the classic statusline path must keep parsing the transcript: {joined}"
     );
 }
+
+#[test]
+fn env_counts_from_the_payload_override_the_scan() {
+    let workspace = TempDir::new().expect("temp workspace");
+    // A CLAUDE.md on disk the scan would find and count.
+    fs::write(workspace.path().join("CLAUDE.md"), "# project\n").expect("file writes");
+
+    let mut payload = base_payload(&workspace);
+    payload["env"] = json!({"claude_md_count": 7, "mcp_count": 2});
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 CLAUDE.md"),
+        "the payload's count wins over the scan: {joined}"
+    );
+    assert!(
+        joined.contains("2 MCPs"),
+        "the payload's MCP count is rendered: {joined}"
+    );
+}

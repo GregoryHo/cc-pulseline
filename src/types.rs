@@ -29,6 +29,33 @@ pub struct StdinPayload {
     /// activity is parsed out of the transcript JSONL instead.
     #[serde(default)]
     pub activity: Option<ActivityPayload>,
+    /// Environment counts a mod can answer better than a filesystem scan
+    /// can: what actually loaded, not what exists on disk. Each field
+    /// overrides the scan; the ones left out keep the scanned value.
+    #[serde(default)]
+    pub env: Option<EnvOverride>,
+}
+
+/// Per-count overrides for the environment row, all optional so a caller
+/// corrects only what it actually knows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EnvOverride {
+    #[serde(default)]
+    pub claude_md_count: Option<u32>,
+    #[serde(default)]
+    pub rules_count: Option<u32>,
+    #[serde(default)]
+    pub hooks_count: Option<u32>,
+    #[serde(default)]
+    pub mcp_count: Option<u32>,
+    #[serde(default)]
+    pub memory_count: Option<u32>,
+    #[serde(default)]
+    pub skills_count: Option<u32>,
+    #[serde(default)]
+    pub plugins_count: Option<u32>,
+    #[serde(default)]
+    pub agents_md_count: Option<u32>,
 }
 
 /// The transcript-derived activity, as a mod supplies it: the serde form of
