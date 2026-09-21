@@ -58,8 +58,9 @@ six spellings of "done". The machinery for reading a file that was never an
 event stream — offsets, truncation, windowing, the metadata pre-filter, the
 replay guard — has nothing to do on this path.
 
-What does **not** survive the move is a handful of session-level facts
-(output style, effort, compaction count) and per-tick token resolution.
+What does **not** survive the move is the output style, the API error
+badge, and per-tick token resolution — three items, against roughly 1,300
+lines of reconstruction.
 
 So the honest reading is: the transcript parser is not obsolete, it is
 *unnecessary on one path*. Deleting it stays a decision for the day the
