@@ -1767,7 +1767,7 @@ fn parse_layout_headline(value: &str) -> Headline {
     }
 }
 
-fn parse_layout_name(value: &str) -> LayoutStyle {
+pub fn parse_layout_name(value: &str) -> LayoutStyle {
     match value.to_lowercase().as_str() {
         "none" => LayoutStyle::None,
         "compact" => LayoutStyle::Compact,
