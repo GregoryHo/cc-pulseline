@@ -33,7 +33,7 @@ running spike, `mod/hooks/register.ts`.
 | What the parser does | Lines | On the event path |
 | --- | --- | --- |
 | Token counts per API call, deduped by `message.id` | 486–516 | `turn.complete` gives the four counts per **turn**, so tok/s becomes a turn average and the cache trend samples once per turn |
-| Agent completion time | 926–970 | `$.agent.list()` gives a status, not a timestamp; the mod stamps the transition it observes. `classic.SubagentStop` would give a real one |
+| Agent completion time | 926–970 | `classic.SubagentStart` / `classic.SubagentStop` give real timings; `$.agent.list()` still supplies the list |
 | `aggregate_todo` — fold several sub-agents' todo lists into one row | 1007–1054 | each `TodoWrite` is seen, but the fold has to be rewritten in the mod; not done yet |
 
 ## Not covered by any event
@@ -41,9 +41,13 @@ running spike, `mod/hooks/register.ts`.
 | Fact | Where it comes from today |
 | --- | --- |
 | Output style | the statusline payload only; no call on `$` exposes it |
-| Effort level | `turn.step`, a streaming event whose hook is a generator |
-| `compact_boundary` count | a transcript `system` event; no equivalent found in the event names |
 | API error badge | `isApiErrorMessage` lines in the transcript; `turn.complete`'s `reason: 'error'` is close but not the same signal |
+
+Two facts that first looked uncovered are not: **effort** rides on every
+classic hook input (`BaseHookInput.effort`), and the **compaction count**
+is `classic.PreCompact`. The exception is `classic.PreToolUse`, whose
+argument `ClassicEventOf` special-cases to the tool call envelope, so the
+effort is read from `classic.PostToolUse` instead.
 
 ## What this adds up to
 

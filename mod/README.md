@@ -42,6 +42,9 @@ open.
 | Context, cost, rate limits | `$.session.usage()` |
 | Token breakdown | `turn.complete`'s `e.usage` (per turn, not per tick) |
 | Claude Code's version | `claude --version`, probed once |
+| Effort level | `classic.PostToolUse`'s `e.effort.level` |
+| Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
+| Compaction count | `classic.PreCompact` |
 
 None of it is read from the transcript: on this path the binary's
 `FileTranscriptCollector` never runs.
@@ -68,9 +71,14 @@ None of it is read from the transcript: on this path the binary's
 | Missing | Why |
 | --- | --- |
 | Output style | no call on `$` exposes it |
-| Effort level | only on `turn.step`, a streaming event this mod does not hook |
 | tok/s, cache trend | the token breakdown arrives per turn, not per tick |
-| Agent completion time | inferred from `$.agent.list()` status, not a real timestamp |
+| Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
+
+`classic.*` events close what the engine's own events do not: effort rides
+on every classic hook input (except `classic.PreToolUse`, whose argument is
+the tool call envelope), `SubagentStart` / `SubagentStop` give real agent
+timings, and `PreCompact` is the compaction the transcript parser counts by
+watching for `compact_boundary`.
 
 ## Files
 

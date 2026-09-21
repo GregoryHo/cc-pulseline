@@ -157,6 +157,10 @@ type State = {
   paneNote: string
   version: string | null
   paneLayout: string
+  effort: string | null
+  compactCount: number
+  finishedAt: Map<string, number>
+  agentType: Map<string, string>
 }
 
 /**
@@ -248,9 +252,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const id = await engine.session.id()
   const agents = await engine.agent.list()
   const now = await engine.clock.now()
-  // Effort rides on `turn.step`, a streaming event this mod does not hook;
-  // Claude Code also exports it to child processes, which is cheaper.
-  const effort = await engine.env.get('CLAUDE_EFFORT')
+  // Effort rides on every classic hook input (see the `classic.PreToolUse`
+  // hook below); `$.env` does not carry it, being Claude Code's own
+  // environment rather than the one it hands to the children it spawns.
   state.lastRunMs = now
 
   const limits: Record<string, { used_percentage: number; resets_at: number }> = {}
@@ -265,7 +269,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     session_id: id,
     model: { display_name: modelName(model) },
     version: state.version ?? undefined,
-    effort: effort ? { level: effort } : undefined,
+    effort: state.effort ? { level: state.effort } : undefined,
     cwd: state.cwd,
     workspace: { current_dir: state.cwd },
     context_window: {
@@ -294,11 +298,15 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         return {
           id: agent.id,
           description: agent.description,
-          agent_type: agent.type,
+          agent_type: state.agentType.get(agent.id) ?? agent.type,
           started_at: startedAt,
-          completed_at: agent.status === 'running' ? null : now,
+          // A real stop timestamp when SubagentStop gave one; otherwise the
+          // status is all there is to go on.
+          completed_at:
+            state.finishedAt.get(agent.id) ?? (agent.status === 'running' ? null : now),
         }
       }),
+      compact_count: state.compactCount,
       todo: state.todo,
     },
   })
@@ -396,6 +404,10 @@ export function register(on: On) {
     paneNote: 'pane: not run yet',
     version: null,
     paneLayout: 'ledger',
+    effort: null,
+    compactCount: 0,
+    finishedAt: new Map(),
+    agentType: new Map(),
   }
 
   on('session.start', async ($, e, next) => {
@@ -459,6 +471,39 @@ export function register(on: On) {
         $.ui.status(state.runNote)
       }
     }
+  })
+
+  // Classic hook inputs carry `effort` on every tool-use-context event, so
+  // one cheap hook closes the gap a streaming `turn.step` hook would have.
+  // `classic.PreToolUse` is the exception: its argument is the tool call
+  // envelope, not the hook input, so the effort rides on PostToolUse.
+  on('classic.PostToolUse', ($, e, next) => {
+    if (e.effort?.level) state.effort = e.effort.level
+    return next(e)
+  })
+
+  // Real agent timings, instead of inferring a stop from a list status.
+  on('classic.SubagentStart', async ($, e, next) => {
+    const now = await $.clock.now()
+    state.startedAt.set(e.agent_id, now)
+    state.agentType.set(e.agent_id, e.agent_type)
+    state.finishedAt.delete(e.agent_id)
+    return next(e)
+  })
+
+  on('classic.SubagentStop', async ($, e, next) => {
+    const now = await $.clock.now()
+    state.finishedAt.set(e.agent_id, now)
+    await maybeRefresh($, state, 400)
+    $.ui.invalidate('ui.render')
+    return next(e)
+  })
+
+  // The compaction badge: the transcript parser counts `compact_boundary`
+  // events; here the engine says so directly.
+  on('classic.PreCompact', ($, e, next) => {
+    state.compactCount += 1
+    return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
