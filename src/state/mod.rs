@@ -822,7 +822,12 @@ mod tests {
             ..crate::config::RenderConfig::default()
         };
 
-        let mut runner = crate::PulseLineRunner::default();
+        // The env scan this test re-runs must not read the developer's real
+        // ~/.claude — testing.md calls filesystem isolation critical, and a
+        // test *about* the scan is the last place to depend on host state.
+        let fake_home = tempfile::TempDir::new().expect("temp home");
+        let mut runner =
+            crate::PulseLineRunner::default().with_user_home(fake_home.path().to_path_buf());
         let first = runner
             .run_from_str(&payload, config.clone())
             .expect("the first render scans and succeeds");
