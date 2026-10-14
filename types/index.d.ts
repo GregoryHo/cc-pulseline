@@ -145,6 +145,12 @@ export type AgentTimings = {
 /** The instruction files the engine said it loaded, by kind. */
 export type Instructions = {
   claudeMd: string[]
+  /**
+   * Kept apart from `claudeMd` because the binary counts the two separately:
+   * `env.rs`'s `count_agents_md` has its own column on the ENV row, so an
+   * AGENTS.md folded into the CLAUDE.md count is drawn twice.
+   */
+  agentsMd: string[]
   rules: string[]
   memories: string[]
 }

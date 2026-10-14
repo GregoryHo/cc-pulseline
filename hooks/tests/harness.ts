@@ -77,6 +77,7 @@ export type PayloadShape = {
   env?: {
     mcp_count?: number
     claude_md_count?: number
+    agents_md_count?: number
     rules_count?: number
     memory_count?: number
   }

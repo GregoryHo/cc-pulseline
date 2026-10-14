@@ -58,6 +58,7 @@ export type PayloadSnapshot = {
    */
   mcpCount: number
   claudeMdCount: number
+  agentsMdCount: number
   rulesCount: number
   memoryCount: number
 
@@ -139,6 +140,7 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
     env: {
       mcp_count: snapshot.mcpCount,
       claude_md_count: snapshot.claudeMdCount > 0 ? snapshot.claudeMdCount : undefined,
+      agents_md_count: snapshot.agentsMdCount > 0 ? snapshot.agentsMdCount : undefined,
       rules_count: snapshot.rulesCount > 0 ? snapshot.rulesCount : undefined,
       memory_count: snapshot.memoryCount > 0 ? snapshot.memoryCount : undefined,
     },

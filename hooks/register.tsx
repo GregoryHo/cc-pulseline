@@ -100,6 +100,7 @@ const agentTimings = atom({ plugin: 'pulseline', key: 'agents' } as const, {
 
 const instructions = atom({ plugin: 'pulseline', key: 'instructions' } as const, {
   claudeMd: [],
+  agentsMd: [],
   rules: [],
   memories: [],
 })
@@ -588,6 +589,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     tokens: facts.tokens,
     mcpCount: state.mcpServers.size,
     claudeMdCount: loaded.claudeMd.length,
+    agentsMdCount: loaded.agentsMd.length,
     rulesCount: loaded.rules.length,
     memoryCount: loaded.memories.length,
     active: state.active,
@@ -844,7 +846,15 @@ export const register: Register = (on, options) => {
     await update($, instructions, loaded => {
       // A file named twice must not count twice, which is what the Sets
       // these arrays replaced were for.
-      if (path.endsWith('CLAUDE.md') || path.endsWith('AGENTS.md')) {
+      // AGENTS.md first, and in its own list: the binary counts it in its own
+      // column (`env.rs`'s `count_agents_md`), so sending it as part of
+      // `claude_md_count` draws the same file twice on the ENV row.
+      if (path.endsWith('AGENTS.md')) {
+        return loaded.agentsMd.includes(path)
+          ? loaded
+          : { ...loaded, agentsMd: [...loaded.agentsMd, path] }
+      }
+      if (path.endsWith('CLAUDE.md')) {
         return loaded.claudeMd.includes(path)
           ? loaded
           : { ...loaded, claudeMd: [...loaded.claudeMd, path] }

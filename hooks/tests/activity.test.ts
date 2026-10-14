@@ -274,6 +274,22 @@ describe('classic events', () => {
     expect(env?.memory_count).toBeUndefined()
   })
 
+  test('an AGENTS.md is counted in its own column, not as a CLAUDE.md', async ($, on) => {
+    const seen = bottom(on)
+    const load = (file_path: string) =>
+      $.classic.InstructionsLoaded({ file_path, memory_type: 'Project', load_reason: 'session_start' })
+    await load('/work/CLAUDE.md')
+    await load('/work/AGENTS.md')
+    await $.tool.call(call('one'))
+
+    const env = seen.lastPayload().env
+    // The binary scans and draws the two separately (`env.rs`'s
+    // `count_agents_md` has its own ENV column), so folding AGENTS.md into
+    // the CLAUDE.md count showed one file twice.
+    expect(env?.claude_md_count).toBe(1)
+    expect(env?.agents_md_count).toBe(1)
+  })
+
   test('a completed agent keeps the stop time it was first given', async ($, on) => {
     // No SubagentStop for this one — the engine just stops calling it running,
     // which is the case where the time has to be inferred and then held.

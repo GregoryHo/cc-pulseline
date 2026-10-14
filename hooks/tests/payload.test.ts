@@ -35,6 +35,7 @@ const BASE: PayloadSnapshot = {
   tokens: null,
   mcpCount: 0,
   claudeMdCount: 0,
+  agentsMdCount: 0,
   rulesCount: 0,
   memoryCount: 0,
   active: new Map(),
