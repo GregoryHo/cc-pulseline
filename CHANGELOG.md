@@ -101,7 +101,7 @@ on **both** paths.
 - The plugin's TypeScript half is checked three ways in CI's
   footsteps: `claude plugin validate .` (hooks, `$` calls,
   `$.state` keys, and that every gating hook carries a `.catch` —
-  ten did not), `claude plugin test .` (101 tests across seven
+  ten did not), `claude plugin test .` (104 tests across seven
   files, run against the engine itself), and `tsc -p .`.
 - State that must survive a hot reload lives in `$.state` atoms
   under a declared contract rather than in module variables:

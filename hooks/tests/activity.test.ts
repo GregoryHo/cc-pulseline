@@ -74,6 +74,40 @@ describe('tool calls', () => {
   })
 })
 
+describe('what counts as tool activity', () => {
+  test('the todo row\'s own calls and Agent are not tools', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TodoWrite',
+      tool_use_id: 'b1',
+      todos: [{ content: 'One', activeForm: 'Doing one', status: 'pending' }],
+    })
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'b2',
+      subject: 'One',
+      description: 'The first',
+    })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'b3', taskId: 'task-1', status: 'completed' })
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'b4', description: 'Look around', prompt: 'go' })
+    await $.tool.call({ tool: 'ToolSearch', tool_use_id: 'b5', query: 'select:Read', max_results: 1 })
+    await $.tool.call(call('real'))
+
+    // The transcript path dispatches each of these somewhere else and returns
+    // before its tool tracking, so the band's totals have to do the same or
+    // they count the mod's own bookkeeping.
+    const payload = seen.lastPayload()
+    expect(payload.activity?.completed_counts).toEqual([{ name: 'Read', count: 1, failed: 0 }])
+    expect(payload.activity?.completed_total).toBe(1)
+    // And an Agent call is never also drawn as a running tool.
+    for (const seenPayload of seen.payloads()) {
+      for (const tool of seenPayload.activity?.tools ?? []) {
+        expect(tool.name).toBe('Read')
+      }
+    }
+  })
+})
+
 describe('TodoWrite', () => {
   test('becomes the todo row', async ($, on) => {
     const seen = bottom(on)
@@ -98,6 +132,17 @@ describe('TodoWrite', () => {
     expect(todo?.in_progress_items).toEqual([{ text: 'Writing the harness' }])
     expect(todo?.all_done).toBe(false)
     expect(todo?.is_task_api).toBe(true)
+  })
+
+  test('a refused TodoWrite is not drawn as the current list', async ($, on) => {
+    const seen = bottom(on, { toolResult: { isError: true, result: 'refused' } })
+    await $.tool.call({
+      tool: 'TodoWrite',
+      tool_use_id: 't6',
+      todos: [{ content: 'Never happened', activeForm: 'Never happening', status: 'in_progress' }],
+    })
+
+    expect(seen.lastPayload().activity?.todo).toBeNull()
   })
 
   test('a lone running todo is not reported as done', async ($, on) => {
@@ -222,6 +267,23 @@ describe('the Task API', () => {
     // and, when the id was a local count rather than the engine's, every
     // later update would address the phantom instead of the real task.
     expect(seen.lastPayload().activity?.todo).toBeNull()
+  })
+
+  test('a TaskUpdate carrying no status leaves the status alone', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'One',
+      description: 'The first',
+    })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: 'task-1', status: 'completed' })
+    // `status` is optional: this call only renames the task.
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', subject: 'One, renamed' })
+
+    const todo = seen.lastPayload().activity?.todo
+    expect(todo?.completed).toBe(1)
+    expect(todo?.all_done).toBe(true)
   })
 
   test('a deleted task leaves the row', async ($, on) => {

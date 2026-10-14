@@ -60,6 +60,35 @@ const PANE_ID = 'pulseline'
  * a label column, and four visibly different views are worth more than five
  * where two look alike.
  */
+/**
+ * Calls that are not tool activity, mirrored from `providers/transcript.rs`.
+ *
+ * Two groups, excluded there in two different ways. `Agent`, `TaskCreate`,
+ * `TaskUpdate` and `TodoWrite` are dispatched and then returned from before
+ * the tool tracking, because each belongs somewhere else — the agent list, or
+ * the todo row. The rest are that file's `NOISE_TOOLS`, Claude Code's own
+ * control calls.
+ *
+ * Without this the band inflated its completed totals with its own
+ * bookkeeping, and an `Agent` call was drawn twice: once as a running tool
+ * and once as an agent.
+ */
+const NOT_TOOL_ACTIVITY = new Set([
+  'Agent',
+  'TaskCreate',
+  'TaskUpdate',
+  'TodoWrite',
+  'EnterPlanMode',
+  'ExitPlanMode',
+  'EnterWorktree',
+  'ExitWorktree',
+  'TaskGet',
+  'TaskList',
+  'TaskOutput',
+  'TaskStop',
+  'ToolSearch',
+])
+
 const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
 
 /** Button key prefix, so a press can name the layout it asks for. */
@@ -314,19 +343,28 @@ export function todoFromTasks(items: Record<string, TaskItem>): Todo | null {
 }
 
 /**
- * Folds one answered `TaskCreate` or `TaskUpdate` into the task items.
+ * Folds one answered `TodoWrite`, `TaskCreate` or `TaskUpdate` into the todo
+ * row.
  *
- * Both ids come from the engine: the created task's from the call's own
- * result, an update's from the event. Nothing is counted here, so a create
- * the engine refused cannot leave a phantom that a later update would move
- * instead of the real task.
+ * All three run after `next(e)` and only when the call did not fail, because
+ * a list or a task the engine refused must not be drawn as current. Both ids
+ * come from the engine: the created task's from the call's own result, an
+ * update's from the event. Nothing is counted here, so a refused create
+ * cannot leave a phantom that a later update would move instead of the real
+ * task.
  */
-async function rememberTask(
+async function rememberTodoCall(
   $: EngineInterface,
   name: string,
   seen: Record<string, unknown>,
   result: { result?: unknown },
 ): Promise<void> {
+  if (name === 'TodoWrite' && Array.isArray(seen.todos)) {
+    const todo = todoOf(seen.todos as { content?: string; status?: string }[])
+    await update($, todoList, () => todo)
+    return
+  }
+
   if (name === 'TaskCreate' && typeof seen.subject === 'string') {
     const subject = seen.subject
     const answered = (result.result as { task?: { id?: unknown } } | undefined)?.task?.id
@@ -346,21 +384,39 @@ async function rememberTask(
     // nothing, so neither does this.
     const answered = result.result as { success?: unknown } | undefined
     if (answered !== undefined && answered.success === false) return
-    const status = typeof seen.status === 'string' ? seen.status : 'pending'
+    const asked = typeof seen.status === 'string' ? seen.status : undefined
+    const subject = typeof seen.subject === 'string' ? seen.subject : undefined
+    const activeForm = typeof seen.activeForm === 'string' ? seen.activeForm : undefined
     const at = await $.clock.now()
     await rebuildTodo($, held => {
-      if (status === 'deleted') {
+      if (asked === 'deleted') {
         const items = { ...held.items }
         delete items[taskId]
         return { items }
       }
       const was = held.items[taskId]
       if (was === undefined) return held
+      // `status` is optional on `TaskUpdate`: the call also carries a new
+      // subject, active form or dependency set on its own. Defaulting it to
+      // `pending` reopened a completed task whenever the model only renamed
+      // one.
+      const status = asked ?? was.status
       // The start is stamped once, so the row's elapsed time does not restart
       // every time the same task is touched again.
       const startedAt =
         status === 'in_progress' && was.status !== 'in_progress' ? at : was.startedAt
-      return { items: { ...held.items, [taskId]: { ...was, status, startedAt } } }
+      return {
+        items: {
+          ...held.items,
+          [taskId]: {
+            ...was,
+            status,
+            startedAt,
+            ...(subject !== undefined ? { subject } : {}),
+            ...(activeForm !== undefined ? { activeForm } : {}),
+          },
+        },
+      }
     })
   }
 }
@@ -788,11 +844,7 @@ export const register: Register = (on, options) => {
     // Bookkeeping must never throw into the tool chain: a bad event shape
     // would take the tool call down with it, and the band with that.
     try {
-      if (name === 'TodoWrite' && Array.isArray(seen.todos)) {
-        const todo = todoOf(seen.todos as { content?: string; status?: string }[])
-        await update($, todoList, () => todo)
-      }
-      state.active.set(id, { id, name, target: targetOf(seen) })
+      if (!NOT_TOOL_ACTIVITY.has(name)) state.active.set(id, { id, name, target: targetOf(seen) })
       // The band's reason to exist is the tool running *now*, and the rows it
       // draws are the binary's stdout — so a running tool reaches the band
       // only if a refresh happens while its entry is still in `state.active`.
@@ -819,7 +871,7 @@ export const register: Register = (on, options) => {
       // TodoWrite above is the older API; the transcript path dispatches all
       // three, and without these two the band shows no task progress at all
       // on the current one.
-      if (!failed) await rememberTask($, name, seen, result)
+      if (!failed) await rememberTodoCall($, name, seen, result)
       return result
     } catch (error) {
       failed = true
@@ -830,17 +882,19 @@ export const register: Register = (on, options) => {
         // The count lands before the refresh, and in its own write: an
         // overrun inside `maybeRefresh` must not cost this tool its place
         // in the session totals.
-        await update($, toolTotals, totals => ({
-          counts: {
-            ...totals.counts,
-            [name]: {
-              count: (totals.counts[name]?.count ?? 0) + 1,
-              failed: (totals.counts[name]?.failed ?? 0) + (failed ? 1 : 0),
+        if (!NOT_TOOL_ACTIVITY.has(name)) {
+          await update($, toolTotals, totals => ({
+            counts: {
+              ...totals.counts,
+              [name]: {
+                count: (totals.counts[name]?.count ?? 0) + 1,
+                failed: (totals.counts[name]?.failed ?? 0) + (failed ? 1 : 0),
+              },
             },
-          },
-          completedTotal: totals.completedTotal + 1,
-          failedTotal: totals.failedTotal + (failed ? 1 : 0),
-        }))
+            completedTotal: totals.completedTotal + 1,
+            failedTotal: totals.failedTotal + (failed ? 1 : 0),
+          }))
+        }
         // Unconditional, where the way in is gated. A gated completion would
         // leave the band drawing a tool that has already finished until some
         // later event reopened the window — and between two bursts inside one

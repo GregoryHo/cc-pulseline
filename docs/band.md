@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 101 tests across seven files that run
+It passes `claude plugin validate`, has 104 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -165,7 +165,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 101 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 104 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -200,9 +200,9 @@ field, which the hooks module does not use.
 
 | Row | Source |
 | --- | --- |
-| Running tools, per-tool counts, failures | `tool.call`: marked before `next(e)` and refreshed there, so the running tool is in the band while it runs; counted after, `result.isError` is the failure flag. The way in is gated at 400ms, the completion is not — a gated completion would leave a finished tool drawn as running |
+| Running tools, per-tool counts, failures | `tool.call` for every tool but the ones the transcript path dispatches elsewhere or ignores (`Agent`, the Task API's and TodoWrite's own calls, and that file's `NOISE_TOOLS`): marked before `next(e)` and refreshed there, so the running tool is in the band while it runs; counted after, `result.isError` is the failure flag. The way in is gated at 400ms, the completion is not — a gated completion would leave a finished tool drawn as running |
 | Tool argument (`cargo test`, a file path) | the tool's own arguments on `e` — a lookup, not a guess |
-| Todo | the `TodoWrite` call's `todos` array, or the Task API's `TaskCreate` / `TaskUpdate` calls accumulated in the `tasks` atom |
+| Todo | the `TodoWrite` call's `todos` array, or the Task API's `TaskCreate` / `TaskUpdate` calls accumulated in the `tasks` atom. All three are read from the call's *result*, so a refused list or task is never drawn as current, and a created task is keyed by the id the engine answered with rather than by a count of creations |
 | Agents | `$.agent.list()` |
 | Context, cost, rate limits | `$.session.usage()` |
 | Token breakdown | `turn.complete`'s `e.usage` (per turn, not per tick) |
@@ -280,7 +280,7 @@ hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     101 tests
+hooks/tests/*.test.ts(x)     104 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```

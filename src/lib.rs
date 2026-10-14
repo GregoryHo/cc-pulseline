@@ -253,6 +253,17 @@ fn build_render_frame(
     frame
 }
 
+/// The disk cache's key: `session_id|transcript_path|project_path`.
+///
+/// The transcript path is in it, and a mod sends no `transcript_path` — so the
+/// band and the statusline key *different* cache files even inside one
+/// session, and neither can roll back the other's transcript offset or
+/// accumulated state. Checked, not assumed: one invocation of each with the
+/// same session id and project writes two files.
+///
+/// A caller that sent both `activity` and a `transcript_path` would share one
+/// file with the statusline. Nothing does today; it would need its own
+/// namespace if anything did.
 fn session_key(payload: &StdinPayload) -> String {
     format!(
         "{}|{}|{}",
