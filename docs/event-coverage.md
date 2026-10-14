@@ -1,4 +1,4 @@
-# Event coverage: what the mod path replaces
+# Event coverage: what the event path carries
 
 `src/providers/transcript.rs` (1,336 lines) exists because the statusline
 hook hands the binary a payload and a file path, and everything else —
