@@ -227,7 +227,9 @@ describe('the pane', () => {
     await ui.press({ key: 'layout:ledger' })
 
     const paneArgv = seen.spawns.filter(run => run.argv.includes('--layout')).at(-1)?.argv ?? []
-    expect(paneArgv[paneArgv.indexOf('--rows') + 1]).toBe('12')
+    // One short of the twelve-row box: the switcher takes the last row, and a
+    // layout that fills the box exactly would push it below the fold.
+    expect(paneArgv[paneArgv.indexOf('--rows') + 1]).toBe('11')
     expect(paneArgv[paneArgv.indexOf('--columns') + 1]).toBe('118')
 
     await ui.unmount()
@@ -248,6 +250,20 @@ describe('the pane', () => {
     // the pane yet, because the kit draws only on `ui.mount`.
     const paneRuns = seen.spawns.filter(run => run.argv.includes('--layout')).length
     expect(paneRuns).toBe(2)
+  })
+
+  test('a pane the surface would not place does not stay wanted', async ($, on) => {
+    // The surface refusing the pane — too narrow a terminal, say.
+    const seen = bottom(on, { stdout: COLOURED_ROWS, panePlaced: false })
+
+    const first = await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+    expect(first.text).toContain('wider terminal')
+
+    // Left wanted, this second call would take the close branch and claim to
+    // have closed a pane that was never placed.
+    const second = await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+    expect(second.text).not.toContain('closed')
+    expect(seen.spawns.length).toBeGreaterThan(0)
   })
 
   test('the /pulseline toggle stops the pane spawn', async ($, on) => {

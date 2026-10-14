@@ -770,10 +770,15 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // The pane is a different box, so it needs its own render: one row count
     // cannot serve a 1-row band and a 12-row pane.
     try {
+      // One row short of the box on purpose: the render hook puts the layout
+      // switcher under these rows, so a layout that does honour `--rows` and
+      // fills the box exactly would push the switcher — and its hotkeys —
+      // below the fold.
+      const paneBodyRows = Math.max(1, state.paneHeight - 1)
       const paneArgv = [
         binary.path,
         '--rows',
-        String(state.paneHeight),
+        String(paneBodyRows),
         '--columns',
         String(state.paneCols),
         '--layout',
@@ -1147,6 +1152,14 @@ export const register: Register = (on, options) => {
     // the first place. Nothing is drawn when the pane was not placed, so the
     // second run would have nothing to measure against.
     if (opened.isPlaced) await refresh($, state)
+    else {
+      // Nothing was drawn, so there is nothing to keep the flag for: left
+      // true, every later refresh would spawn the binary a second time for a
+      // pane that does not exist, and the next `/pulseline` would take the
+      // close branch and report closing it rather than trying again.
+      await update($, paneWanted, pane => ({ ...pane, open: false }))
+      return { text: 'pulseline needs a wider terminal to place its pane' }
+    }
     return { text: undefined }
   })
 

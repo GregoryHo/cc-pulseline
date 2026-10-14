@@ -117,6 +117,12 @@ export type UsageOptions = {
 }
 
 export type BottomOptions = {
+  /**
+   * What `$.ui.open` answers: `false` is a surface that would not place the
+   * pane, which is the only way a test reaches that branch — the kit's own
+   * bottom always places it, and a second `on('ui.open')` is refused.
+   */
+  panePlaced?: boolean
   /** Tools `$.tool.list()` answers; `mcp: true` ones feed the MCP count. */
   tools?: ToolInfo[]
   /** Agents `$.agent.list()` answers. */
@@ -266,7 +272,11 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // The pane. Without a `ui.open` beneath, the mod's `command.run` hook
   // throws, is skipped, and the dispatch falls through to a `command.run`
   // nothing answers — which reads as the wrong failure entirely.
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', () =>
+    options.panePlaced === false
+      ? { value: { isPlaced: false as const, reason: 'the surface is too narrow' } }
+      : { value: { isPlaced: true as const } },
+  )
   on('ui.close', () => ({ value: undefined }))
   on('command.register', (_engine, e) => ({ value: { command: e.name } }))
   // Like `ui.render`, a `command.run` answers with its own result rather
