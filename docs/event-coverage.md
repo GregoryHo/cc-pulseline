@@ -10,8 +10,11 @@ claim function by function, so the question "could the transcript parser go
 away?" has an answer built on the real event contract rather than on hope.
 
 Verified against the `claude-code.d.ts` the engine itself writes for plugin
-authors (Claude Code 2.1.296) — `/plugin-types` writes that contract into
-`.claude/types/` — and a running spike, `mod/hooks/register.ts`.
+authors (written by Claude Code 2.1.296, checked on 2.1.299). There is no
+command to run: the engine writes it beside the mod, at
+`mod/.claude-plugin/types/claude-code/index.d.ts`, each time it loads the mod
+from a folder the author owns. Also against a running spike,
+`mod/hooks/register.ts`.
 
 ## Covered: the event carries the fact outright
 
@@ -40,9 +43,14 @@ authors (Claude Code 2.1.296) — `/plugin-types` writes that contract into
 
 ## Not covered by any event
 
-Nothing, as of 2.1.296. Both facts this section used to hold moved up:
-output style is carried outright, and the API error badge arrives at turn
+No *fact* any more. Both entries this section used to hold moved up: output
+style is carried outright, and the API error badge arrives at turn
 granularity.
+
+What is still missing is *resolution*, not facts, and both cases are in the
+table above: per-API-call token counts (the mod sees one total per turn) and
+per-message API errors (the mod sees one flag per turn). Neither has an
+event equivalent today.
 
 ## What first looked uncovered
 
@@ -80,5 +88,5 @@ copy of the other.
 
 So `src/providers/transcript.rs` stays, by division of labour rather than as
 a decision deferred. Nor is anything waiting on a flag any more:
-`claude plugin validate mod` passes on 2.1.296 with no
+`claude plugin validate mod` passes on 2.1.299 with no
 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` set.
