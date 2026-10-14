@@ -12,3 +12,6 @@ npm-publish/
 
 # Serena MCP cache directory
 .serena/
+
+# The engine rewrites this on every load of the mod from a --plugin-dir folder.
+mod/.claude-plugin/types/
