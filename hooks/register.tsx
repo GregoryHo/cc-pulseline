@@ -14,7 +14,7 @@ import type { Version } from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
-import type { BinaryChoice, Span, SpanStyle, TaskItem, Tasks, Todo } from '../types'
+import type { BinaryChoice, DrawnOutput, Span, SpanStyle, TaskItem, Tasks, Todo } from '../types'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -288,6 +288,8 @@ type State = {
   mcpServers: Set<string>
   /** The last reading that came back whole, drawn again when one fails. */
   lastCollected: Collected | null
+  /** Which refresh is newest; only that one may publish. See `refresh`. */
+  runSeq: number
   /**
    * The manifest's `userConfig` values, as `register`'s second parameter
    * handed them over. Fixed for this activation: a change to them reloads
@@ -636,17 +638,24 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
  * passed to a function declared here, never to a closure inside `register`.
  */
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
+  // Each refresh claims a number and only the newest may publish. Several can
+  // be in flight at once — parallel tool calls, a turn event landing beside
+  // them — each with its own reading and its own spawn, and the write is a
+  // plain overwrite. Without this the slowest finisher wins, so an older
+  // reading can replace a newer one and leave a finished tool drawn as
+  // running until the next event.
+  const seq = (state.runSeq += 1)
+  const publish = async (change: (out: DrawnOutput) => DrawnOutput): Promise<void> => {
+    if (seq !== state.runSeq) return
+    await update(engine, drawnOutput, change)
+  }
+
   // Nothing to run means nothing to draw but the reason. The band shows
   // `runNote` whenever there are no rows, so this is what reaches it.
   const binary = await resolveBinary(engine, state)
   if (binary.kind !== 'ok') {
     const note = binary.kind === 'missing' ? missingMessage() : tooOldMessage(binary.version)
-    await update(engine, drawnOutput, out => ({
-      ...out,
-      rows: [],
-      paneRows: [],
-      runNote: note,
-    }))
+    await publish(out => ({ ...out, rows: [], paneRows: [], runNote: note }))
     return
   }
 
@@ -659,7 +668,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // Nothing has ever come back whole: there is no reading to draw, and
     // spawning the binary with fabricated zeros would draw a lie.
     if (state.lastCollected === null) {
-      await update(engine, drawnOutput, out => ({
+      await publish(out => ({
         ...out,
         rows: [],
         paneRows: [],
@@ -779,7 +788,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     }
   }
 
-  await update(engine, drawnOutput, () => ({ rows, runNote, paneRows, paneNote }))
+  await publish(() => ({ rows, runNote, paneRows, paneNote }))
 }
 
 /**
@@ -813,6 +822,7 @@ export const register: Register = (on, options) => {
     paneCols: 120,
     mcpServers: new Set(),
     lastCollected: null,
+    runSeq: 0,
     options,
   }
 
@@ -851,9 +861,14 @@ export const register: Register = (on, options) => {
       // Without this the list could only ever be filled by an overlapping
       // call, and a lone `cargo test` showed nothing for its whole run.
       //
-      // Gated, because this one is on the way in: the spawn delays the tool
-      // itself, and a burst of fast calls must not pay for it once each.
-      await maybeRefresh($, state, 400)
+      // Ungated, unlike the other sites. A gated start is not drawn late, it
+      // is not drawn at all: the window is closed by the previous tool's own
+      // completion refresh, and the next refresh after that is this tool's
+      // completion — by which time its entry is gone. A tool that ran for
+      // minutes was therefore never shown. So this pays a spawn per call,
+      // against a spawn floor under 3ms and a tool call that is tens to
+      // thousands of times that.
+      await refresh($, state)
     } catch (error) {
       const note = `mark failed: ${String(error).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))

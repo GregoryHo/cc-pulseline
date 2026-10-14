@@ -6,13 +6,17 @@
  * mounted drawing. `maybeRefresh` keeps the part that is genuinely about
  * timing — reading the clock and claiming the window — and asks this.
  *
- * Seven sites can trigger a refresh and the mod sits in the tool-call
- * chain, so a spawn on the way in delays the tool itself; this bounds how
- * often that happens while a burst goes through.
+ * Several sites can trigger a refresh. The gate guards the ones that fire
+ * without a tool call of their own to account for — a run of
+ * `classic.ConfigChange` writes, say — so a burst of them does not spawn the
+ * binary once each.
  *
- * It bounds the way in only. A tool call's completion refreshes
- * unconditionally, because a gated completion leaves the band drawing a tool
- * that has already finished.
+ * It does not guard the tool-call path any more, at either end. A gated start
+ * is not drawn late but never drawn at all, since the window is closed by the
+ * previous call's completion and the next refresh is this call's own, after
+ * its entry is gone; and a gated completion leaves a finished tool drawn as
+ * running. Both ends of a tool call therefore refresh unconditionally and pay
+ * a spawn each, against a floor under 3ms.
  */
 export function shouldRefresh(lastRunMs: number, nowMs: number, gapMs: number): boolean {
   // `>=`, so a gap of 0 always refreshes — a test that wants every call to

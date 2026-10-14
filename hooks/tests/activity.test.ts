@@ -49,6 +49,26 @@ describe('tool calls', () => {
     expect(seen.lastPayload().activity?.tools).toEqual([])
   })
 
+  test('a tool that starts inside the refresh gate is still drawn', async ($, on) => {
+    // A frozen clock is what closes the 400ms window: the previous tool's own
+    // completion refresh stamped it at this very instant, which is exactly
+    // what happens between two serial calls in a real turn.
+    const seen = bottom(on, { tick: 0 })
+    await $.tool.call(call('first'))
+    await $.tool.call(call('second'))
+
+    const everRunning = seen
+      .payloads()
+      .flatMap(payload => payload.activity?.tools ?? [])
+      .map(tool => tool.id)
+
+    // Gated, the second call's start was not drawn late — it was not drawn at
+    // all, because its next refresh is its own completion, by which time the
+    // entry is gone.
+    expect(everRunning).toContain('first')
+    expect(everRunning).toContain('second')
+  })
+
   test('a failed tool call is counted as failed', async ($, on) => {
     const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
     await $.tool.call({ tool: 'Bash', tool_use_id: 't2', command: 'false' })
