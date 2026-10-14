@@ -60,6 +60,27 @@ describe('the band', () => {
     await ui.unmount()
   })
 
+  test('braille, box drawing and a plane-15 Nerd Font glyph all land', async ($, on) => {
+    // The width-1 BMP restriction in the contract is the cell grid's, on its
+    // `cells` field, and that grid is not what the band uses: `TextProps`
+    // carries no code-point restriction. So the gauges, the box drawing and
+    // the Nerd Font icons the binary emits all pass through as text. What is
+    // refused is a control character, which `stripControls` removes.
+    const glyphs = '\u{F0CCD} ⣀⣄⣦ ╭─╮ ▰─ 6'
+    bottom(on, { stdout: glyphs })
+    await warm($)
+    const ui = await $.ui.mount(BAND)
+
+    const drawn = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(drawn).toContain('\u{F0CCD}') // a plane-15 Nerd Font glyph
+    expect(drawn).toContain('⣦') // braille, as the sparkline draws
+    expect(drawn).toContain('╭') // box drawing, as the console frame draws
+    expect(drawn).toContain('▰') // the gauge's filled mark
+    expect(drawn).toBe(glyphs)
+
+    await ui.unmount()
+  })
+
   test('it clips to maxRows, and redraws to a new one', async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS })
     await warm($)
