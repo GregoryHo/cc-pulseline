@@ -32,11 +32,12 @@ describe('tool calls', () => {
 
   test('a tool that is still running is not yet counted', async ($, on) => {
     const seen = bottom(on)
-    // A tool is in `active` only between the mark and the `finally`, and the
-    // kit dispatches one call at a time, so no payload can be built while
-    // one is running — the row's own shape is payload.test.ts's and the
-    // argument it shows is parse.test.ts's. What is assertable here is that
-    // the running list is empty by the time a call has returned, which is
+    // A tool is in `active` only between the mark and the `finally`, and no
+    // payload was ever observed being built while one was in flight — two
+    // calls raised together did not overlap either. So the row's own shape
+    // is payload.test.ts's and the argument it shows is parse.test.ts's.
+    // What is assertable here is that the running list is empty by the time
+    // a call has returned, which is
     // the other half of the old case.
     await $.tool.call(call('solo'))
 

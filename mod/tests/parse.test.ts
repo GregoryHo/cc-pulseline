@@ -9,8 +9,11 @@ import { ansi256Hex, spansOf, targetOf } from '../hooks/register'
  * exercises only glancingly: `spansOf` decides whether any colour reaches
  * the band at all, and `ansi256Hex` is the arithmetic behind every one of
  * them. `targetOf` picks what a running tool's row shows, which no mounted
- * test can observe — the kit dispatches one tool call at a time, so a tool
- * is never in `active` at the moment a payload is built.
+ * test managed to observe: a tool is in `active` only between the mark and
+ * the `finally`, and two calls raised together were never both in flight at
+ * the moment a payload was built. Why not — serialised dispatch, or the
+ * `finally` landing before the second mark — was not established, so this
+ * is tested here rather than through a drawing.
  */
 
 const ESC = String.fromCharCode(27)
