@@ -221,7 +221,10 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('classic.ConfigChange', () => ({}))
   on('classic.SubagentStart', () => ({}))
   on('classic.SubagentStop', () => ({}))
+  // Both ends of a compaction: the mod counts `PostCompact`, and a case
+  // drives `PreCompact` to show that asking for one counts nothing.
   on('classic.PreCompact', () => ({}))
+  on('classic.PostCompact', () => ({}))
   // A turn's own bottom. Its result is `{ text, usage? }`, not `{ value }`.
   on('turn.complete', () => ({ text: '' }))
   on('session.usage', () => ({

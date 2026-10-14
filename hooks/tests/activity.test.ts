@@ -469,10 +469,17 @@ describe('classic events', () => {
     expect(seen.lastPayload().effort).toEqual({ level: 'xhigh' })
   })
 
-  test('compaction is counted from PreCompact', async ($, on) => {
+  test('a compaction is counted once it has happened, not once it is asked for', async ($, on) => {
     const seen = bottom(on)
+    // `PreCompact` is the wrong end: it can be blocked, and a vetoed or
+    // failed compaction left the badge raised for the rest of the session.
     await $.classic.PreCompact({ trigger: 'auto', custom_instructions: null })
-    await $.classic.PreCompact({ trigger: 'manual', custom_instructions: null })
+    await $.tool.call(call('asked-for'))
+    await seen.settle()
+    expect(seen.lastPayload().activity?.compact_count).toBe(0)
+
+    await $.classic.PostCompact({ trigger: 'auto', compact_summary: 'what was said' })
+    await $.classic.PostCompact({ trigger: 'manual', compact_summary: 'and again' })
     await $.tool.call(call('after-compact'))
     await seen.settle()
 

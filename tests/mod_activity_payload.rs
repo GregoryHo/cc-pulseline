@@ -721,3 +721,102 @@ fn a_tool_completed_just_now_outranks_a_stale_busier_one() {
         "the stale one is dropped: {joined}"
     );
 }
+
+/// A compaction resets the window the trend widgets describe. The transcript
+/// path clears both sample buffers on `compact_boundary`; on the payload path
+/// the buffers still live in `SessionState`, which the mod cannot reach, so
+/// the collector has to do it from the count it is told.
+#[test]
+fn an_advancing_compaction_count_clears_the_trend_windows() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.push_ctx_sample(55, 2_000);
+    state.push_cache_sample(70, 1_000);
+    state.compact_count = 1;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":2}}"#)
+            .expect("the payload parses");
+    let snapshot =
+        PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(
+        snapshot.compact_count, 2,
+        "the badge follows the mod's count"
+    );
+    assert!(
+        state.ctx_history.is_empty(),
+        "the context trail starts over at the new window: {:?}",
+        state.ctx_history
+    );
+    assert!(
+        state.cache_history.is_empty(),
+        "and so does the cache trail: {:?}",
+        state.cache_history
+    );
+    assert_eq!(state.compact_count, 2, "the mark moves with it");
+}
+
+/// The same count twice is the ordinary case — every refresh of a session that
+/// has compacted once reports 1 — and must not keep wiping the trail.
+#[test]
+fn a_steady_compaction_count_leaves_the_trend_windows_alone() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.compact_count = 2;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":2}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(
+        state.ctx_history.len(),
+        1,
+        "nothing advanced, so nothing is cleared: {:?}",
+        state.ctx_history
+    );
+}
+
+/// A count that went backwards — a fresh session's atom, or one the host
+/// cleared — re-syncs the mark instead of leaving one the new count has to
+/// climb past before a real compaction clears anything again.
+#[test]
+fn a_compaction_count_that_went_backwards_resyncs_without_clearing() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.compact_count = 5;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":0}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(state.compact_count, 0, "the mark follows the count down");
+    assert_eq!(
+        state.ctx_history.len(),
+        1,
+        "going backwards is not a compaction: {:?}",
+        state.ctx_history
+    );
+
+    // And the next real one still clears, which the stale mark would have
+    // swallowed for the next five compactions.
+    let next: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":1}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&next, &mut state, &RenderConfig::default());
+    assert!(state.ctx_history.is_empty(), "cleared on the next advance");
+}

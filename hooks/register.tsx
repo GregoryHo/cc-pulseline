@@ -1314,8 +1314,16 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   // The compaction badge: the transcript parser counts `compact_boundary`
-  // events; here the engine says so directly.
-  on('classic.PreCompact', async ($, e, next) => {
+  // events, and only a compaction that finished writes one. `PostCompact` is
+  // the event that matches it — it carries the summary a compaction produced,
+  // so it fires once one has.
+  //
+  // `PreCompact` was the wrong end. It can be blocked: `SessionCompactSkipped`
+  // says "Core answers it too, when a classic PreCompact hook blocks", and the
+  // count went up before `next(e)` either way — so a compaction that was
+  // vetoed, or that failed, left the badge raised for the rest of the session
+  // and sent on every payload after it.
+  on('classic.PostCompact', async ($, e, next) => {
     await update($, sessionFacts, facts => ({
       ...facts,
       compactCount: facts.compactCount + 1,
