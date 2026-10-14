@@ -3,6 +3,7 @@ import type { AgentInfo, EngineInterface, Register, SessionUsage } from 'claude-
 
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
+import { shouldRefresh } from './throttle'
 import type { Span, SpanStyle, Todo } from '../types'
 
 /**
@@ -123,7 +124,7 @@ const ESC = String.fromCharCode(27)
 const ANSI_PATTERN = new RegExp(ESC + '\\[([0-9;]*)m', 'g')
 
 /** xterm-256 index to `#rrggbb`: 16 base colours, a 6^3 cube, a 24-step ramp. */
-function ansi256Hex(index: number): string {
+export function ansi256Hex(index: number): string {
   const base = [
     0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xc0c0c0, 0x808080,
     0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
@@ -153,7 +154,7 @@ function stripControls(text: string): string {
 }
 
 /** Splits one line of the binary's output into styled spans. */
-function spansOf(line: string): Span[] {
+export function spansOf(line: string): Span[] {
   const spans: Span[] = []
   let style: SpanStyle = {}
   let cursor = 0
@@ -227,7 +228,7 @@ type State = {
  * `tool.call` carries the tool's own arguments on `e`, so this is a lookup,
  * not the guess-by-shape that the transcript parser has to make.
  */
-function targetOf(event: Record<string, unknown>): string | undefined {
+export function targetOf(event: Record<string, unknown>): string | undefined {
   const keys = ['file_path', 'command', 'path', 'pattern', 'url', 'prompt', 'description']
   for (const key of keys) {
     const value = event[key]
@@ -483,7 +484,7 @@ async function maybeRefresh(
   gapMs: number,
 ): Promise<void> {
   const now = await engine.clock.now()
-  if (now - state.lastRunMs < gapMs) return
+  if (!shouldRefresh(state.lastRunMs, now, gapMs)) return
   // Claim the window before awaiting anything else, or a second caller
   // arriving while this one is in `refresh` reads the old stamp and spawns
   // the binary too. `collect` stamps it again with its own reading.
