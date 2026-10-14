@@ -63,10 +63,13 @@ export type Todo = {
 /**
  * Facts about the session the hooks resolve as the engine reports them.
  *
- * `cwd` is the cheapest proof this whole contract works: it is `''` until
- * `session.start`, and a reload re-runs `register` but not `session.start`,
- * so held in a closure it would go empty and the binary would fall back to
- * an unknown project path with no env, git or project config.
+ * `cwd` is here because it is the session's, not because a reload would
+ * otherwise lose it: `session.start` fires once per process per plugin and
+ * "then once per fresh load of one", a reload included, so it is set again
+ * on the way back. It is held anyway, so that the window between `register`
+ * running and that event arriving draws the project it already knew rather
+ * than an empty path — a payload with no `cwd` resolves to an unknown
+ * project, and the binary then has no env, no git and no project config.
  */
 export type SessionFacts = {
   cwd: string
