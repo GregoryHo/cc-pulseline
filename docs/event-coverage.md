@@ -44,6 +44,8 @@ Nothing, as of 2.1.296. Both facts this section used to hold moved up:
 output style is carried outright, and the API error badge arrives at turn
 granularity.
 
+## What first looked uncovered
+
 Three facts that first looked uncovered are not: **effort** rides on every
 classic hook input (`BaseHookInput.effort`), the **compaction count** is
 `classic.PreCompact`, and the **output style** rides on `prompt.compose`'s
@@ -66,14 +68,15 @@ What does **not** survive the move is per-tick token resolution — one item,
 against roughly 1,300 lines of reconstruction.
 
 That was never the deciding question, though. A mod cannot draw where the
-statusline draws: that row belongs to the classic path, and no `ui.render`
-surface reaches it. So the two paths divide the work instead of replacing
-each other. The **statusline** keeps drawing the steady-state summary, which
-is why it keeps parsing the transcript — it is the only way to put anything
-at that position. The **band** (`AbovePrompt`, assembled from engine events)
-draws the activity detail, where per-event resolution is the point. Their
-output is not required to match, and neither is a degraded copy of the
-other.
+statusline draws: `ui.render`'s `RenderComponent` enumerates fifteen places
+a mod may draw — `AbovePrompt` and `Pane` among them — and the statusline's
+row is not one of them. So the two paths divide the work instead of
+replacing each other. The **statusline** keeps drawing the steady-state
+summary, which is why it keeps parsing the transcript — it is the only way
+to put anything at that position. The **band** (`AbovePrompt`, assembled
+from engine events) draws the activity detail, where per-event resolution is
+the point. Their output is not required to match, and neither is a degraded
+copy of the other.
 
 So `src/providers/transcript.rs` stays, by division of labour rather than as
 a decision deferred. Nor is anything waiting on a flag any more:
