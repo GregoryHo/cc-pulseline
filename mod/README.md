@@ -3,7 +3,7 @@
 A Claude Code **mod** — a plugin whose behaviour lives in a hooks module —
 that draws cc-pulseline from engine events instead of the statusline hook.
 
-It passes `claude plugin validate`, has 88 tests across seven files that run
+It passes `claude plugin validate`, has 90 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -152,7 +152,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 88 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 90 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -199,6 +199,7 @@ field, which this mod does not use.
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
 | Compaction count | `classic.PreCompact` |
 | API error | `turn.complete` where `e.reason` is `'error'` |
+| Cumulative cache reads | summed from `turn.complete`'s usage, once per turn, and sent as a total — the binary cannot total it, since every refresh re-sends the same last-turn usage. Kept across compaction, as the transcript path keeps it |
 | MCP count, instruction counts | `$.tool.list()` and `classic.InstructionsLoaded` — what actually loaded, not what exists on disk |
 
 None of it is read from the transcript: on this path the binary uses
@@ -235,7 +236,7 @@ hook draws.
 
 | Missing | Why |
 | --- | --- |
-| tok/s, cache trend | the token breakdown arrives per turn, not per API call, and the per-call dedup the Rust side does needs the transcript |
+| tok/s, and the cache trend's *sparkline* | the token breakdown arrives once per turn, not per API call, so there is nothing to plot a per-call hit rate from — the dedup by `message.id` that the transcript path does needs the transcript. The CACHE row's cumulative total is **not** missing: the mod sums it per turn and sends `activity.cache_read_total` |
 | Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which this mod does not touch; it is tracked as separate work |
 
@@ -264,7 +265,7 @@ mod/
 ├── hooks/throttle.ts            the refresh gate, pure
 ├── types/index.d.ts             the `$.state` contract
 ├── tests/harness.ts             shared bottom, and the kit's sharp edges
-├── tests/*.test.ts(x)           88 tests
+├── tests/*.test.ts(x)           90 tests
 └── tsconfig.json
 ```
 

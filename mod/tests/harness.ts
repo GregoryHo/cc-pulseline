@@ -94,6 +94,7 @@ export type PayloadShape = {
     }[]
     compact_count?: number
     last_api_error_ms?: number
+    cache_read_total?: number
     todo?: {
       text?: string
       pending?: number
@@ -180,6 +181,8 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('classic.SubagentStart', () => ({}))
   on('classic.SubagentStop', () => ({}))
   on('classic.PreCompact', () => ({}))
+  // A turn's own bottom. Its result is `{ text, usage? }`, not `{ value }`.
+  on('turn.complete', () => ({ text: '' }))
   on('session.usage', () => ({
     value: {
       startedAt: 1_699_000_000_000,

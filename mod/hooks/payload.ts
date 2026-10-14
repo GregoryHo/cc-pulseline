@@ -49,6 +49,7 @@ export type PayloadSnapshot = {
   effort: string | null
   outputStyle: string | null
   lastApiErrorMs: number | null
+  cacheReadTotal: number
   tokens: Tokens | null
 
   /**
@@ -160,6 +161,10 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
       })),
       compact_count: snapshot.compactCount,
       last_api_error_ms: snapshot.lastApiErrorMs ?? undefined,
+      // Already totalled, because only this side can total it. Left out
+      // while nothing has been read, so the binary keeps its own figure
+      // rather than being told the session read zero.
+      cache_read_total: snapshot.cacheReadTotal > 0 ? snapshot.cacheReadTotal : undefined,
       todo: snapshot.todo,
     },
   })

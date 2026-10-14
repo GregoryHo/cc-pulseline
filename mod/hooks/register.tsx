@@ -83,6 +83,7 @@ const sessionFacts = atom({ plugin: 'pulseline-mod', key: 'session' } as const, 
   compactCount: 0,
   outputStyle: null,
   lastApiErrorMs: null,
+  cacheReadTotal: 0,
 })
 
 const toolTotals = atom({ plugin: 'pulseline-mod', key: 'tools' } as const, {
@@ -506,6 +507,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     effort: facts.effort,
     outputStyle: facts.outputStyle,
     lastApiErrorMs: facts.lastApiErrorMs,
+    cacheReadTotal: facts.cacheReadTotal ?? 0,
     tokens: facts.tokens,
     mcpCount: state.mcpServers.size,
     claudeMdCount: loaded.claudeMd.length,
@@ -816,6 +818,11 @@ export const register: Register = (on, options) => {
             }
           : facts.tokens,
         lastApiErrorMs: erroredAt ?? facts.lastApiErrorMs,
+        // Summed here, once per turn, because this is the only place that
+        // sees each turn's usage exactly once. `?? 0` because a session
+        // whose atom the host wrote before this field existed has none.
+        cacheReadTotal:
+          (facts.cacheReadTotal ?? 0) + (usage ? usage.cache_read_input_tokens : 0),
       }))
     }
     await refresh($, state)
