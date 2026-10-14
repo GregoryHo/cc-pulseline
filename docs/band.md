@@ -211,6 +211,27 @@ and writes no line into their transcript, so `$.ui.status` and `$.ui.log` are
 behind the module's `DEBUG` constant and off. A failure has one channel — the
 band's own note, drawn in place of the rows it could not get.
 
+`session.start` also clears the entry rather than merely declining to set
+one. A status entry belongs to the session, not to the load that pinned it:
+a version that used to pin one would otherwise leave it beside the prompt for
+the rest of that session, through every reload, because the module that would
+have replaced it no longer says anything.
+
+## When the note says "binary: not run yet"
+
+That string is the output atom's initial value, so it means no refresh has
+published yet in this session — not that the ladder failed, which says
+`cc-pulseline not found` or names the version it found. A refresh runs on
+`session.start`, on both ends of every tool call, on a subagent starting or
+stopping, at the end of a turn, on a settings change, and whenever the person
+opens the pane or presses a layout key. The first of those is immediate: a
+version probe and a render both measure about 10ms here, so the band is drawn
+from real rows within a moment of the session opening.
+
+So a band still showing it has not had `session.start` complete — most often
+a module that was loaded but whose `session.start` has not run yet, or a
+reload mid-turn. `claude --debug` carries the per-hook lines that say which.
+
 The band's ANSI is parsed into `Text` props by `spansOf` rather than passed
 through, because the band refuses a whole tree if any text child holds a
 control character. What it does **not** restrict is which characters you

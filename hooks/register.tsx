@@ -1098,7 +1098,14 @@ export const register: Register = (on, options) => {
     // Scaffolding. `$.ui.status` pins an entry beside the prompt and
     // `$.ui.log` writes a transcript line, and a plugin a person installs
     // should say neither: what the band cannot draw, the band itself says.
+    //
+    // Cleared rather than merely not set. A status entry belongs to the
+    // session, not to the load that pinned it, so a version that used to pin
+    // one leaves it beside the prompt for the rest of that session — through
+    // every reload, because the module that would have replaced it no longer
+    // says anything. `undefined` is what takes it down.
     if (DEBUG) $.ui.status('alive')
+    else $.ui.status(undefined)
     await probeVersion($)
     try {
       await $.command.register({
