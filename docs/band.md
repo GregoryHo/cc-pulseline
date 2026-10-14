@@ -196,13 +196,22 @@ exception is a band with no rows at all: a missing or too-old binary can only
 say so there, and an install line nobody sees fixes nothing, so that note is
 drawn whether or not a turn is running.
 
-This is a smaller promise than the design intended. The plan had the band
-drawing *activity only* — tools, agents, todo — against the statusline's
-steady-state summary. Nothing enforces that: the band's argv carries
-`--rows` and `--columns` and no `--layout`, and every layout the binary has
-leads with identity and budget, so there is no activity-only rendering to
-ask for. Until one exists, yielding when idle is what keeps the two canvases
-from being the same canvas.
+**This is a stopgap, and a small one.** The plan had the band drawing
+*activity only* — tools, agents, todo — against the statusline's steady-state
+summary. Nothing enforces that: the band's argv carries `--rows` and
+`--columns` and no `--layout`, and every layout the binary has leads with
+identity and budget, so there is no activity-only rendering to ask for.
+
+Yielding when idle therefore does **not** remove the duplication. While a
+turn runs the band still draws the identity and budget rows the statusline is
+drawing at the same moment, and still says nothing about the tool in flight —
+which is the one thing it exists for. What the gate removes is the *permanent*
+copy: the band no longer holds a second statusline on screen when nothing is
+happening. The duplication now blinks in and out instead of sitting there.
+
+The fix is a rendering mode that emits the activity rows alone, which the band
+would ask for by name. That touches `src/render/`, which this work has not
+gone near, and is tracked as its own piece.
 
 ## What it does not say
 
