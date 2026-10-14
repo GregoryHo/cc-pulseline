@@ -241,6 +241,52 @@ pub struct SessionState {
     pub last_api_error_ms: Option<u64>,
 }
 
+/// Ranks completed tool counts by count plus a recency bonus that decays over
+/// two minutes, then keeps the first `max`.
+///
+/// Both collectors rank with this, so the band and the statusline choose the
+/// same tools. The transcript path builds the list from its own per-tool map;
+/// the payload path is handed one by the mod, whose `last_completed_at` is
+/// `$.clock.now()` — the same epoch milliseconds `now_epoch_ms` reads. A
+/// count with no stamp scores on its count alone, which is what an older mod
+/// that does not send one gets.
+///
+/// Without this on the payload path the renderer's `take(max_completed_tools)`
+/// cut a list in first-seen order, and `max_completed_tools` is 4 by default:
+/// the four tool kinds a session happened to use first hid every one it went
+/// on to use, for the rest of the session.
+pub fn rank_completed_tools(tools: Vec<CompletedToolCount>, max: usize) -> Vec<CompletedToolCount> {
+    const RECENCY_WEIGHT: f64 = 3.0;
+    const DECAY_WINDOW_MS: u64 = 120_000; // 2 minutes
+
+    let now = cache::now_epoch_ms();
+    let mut scored: Vec<(CompletedToolCount, f64)> = tools
+        .into_iter()
+        .map(|tool| {
+            let recency = tool
+                .last_completed_at
+                .map(|last_at| {
+                    let age_ms = now.saturating_sub(last_at);
+                    if age_ms < DECAY_WINDOW_MS {
+                        RECENCY_WEIGHT * (1.0 - age_ms as f64 / DECAY_WINDOW_MS as f64)
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0);
+            let score = tool.count as f64 + recency;
+            (tool, score)
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.name.cmp(&b.0.name))
+    });
+    scored.truncate(max);
+    scored.into_iter().map(|(tool, _)| tool).collect()
+}
+
 impl SessionState {
     pub fn reset_transcript_if_path_changed(&mut self, transcript_path: &str) {
         if self.last_transcript_path.as_deref() != Some(transcript_path) {
@@ -412,40 +458,18 @@ impl SessionState {
     /// Hybrid scoring: count + recency bonus (decays over 2 minutes).
     /// Recently used tools float up even with low counts.
     pub fn scored_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
-        const RECENCY_WEIGHT: f64 = 3.0;
-        const DECAY_WINDOW_MS: u64 = 120_000; // 2 minutes
-
-        let now = cache::now_epoch_ms();
-        let mut scored: Vec<(CompletedToolCount, f64)> = self
-            .completed_tool_counts
-            .iter()
-            .map(|(name, (count, last_at))| {
-                let age_ms = now.saturating_sub(*last_at);
-                let recency = if age_ms < DECAY_WINDOW_MS {
-                    RECENCY_WEIGHT * (1.0 - age_ms as f64 / DECAY_WINDOW_MS as f64)
-                } else {
-                    0.0
-                };
-                let score = *count as f64 + recency;
-                let failed = self.completed_tool_failures.get(name).copied().unwrap_or(0);
-                (
-                    CompletedToolCount {
-                        name: name.clone(),
-                        count: *count,
-                        last_completed_at: Some(*last_at),
-                        failed,
-                    },
-                    score,
-                )
-            })
-            .collect();
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0.name.cmp(&b.0.name))
-        });
-        scored.truncate(max);
-        scored.into_iter().map(|(tool, _)| tool).collect()
+        rank_completed_tools(
+            self.completed_tool_counts
+                .iter()
+                .map(|(name, (count, last_at))| CompletedToolCount {
+                    name: name.clone(),
+                    count: *count,
+                    last_completed_at: Some(*last_at),
+                    failed: self.completed_tool_failures.get(name).copied().unwrap_or(0),
+                })
+                .collect(),
+            max,
+        )
     }
 
     /// Uncapped session total of completed tool invocations across ALL tool

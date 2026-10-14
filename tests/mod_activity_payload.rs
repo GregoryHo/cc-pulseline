@@ -643,3 +643,81 @@ fn a_fractional_env_count_rounds_instead_of_failing() {
         "2.6 MCP servers round to 3: {joined}"
     );
 }
+
+/// The band shows at most `max_completed_tools` tool kinds — four by default —
+/// and the mod sends them in the order it first saw each one. Passed through,
+/// the renderer's `take` kept the four a session happened to open with and hid
+/// every tool it went on to lean on, for the rest of the session.
+#[test]
+fn the_completed_tools_kept_are_the_most_used_not_the_first_seen() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // First-seen order, each used once, and then the workhorses last.
+    payload["activity"] = json!({
+        "completed_counts": [
+            {"name": "Glob", "count": 1},
+            {"name": "Write", "count": 1},
+            {"name": "WebFetch", "count": 1},
+            {"name": "TodoWrite", "count": 1},
+            {"name": "Read", "count": 40},
+            {"name": "Bash", "count": 30},
+            {"name": "Edit", "count": 20},
+            {"name": "Grep", "count": 10}
+        ],
+        "completed_total": 103
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("the payload renders");
+    let joined = lines.join("\n");
+
+    for kept in ["Read", "Bash", "Edit", "Grep"] {
+        assert!(
+            joined.contains(kept),
+            "{kept} is one of the four most used: {joined}"
+        );
+    }
+    for dropped in ["Glob", "Write", "WebFetch"] {
+        assert!(
+            !joined.contains(dropped),
+            "{dropped} was used once and must not hold a place: {joined}"
+        );
+    }
+}
+
+/// A tool used once a moment ago outranks one used more but long ago, which is
+/// the recency half of the score the statusline path has always applied.
+#[test]
+fn a_tool_completed_just_now_outranks_a_stale_busier_one() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_millis() as u64;
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [
+            {"name": "Stale", "count": 3, "last_completed_at": now - 600_000},
+            {"name": "Fresh", "count": 1, "last_completed_at": now}
+        ],
+        "completed_total": 4
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(
+            &payload.to_string(),
+            RenderConfig {
+                max_completed_tools: 1,
+                ..config()
+            },
+        )
+        .expect("the payload renders");
+    let joined = lines.join("\n");
+
+    assert!(joined.contains("Fresh"), "the recent one is kept: {joined}");
+    assert!(
+        !joined.contains("Stale"),
+        "the stale one is dropped: {joined}"
+    );
+}

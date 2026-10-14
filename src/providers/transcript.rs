@@ -212,7 +212,7 @@ impl TranscriptCollector for PayloadActivityCollector {
         &self,
         payload: &StdinPayload,
         _state: &mut SessionState,
-        _config: &RenderConfig,
+        config: &RenderConfig,
     ) -> TranscriptSnapshot {
         let Some(activity) = payload.activity.as_ref() else {
             return TranscriptSnapshot::default();
@@ -220,7 +220,14 @@ impl TranscriptCollector for PayloadActivityCollector {
 
         TranscriptSnapshot {
             tools: activity.tools.clone(),
-            completed_counts: activity.completed_counts.clone(),
+            // Ranked and capped the way the transcript path's own list is,
+            // rather than passed through: the renderer takes the first
+            // `max_completed_tools` of whatever it is given, and the mod sends
+            // them in the order it first saw each tool.
+            completed_counts: crate::state::rank_completed_tools(
+                activity.completed_counts.clone(),
+                config.max_completed_tools,
+            ),
             completed_total: activity.completed_total,
             failed_total: activity.failed_total,
             agents: activity.agents.clone(),
