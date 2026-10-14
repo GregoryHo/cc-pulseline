@@ -187,6 +187,30 @@ fn a_fractional_context_percentage_rounds_instead_of_failing() {
 }
 
 #[test]
+fn a_fractional_token_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // Every producer today increments an integer, so a float here is
+    // defensive — but one unreadable figure must cost its own cell, not the
+    // whole payload, exactly as for `used_percentage`.
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "used_percentage": 43,
+        "current_usage": {"input_tokens": 10.6, "output_tokens": 20}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional token count must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("I:11"),
+        "10.6 input tokens round to 11: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn a_context_window_without_a_percentage_still_renders() {
     let workspace = TempDir::new().expect("temp workspace");
     let mut payload = base_payload(&workspace);

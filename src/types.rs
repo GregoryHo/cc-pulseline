@@ -100,7 +100,7 @@ pub struct ActivityPayload {
     pub todo: Option<TodoSummary>,
     #[serde(default)]
     pub compact_count: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub last_api_error_ms: Option<u64>,
 }
 
@@ -175,6 +175,7 @@ pub struct WorkspaceInfo {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ContextWindow {
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub context_window_size: Option<u64>,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub used_percentage: Option<u64>,
@@ -183,9 +184,13 @@ pub struct ContextWindow {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct CurrentUsage {
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub input_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub output_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub cache_read_input_tokens: Option<u64>,
 }
 
@@ -399,8 +404,10 @@ pub struct AgentSummary {
     pub id: String,
     pub description: String,
     pub agent_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub started_at: Option<u64>,
     pub model: Option<String>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub completed_at: Option<u64>,
     /// Anthropic API message ID of the assistant turn that spawned this
     /// agent. Agents sharing this ID belong to one parallel batch (filled
@@ -479,7 +486,7 @@ impl QuotaMetrics {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoInProgressItem {
     pub text: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub started_at: Option<u64>,
 }
 
