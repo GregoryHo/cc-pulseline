@@ -103,6 +103,19 @@ describe('tool calls', () => {
     expect(payload.activity?.failed_total).toBe(1)
   })
 
+  test('a denied call is counted as failed, not as done', async ($, on) => {
+    // A deny is its own `ToolCallResult` variant and carries no `isError`, so
+    // reading that field alone put a refused call in the session totals as a
+    // clean completion.
+    const seen = bottom(on, { toolResult: { deny: 'not in this directory' } })
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'd1', command: 'rm -rf /' })
+    await seen.settle()
+
+    const activity = seen.lastPayload().activity
+    expect(activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1 }])
+    expect(activity?.failed_total).toBe(1)
+  })
+
   test('counts add up over many calls, per tool and in total', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call(call('r1'))
@@ -187,6 +200,21 @@ describe('TodoWrite', () => {
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 't6',
+      todos: [{ content: 'Never happened', activeForm: 'Never happening', status: 'in_progress' }],
+    })
+    await seen.settle()
+
+    expect(seen.lastPayload().activity?.todo).toBeNull()
+  })
+
+  test('a denied TodoWrite is not drawn as the current list', async ($, on) => {
+    // The sibling case above refuses with `isError`; this one refuses the way
+    // a permission check or another plugin does, which carries no `isError`
+    // at all and used to reach the todo row as though it had been applied.
+    const seen = bottom(on, { toolResult: { deny: 'the list is not yours' } })
+    await $.tool.call({
+      tool: 'TodoWrite',
+      tool_use_id: 'd2',
       todos: [{ content: 'Never happened', activeForm: 'Never happening', status: 'in_progress' }],
     })
     await seen.settle()

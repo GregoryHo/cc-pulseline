@@ -702,6 +702,31 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
 }
 
 /**
+ * Puts the session's own project root in the atom, and forgets a binary that
+ * was found under the old one.
+ *
+ * `session.start`'s `e.cwd` is where the session began, not where it is.
+ * `$.session.root()` is the one that moves: its contract names `/cd`, a
+ * host's directory change and a worktree move, and says nested instruction
+ * files are read only beneath it — which is exactly what the binary scans
+ * for the config row, and what its git shell-out runs in. Held from the
+ * start, every later payload described the directory the person left.
+ *
+ * Read before the ladder rather than inside `collect`, which runs after it:
+ * the dev rung is `<root>/target/release/cc-pulseline`, so a choice made
+ * under the old root points into the old checkout.
+ */
+async function syncRoot(engine: EngineInterface): Promise<void> {
+  const root = await engine.session.root()
+  const facts = await read(engine, sessionFacts)
+  if (facts.cwd === root) return
+  await update(engine, sessionFacts, held => ({ ...held, cwd: root }))
+  // Dropped rather than re-walked here: the ladder does that once, on the
+  // root just written.
+  await update(engine, binaryChoice, () => null)
+}
+
+/**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
  * Declared at the top of the file on purpose: the loader only lets `$` be
@@ -723,6 +748,15 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // The change runs inside the transaction and on each retry, so this is the
     // one that decides. Returning the value unchanged is the no-op.
     await update(engine, drawnOutput, out => (seq === state.runSeq ? change(out) : out))
+  }
+
+  // Before the ladder, because the dev rung is built from the root.
+  try {
+    await syncRoot(engine)
+  } catch {
+    // Not worth blanking the band for: the root already held is the one the
+    // session started in, and `collect` below reports an engine refusing
+    // calls through `stale`.
   }
 
   // Nothing to run means nothing to draw but the reason. The band shows
@@ -909,6 +943,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    // The seed, not the source: `syncRoot` reads the root before every ladder
+    // walk, and this is the value it falls back to if that read is refused.
     const cwd = e.cwd
     await update($, sessionFacts, facts => ({ ...facts, cwd }))
     $.ui.status('alive')
@@ -970,7 +1006,13 @@ export const register: Register = (on, options) => {
     let failed = false
     try {
       const result = await next(e)
-      failed = result.isError === true
+      // A deny is its own variant of `ToolCallResult`, and it sets
+      // `isError?: undefined` — so `isError` alone read a refused call as a
+      // clean completion: it went into the session totals as done, and a
+      // denied `TodoWrite` was applied as the current list by the `!failed`
+      // branch below. The model reads a deny as an error result, and the
+      // transcript path counts it as one, so the two paths agree here.
+      failed = result.isError === true || result.deny !== undefined
       // The Task API's bookkeeping waits for the result, where a tool's own
       // mark cannot. `TaskCreate` answers with the id the engine assigned
       // (`{ task: { id } }`) and that is the id a later `TaskUpdate` names, so

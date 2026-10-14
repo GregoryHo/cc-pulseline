@@ -52,7 +52,7 @@ Five rungs, in order, the first one that answers and is new enough winning:
 | 2 | `<plugin>/bin/cc-pulseline` | reserved for a bundling decision not yet taken; expected to miss |
 | 3 | `~/.claude/pulseline/cc-pulseline` | where `scripts/install.sh` puts it on its download path |
 | 4 | `cc-pulseline` on `PATH` | the npm package, or `cargo install` |
-| 5 | `<cwd>/target/release/cc-pulseline` | **the dev rung** — this repository's own build |
+| 5 | `<root>/target/release/cc-pulseline` | **the dev rung** — this repository's own build. `<root>` is `$.session.root()`, read before every walk, so `/cd` or a worktree move finds the new checkout's build |
 
 Rung 5 is what makes this repository's own session work, and it is not
 redundant with rung 4. Developing means building and wanting the band to

@@ -55,6 +55,8 @@ export type Recorder = {
   advance: (ms: number) => Promise<void>
   /** Lets work the mod started unawaited run to its end, the clock where it is. */
   settle: () => Promise<void>
+  /** Moves the session's project root, as `/cd` or a worktree move would. */
+  moveRoot: (to: string) => void
 }
 
 /**
@@ -133,6 +135,8 @@ export type BottomOptions = {
   usage?: UsageOptions
   model?: string
   sessionId?: string
+  /** The directory the session's project root starts in. */
+  root?: string
   /** Where the clock starts. */
   startMs?: number
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
@@ -142,7 +146,9 @@ export type BottomOptions = {
    * a test that wants a failing tool asks for it here rather than
    * registering `tool.call` a second time of its own.
    */
-  toolResult?: { result?: unknown; isError?: true; isReadOnly?: true }
+  toolResult?:
+    | { result?: unknown; isError?: true; isReadOnly?: true }
+    | { deny: string }
   /**
    * What a probed candidate answers `--version` with.
    *
@@ -220,6 +226,10 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     },
   }))
   on('session.model', () => ({ value: options.model ?? 'claude-opus-5[1m]' }))
+  // The project root the mod reads before every ladder walk. Mutable, so a
+  // case can move it the way `/cd` does.
+  let root = options.root ?? '/work'
+  on('session.root', () => ({ value: root }))
   on('session.id', () => ({ value: options.sessionId ?? 'session-under-test' }))
   on('agent.list', () => ({ value: options.agents ?? [] }))
   on('tool.list', () => ({ value: options.tools ?? [] }))
@@ -315,6 +325,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
         'for the pane',
       ),
     advance: ms => clock.advance(ms),
+    moveRoot: to => {
+      root = to
+    },
     settle: () => clock.settle(),
   }
 }

@@ -88,13 +88,15 @@ export type Tasks = {
 /**
  * Facts about the session the hooks resolve as the engine reports them.
  *
- * `cwd` is here because it is the session's, not because a reload would
- * otherwise lose it: `session.start` fires once per process per plugin and
- * "then once per fresh load of one", a reload included, so it is set again
- * on the way back. It is held anyway, so that the window between `register`
- * running and that event arriving draws the project it already knew rather
- * than an empty path — a payload with no `cwd` resolves to an unknown
- * project, and the binary then has no env, no git and no project config.
+ * `cwd` holds the session's project root, which `$.session.root()` answers
+ * before every ladder walk: it moves under the mod — `/cd`, a host's
+ * directory change, a worktree move — and it is both what the binary scans
+ * for the config row and where its git shell-out runs, so a held one reports
+ * the project the person left. `session.start`'s `e.cwd` still seeds it, as
+ * the value the read falls back to: the window between `register` running
+ * and that event arriving draws the project it already knew rather than an
+ * empty path, and a payload with no `cwd` resolves to an unknown project
+ * where the binary has no env, no git and no project config.
  */
 export type SessionFacts = {
   cwd: string
