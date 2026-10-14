@@ -105,11 +105,17 @@ export function modelName(id: string): string {
 export function buildPayload(snapshot: PayloadSnapshot): string {
   const { usage, now } = snapshot
 
-  const limits: Record<string, { used_percentage: number; resets_at: number }> = {}
+  const limits: Record<string, { used_percentage: number; resets_at?: number }> = {}
   for (const limit of usage.rateLimits) {
+    // Left out when the engine named no reset, and when it named one that
+    // does not parse. `resets_at: 0` is not "unknown" to the binary — it is
+    // the epoch, and the quota cell then reads `resets <1m` on every refresh
+    // for the rest of the session. An absent key is `None` there, which draws
+    // the percentage and no reset at all.
+    const resetsAt = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt) / 1000
     limits[limit.kind] = {
       used_percentage: limit.percentUsed,
-      resets_at: limit.resetsAt ? Math.floor(Date.parse(limit.resetsAt) / 1000) : 0,
+      ...(Number.isFinite(resetsAt) ? { resets_at: Math.floor(resetsAt) } : {}),
     }
   }
 

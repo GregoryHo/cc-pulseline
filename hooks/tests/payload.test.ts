@@ -110,8 +110,12 @@ describe('buildPayload', () => {
     })
     expect(payload.rate_limits?.five_hour?.used_percentage).toBe(33)
     expect(payload.rate_limits?.five_hour?.resets_at).toBe(1_789_992_000)
-    // No reset time is 0 rather than absent, which is what the binary reads.
-    expect(payload.rate_limits?.seven_day?.resets_at).toBe(0)
+    // Absent, not 0. This case used to assert 0 and call it "what the binary
+    // reads", which was the bug: 0 is the epoch there, so the quota cell drew
+    // `resets <1m` for the rest of the session. Verified against the binary
+    // in both directions.
+    expect(payload.rate_limits?.seven_day?.used_percentage).toBe(71)
+    expect(payload.rate_limits?.seven_day).not.toHaveProperty('resets_at')
   })
 
   test('an env count of zero is left out, so the binary keeps its own scan', () => {
