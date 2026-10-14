@@ -497,7 +497,8 @@ async function probeVersion(engine: EngineInterface): Promise<void> {
  *
  * It also stamps `lastRunMs` first thing, before anything is awaited on the
  * engine: the stamp used to come after all six, so two callers could both
- * clear `maybeRefresh`'s gate and spawn the binary twice.
+ * clear the refresh gate and spawn the binary twice. Only
+ * `classic.ConfigChange` is still gated, and that is the stamp it reads.
  */
 async function collect(engine: EngineInterface, state: State): Promise<Collected> {
   const now = await engine.clock.now()
@@ -647,7 +648,12 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const seq = (state.runSeq += 1)
   const publish = async (change: (out: DrawnOutput) => DrawnOutput): Promise<void> => {
     if (seq !== state.runSeq) return
-    await update(engine, drawnOutput, change)
+    // Checked again *inside* the change, because `update` is a read-apply-write
+    // with retries: it yields, and a newer refresh can claim the number and
+    // publish in that window, which the outer check above has already passed.
+    // The change runs inside the transaction and on each retry, so this is the
+    // one that decides. Returning the value unchanged is the no-op.
+    await update(engine, drawnOutput, out => (seq === state.runSeq ? change(out) : out))
   }
 
   // Nothing to run means nothing to draw but the reason. The band shows
@@ -997,6 +1003,12 @@ export const register: Register = (on, options) => {
         finishedAt,
       }
     })
+    // Ungated, for the reason the tool path is. The `Agent` call's own
+    // pre-call refresh ran before the agent existed for `$.agent.list()`, and
+    // this event lands milliseconds later with the window shut — so a gated
+    // refresh here is dropped, and the next one is the call's completion. A
+    // subagent that ran for minutes was drawn only once it had finished.
+    await refresh($, state)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1007,7 +1019,10 @@ export const register: Register = (on, options) => {
       ...timings,
       finishedAt: { ...timings.finishedAt, [id]: now },
     }))
-    await maybeRefresh($, state, 400)
+    // Ungated for the matching reason: a gated stop leaves a finished agent
+    // drawn as running. Agents start and stop a handful of times a session,
+    // so neither end is a burst to bound.
+    await refresh($, state)
     return next(e)
   }).catch(($, e, next) => next(e))
 

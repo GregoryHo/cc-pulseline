@@ -11,8 +11,9 @@ import { bottom } from './harness'
  *
  * Every case ends by driving a refresh — a `tool.call` where the event under
  * test does not refresh by itself — because the payload is only built when
- * the mod spawns the binary. `bottom`'s clock moves 1000ms per read, which
- * keeps `maybeRefresh`'s 400ms gate open.
+ * the mod spawns the binary. Most events refresh unconditionally now; only
+ * `classic.ConfigChange` is still gated, and `bottom`'s clock moves 1000ms
+ * per read, which keeps that gate open.
  */
 
 /** A tool call with no arguments worth showing. */
@@ -405,6 +406,22 @@ describe('classic events', () => {
     // the CLAUDE.md count showed one file twice.
     expect(env?.claude_md_count).toBe(1)
     expect(env?.agents_md_count).toBe(1)
+  })
+
+  test('a subagent is drawn while it runs, not only once it has stopped', async ($, on) => {
+    // A frozen clock, because the gate is what used to swallow this: the
+    // `Agent` call's own refresh ran a moment earlier, before the agent
+    // existed for `agent.list()`.
+    const seen = bottom(on, {
+      tick: 0,
+      agents: [
+        { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' },
+      ],
+    })
+    await $.classic.SubagentStart({ agent_id: 'a1', agent_type: 'Explore' })
+
+    const drawn = seen.payloads().flatMap(payload => payload.activity?.agents ?? [])
+    expect(drawn.some(agent => agent.id === 'a1' && agent.completed_at === null)).toBe(true)
   })
 
   test('a completed agent keeps the stop time it was first given', async ($, on) => {
