@@ -1,10 +1,19 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, Register, SessionUsage } from 'claude-code'
+import type { AgentInfo, EngineInterface, PluginOptions, Register, SessionUsage } from 'claude-code'
 
+import {
+  PROBE_TIMEOUT_MS,
+  candidates,
+  formatVersion,
+  isNewEnough,
+  missingMessage,
+  parseVersion,
+  tooOldMessage,
+} from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
-import type { Span, SpanStyle, Todo } from '../types'
+import type { BinaryChoice, Span, SpanStyle, Todo } from '../types'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -54,8 +63,6 @@ const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
 
 /** Button key prefix, so a press can name the layout it asks for. */
 const LAYOUT_KEY = 'layout:'
-
-const BINARY = '/Users/gregho/GitHub/AI/cc-pulseline/target/release/cc-pulseline'
 
 /** Set true to draw the band/run diagnostics above the statusline rows. */
 const DEBUG = false
@@ -111,6 +118,14 @@ const paneWanted = atom({ plugin: 'pulseline-mod', key: 'pane' } as const, {
  * that reads this subscribes its drawing, so writing it here draws the band
  * again with nobody calling `$.ui.invalidate`.
  */
+/**
+ * Which binary was resolved, `null` until the ladder has been walked.
+ *
+ * Cleared on `classic.ConfigChange`, so configuring the path or installing
+ * the binary mid-session takes effect without restarting.
+ */
+const binaryChoice = atom({ plugin: 'pulseline-mod', key: 'binary' } as const, null)
+
 const drawnOutput = atom({ plugin: 'pulseline-mod', key: 'output' } as const, {
   rows: [],
   paneRows: [],
@@ -220,6 +235,12 @@ type State = {
   mcpServers: Set<string>
   /** The last reading that came back whole, drawn again when one fails. */
   lastCollected: Collected | null
+  /**
+   * The manifest's `userConfig` values, as `register`'s second parameter
+   * handed them over. Fixed for this activation: a change to them reloads
+   * the module, so a closure is the right place for them.
+   */
+  options: PluginOptions
 }
 
 /**
@@ -335,12 +356,101 @@ async function collect(engine: EngineInterface, state: State): Promise<Collected
 }
 
 /**
+ * Walks the ladder until something answers `--version` and is new enough.
+ *
+ * Each rung is probed by running it, never by `$.fs.stat`: on a machine
+ * that has used the statusline, `~/.claude/pulseline/` exists and holds
+ * `config.toml` and no binary, and a stat of that directory answers yes.
+ * Running the candidate tells a binary from a folder and checks the version
+ * in the same call.
+ *
+ * `stdin: ''` is passed on purpose. `ProcessRunInit.stdin` is documented as
+ * "written to the child's standard input, then closed"; what an *absent*
+ * `stdin` does is not stated for `$.process.run` (its sibling
+ * `ProcessSpawnRequest.input` does say "absent, standard input is closed
+ * from the start", but `run` does not repeat it). Passing the empty string
+ * puts it on the documented path, so a same-named executable on PATH that
+ * reads standard input cannot sit there until the timeout. The timeout is
+ * the second guard, at 400ms a rung.
+ *
+ * The answer is cached in `$.state`, so this runs once a session rather
+ * than once a refresh.
+ */
+async function resolveBinary(engine: EngineInterface, state: State): Promise<BinaryChoice> {
+  const held = await read(engine, binaryChoice)
+  if (held !== null) return held
+
+  const configured = state.options.binaryPath
+  const home = (await engine.env.get('HOME')) ?? (await engine.env.get('USERPROFILE')) ?? ''
+  const facts = await read(engine, sessionFacts)
+
+  const ladder = candidates({
+    configured: typeof configured === 'string' ? configured : '',
+    pluginRoot: engine.plugin.root,
+    home,
+    cwd: facts.cwd,
+  })
+
+  // The best thing that answered but was too old, so the note can name a
+  // version rather than claiming nothing is installed.
+  let outdated: { path: string; version: string; rung: string } | null = null
+
+  for (const candidate of ladder) {
+    try {
+      const run = await engine.process.run([candidate.path, '--version'], {
+        stdin: '',
+        timeoutMs: PROBE_TIMEOUT_MS,
+      })
+      if (run.exitCode !== 0) continue
+      const version = parseVersion(run.stdout)
+      if (version === null) continue
+      if (isNewEnough(version)) {
+        const choice: BinaryChoice = {
+          kind: 'ok',
+          path: candidate.path,
+          version: formatVersion(version),
+          rung: candidate.rung,
+        }
+        await update(engine, binaryChoice, () => choice)
+        return choice
+      }
+      outdated ??= {
+        path: candidate.path,
+        version: formatVersion(version),
+        rung: candidate.rung,
+      }
+    } catch {
+      // Not there, not runnable, or it outran the probe. Next rung.
+    }
+  }
+
+  const choice: BinaryChoice =
+    outdated === null ? { kind: 'missing' } : { kind: 'too-old', ...outdated }
+  await update(engine, binaryChoice, () => choice)
+  return choice
+}
+
+/**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
  * Declared at the top of the file on purpose: the loader only lets `$` be
  * passed to a function declared here, never to a closure inside `register`.
  */
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
+  // Nothing to run means nothing to draw but the reason. The band shows
+  // `runNote` whenever there are no rows, so this is what reaches it.
+  const binary = await resolveBinary(engine, state)
+  if (binary.kind !== 'ok') {
+    const note = binary.kind === 'missing' ? missingMessage() : tooOldMessage(binary.version)
+    await update(engine, drawnOutput, out => ({
+      ...out,
+      rows: [],
+      paneRows: [],
+      runNote: note,
+    }))
+    return
+  }
+
   let collected: Collected
   let stale: string | null = null
   try {
@@ -414,7 +524,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 
   try {
     const argv = [
-      BINARY,
+      binary.path,
       '--rows',
       String(state.bandRows),
       '--columns',
@@ -445,7 +555,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // cannot serve a 1-row band and a 12-row pane.
     try {
       const paneArgv = [
-        BINARY,
+        binary.path,
         '--rows',
         String(state.paneHeight),
         '--columns',
@@ -502,6 +612,7 @@ export const register: Register = (on, options) => {
     paneCols: 120,
     mcpServers: new Set(),
     lastCollected: null,
+    options,
   }
 
   on('session.start', async ($, e, next) => {
@@ -619,6 +730,10 @@ export const register: Register = (on, options) => {
   // settings write can raise a burst of these.
   on('classic.ConfigChange', async ($, e, next) => {
     const result = await next(e)
+    // Forget which binary was resolved: a settings write is how the path
+    // gets configured, and a binary installed since can now be found. The
+    // next refresh walks the ladder again.
+    await update($, binaryChoice, () => null)
     await maybeRefresh($, state, 400)
     return result
   }).catch(($, e, next) => next(e))
