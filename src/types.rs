@@ -344,9 +344,14 @@ impl Line3Metrics {
     }
 }
 
+/// A tool currently in flight. The scalars carry `#[serde(default)]` because
+/// a mod assembles this in TypeScript, where one absent key would otherwise
+/// reject the whole payload and blank every statusline row.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolSummary {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     pub target: Option<String>,
 }
@@ -354,6 +359,8 @@ pub struct ToolSummary {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompletedToolCount {
     pub name: String,
+    /// Defaulted so a mod omitting the key costs this cell, not the payload.
+    #[serde(default)]
     pub count: u32,
     #[serde(default)]
     pub last_completed_at: Option<u64>,
@@ -479,8 +486,13 @@ pub struct TodoInProgressItem {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TodoSummary {
     pub text: String,
+    /// The three counts default for the same reason as `ToolSummary`'s
+    /// scalars: a missing key must cost one cell, never the whole payload.
+    #[serde(default)]
     pub pending: usize,
+    #[serde(default)]
     pub completed: usize,
+    #[serde(default)]
     pub total: usize,
     #[serde(default)]
     pub in_progress_items: Vec<TodoInProgressItem>,
