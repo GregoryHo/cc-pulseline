@@ -1,5 +1,29 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Deserializes a JSON number into `Option<u64>`, rounding a float.
+///
+/// Claude Code's own statusline payload sends whole percentages, but the
+/// function-hooks path assembles the payload in TypeScript, where the same
+/// figure can arrive as `43.0` or `43.2`. A plain `Option<u64>` rejects those,
+/// and serde rejects the *whole* payload on one bad field — which blanks the
+/// statusline entirely. Rounding is the graceful read.
+///
+/// A value that is not a number becomes `None` rather than an error, for the
+/// same reason: the payload contract is "a missing field falls back, never
+/// panics", and one unreadable figure should cost its own cell, not every row.
+fn lenient_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .or_else(|| number.as_f64().map(|float| float.max(0.0).round() as u64)),
+        _ => None,
+    }))
+}
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct StdinPayload {
@@ -152,6 +176,7 @@ pub struct WorkspaceInfo {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ContextWindow {
     pub context_window_size: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub used_percentage: Option<u64>,
     pub current_usage: Option<CurrentUsage>,
 }

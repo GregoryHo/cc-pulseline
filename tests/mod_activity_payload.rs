@@ -163,3 +163,38 @@ fn env_counts_from_the_payload_override_the_scan() {
         "the payload's MCP count is rendered: {joined}"
     );
 }
+
+#[test]
+fn a_fractional_context_percentage_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // TypeScript hands over whatever `usage.context.percent` holds; a whole
+    // number on the statusline path can be `43.7` on the mod path.
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "used_percentage": 43.7
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional percentage must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("44%"),
+        "43.7 rounds to 44%: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_context_window_without_a_percentage_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["context_window"] = json!({ "context_window_size": 200_000 });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing percentage must stay optional");
+
+    assert!(!lines.is_empty(), "the identity line still renders");
+}
