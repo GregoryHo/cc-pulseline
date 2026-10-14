@@ -10,6 +10,7 @@ import {
   parseVersion,
   tooOldMessage,
 } from './binary'
+import type { Version } from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
@@ -391,9 +392,11 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
     cwd: facts.cwd,
   })
 
-  // The best thing that answered but was too old, so the note can name a
-  // version rather than claiming nothing is installed.
-  let outdated: { path: string; version: string; rung: string } | null = null
+  // The *newest* thing that answered but was too old, so the note names the
+  // version the person actually has. Keeping the first one found would name
+  // an older copy further up the ladder and send them updating to a version
+  // they are already past.
+  let outdated: { path: string; version: Version; rung: string } | null = null
 
   for (const candidate of ladder) {
     try {
@@ -414,10 +417,8 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
         await update(engine, binaryChoice, () => choice)
         return choice
       }
-      outdated ??= {
-        path: candidate.path,
-        version: formatVersion(version),
-        rung: candidate.rung,
+      if (outdated === null || isNewEnough(version, outdated.version)) {
+        outdated = { path: candidate.path, version, rung: candidate.rung }
       }
     } catch {
       // Not there, not runnable, or it outran the probe. Next rung.
@@ -425,7 +426,14 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
   }
 
   const choice: BinaryChoice =
-    outdated === null ? { kind: 'missing' } : { kind: 'too-old', ...outdated }
+    outdated === null
+      ? { kind: 'missing' }
+      : {
+          kind: 'too-old',
+          path: outdated.path,
+          version: formatVersion(outdated.version),
+          rung: outdated.rung,
+        }
   await update(engine, binaryChoice, () => choice)
   return choice
 }

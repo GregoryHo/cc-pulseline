@@ -207,6 +207,25 @@ describe('what the band says when it cannot draw', () => {
     await ui.unmount()
   })
 
+  test('the too-old note names the newest copy found, not the first', async ($, on) => {
+    // Two old rungs. Naming the first would send the person updating to a
+    // version they are already past.
+    bottom(on, {
+      home: '/home/me',
+      binaryVersions: {
+        '/home/me/.claude/pulseline/cc-pulseline': '1.3.0',
+        'cc-pulseline': '1.4.0',
+      },
+    })
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+
+    const ui = await $.ui.mount(BAND)
+    const text = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(text).toContain('1.4.0 is too old')
+    expect(text).not.toContain('1.3.0')
+    await ui.unmount()
+  })
+
   test('nothing found at all names the install command in the band', async ($, on) => {
     const seen = bottom(on, { binaryVersion: null })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
