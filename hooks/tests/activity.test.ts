@@ -91,10 +91,29 @@ describe('TodoWrite', () => {
     expect(todo?.text).toBe('Writing the harness')
     expect(todo?.total).toBe(3)
     expect(todo?.completed).toBe(1)
-    expect(todo?.pending).toBe(1)
+    // Two unfinished: the pending one and the running one. This used to
+    // assert 1 — only the `pending` status — which made the ledger's
+    // `done = completed.max(total - pending)` read the running item as done.
+    expect(todo?.pending).toBe(2)
     expect(todo?.in_progress_items).toEqual([{ text: 'Writing the harness' }])
     expect(todo?.all_done).toBe(false)
     expect(todo?.is_task_api).toBe(true)
+  })
+
+  test('a lone running todo is not reported as done', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TodoWrite',
+      tool_use_id: 't5',
+      todos: [{ content: 'Only', activeForm: 'Doing only', status: 'in_progress' }],
+    })
+
+    const todo = seen.lastPayload().activity?.todo
+    // The ledger reads `done = completed.max(total - pending)`, so a running
+    // item left out of `pending` drew `1/1 done · 0 pending`.
+    expect(todo?.completed).toBe(0)
+    expect(todo?.pending).toBe(1)
+    expect(todo?.all_done).toBe(false)
   })
 
   test('all done is marked as such', async ($, on) => {
@@ -147,11 +166,12 @@ describe('the Task API', () => {
       description: 'Five rungs, probed by --version',
       activeForm: 'Wiring the ladder',
     })
-    // The id is the creation order, which is what the engine's TaskUpdate names.
+    // The id comes from TaskCreate's own result, which is what a later
+    // TaskUpdate names. The bottom hands out `task-1`, `task-2`, … in order.
     await $.tool.call({
       tool: 'TaskUpdate',
       tool_use_id: 'k2',
-      taskId: '1',
+      taskId: 'task-1',
       status: 'in_progress',
     })
 
@@ -177,16 +197,31 @@ describe('the Task API', () => {
       subject: 'Two',
       description: 'The second',
     })
-    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '1', status: 'completed' })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', status: 'completed' })
 
     let todo = seen.lastPayload().activity?.todo
     expect(todo?.completed).toBe(1)
     expect(todo?.all_done).toBe(false)
 
-    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k4', taskId: '2', status: 'completed' })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k4', taskId: 'task-2', status: 'completed' })
     todo = seen.lastPayload().activity?.todo
     expect(todo?.completed).toBe(2)
     expect(todo?.all_done).toBe(true)
+  })
+
+  test('a refused TaskCreate leaves no task behind', async ($, on) => {
+    const seen = bottom(on, { toolResult: { isError: true, result: 'refused' } })
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'One',
+      description: 'The first',
+    })
+
+    // Written before the call was answered, this would be a phantom item —
+    // and, when the id was a local count rather than the engine's, every
+    // later update would address the phantom instead of the real task.
+    expect(seen.lastPayload().activity?.todo).toBeNull()
   })
 
   test('a deleted task leaves the row', async ($, on) => {
@@ -203,7 +238,7 @@ describe('the Task API', () => {
       subject: 'Two',
       description: 'The second',
     })
-    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '2', status: 'deleted' })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-2', status: 'deleted' })
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.total).toBe(1)
@@ -217,14 +252,14 @@ describe('the Task API', () => {
       subject: 'One',
       description: 'The only one',
     })
-    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: '1', status: 'in_progress' })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: 'task-1', status: 'in_progress' })
     const first = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
     // Asserted on its own, or the comparison below would pass on two
     // undefineds and say nothing about the stamp.
     expect(typeof first).toBe('number')
 
     // The clock has moved between the two, so a re-stamp would show.
-    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '1', status: 'in_progress' })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', status: 'in_progress' })
     const again = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
 
     expect(again).toBe(first)

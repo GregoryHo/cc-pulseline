@@ -75,15 +75,14 @@ export type TaskItem = {
 }
 
 /**
- * The Task API's items and the counter that names them.
+ * The Task API's items, by the id the engine gave each one.
  *
- * `TaskCreate` carries no id; the id is the engine-side creation order, which
- * `TaskUpdate` then names. So the counter has to survive a reload with the
- * items, or an update after one would address an item that is no longer there.
+ * `TaskCreate`'s *result* carries that id (`{ task: { id } }`), which is the
+ * id a later `TaskUpdate` names — so nothing here is counted or guessed, and
+ * a refused create leaves no entry behind.
  */
 export type Tasks = {
   items: Record<string, TaskItem>
-  counter: number
 }
 
 /**

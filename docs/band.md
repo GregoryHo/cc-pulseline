@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 99 tests across seven files that run
+It passes `claude plugin validate`, has 101 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -165,7 +165,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 99 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 101 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -251,6 +251,7 @@ hook draws.
 | --- | --- |
 | tok/s, and the cache trend's *sparkline* | the token breakdown arrives once per turn, not per API call, so there is nothing to plot a per-call hit rate from — the dedup by `message.id` that the transcript path does needs the transcript. The CACHE row's cumulative total is **not** missing: the mod sums it per turn and sends `activity.cache_read_total` |
 | Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
+| The band's first draw of a session, at the measured width | `session.start` refreshes before anything has drawn, so that spawn uses the closure's initial `3x120`. The render hook measures `maxRows` and `bodyColumns` but cannot act on it: `$.state.set` is refused while a drawing is in flight, and no `$` call answers the band's geometry from outside a render — `viewport` is on the render event's envelope only. So unlike the pane, which `ui.open` resolves "once drawn" and can therefore refresh against, the band converges on the next refresh instead. That is now the next tool call's spawn on the way in rather than a completion, so the window is one tool call of a turn the band only appears during |
 | `--rows` in the pane, where the layout is `ledger` | the pane tells the binary the box it got, but the ledger returns before the height ladder — `--layout ledger --rows 4` still emits eleven rows (`src/render/layout.rs`'s comment says so: the ledger owns its pipeline and `ledger_dense` is its height lever). The pane's body is a window over the tree, so nothing is lost — it scrolls — but the switcher sits under the rows and goes below the fold in a short dock. Closing it properly means either the ledger honouring the cap or wiring `ledger_dense`, both inside `src/render/`, which the band does not touch |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
 
@@ -279,7 +280,7 @@ hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     99 tests
+hooks/tests/*.test.ts(x)     101 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```

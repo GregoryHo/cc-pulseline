@@ -116,7 +116,6 @@ const todoList = atom({ plugin: 'pulseline', key: 'todo' } as const, null)
  */
 const taskItems = atom({ plugin: 'pulseline', key: 'tasks' } as const, {
   items: {} as Record<string, TaskItem>,
-  counter: 0,
 })
 
 /** The person's own pane choices: a reload must not close it or reset it. */
@@ -315,6 +314,58 @@ export function todoFromTasks(items: Record<string, TaskItem>): Todo | null {
 }
 
 /**
+ * Folds one answered `TaskCreate` or `TaskUpdate` into the task items.
+ *
+ * Both ids come from the engine: the created task's from the call's own
+ * result, an update's from the event. Nothing is counted here, so a create
+ * the engine refused cannot leave a phantom that a later update would move
+ * instead of the real task.
+ */
+async function rememberTask(
+  $: EngineInterface,
+  name: string,
+  seen: Record<string, unknown>,
+  result: { result?: unknown },
+): Promise<void> {
+  if (name === 'TaskCreate' && typeof seen.subject === 'string') {
+    const subject = seen.subject
+    const answered = (result.result as { task?: { id?: unknown } } | undefined)?.task?.id
+    if (typeof answered !== 'string' || answered.length === 0) return
+    const item: TaskItem = {
+      subject,
+      status: 'pending',
+      ...(typeof seen.activeForm === 'string' ? { activeForm: seen.activeForm } : {}),
+    }
+    await rebuildTodo($, held => ({ items: { ...held.items, [answered]: item } }))
+    return
+  }
+
+  if (name === 'TaskUpdate' && typeof seen.taskId === 'string') {
+    const taskId = seen.taskId
+    // `TaskUpdate` answers `{ success }`; a call that reported failure moved
+    // nothing, so neither does this.
+    const answered = result.result as { success?: unknown } | undefined
+    if (answered !== undefined && answered.success === false) return
+    const status = typeof seen.status === 'string' ? seen.status : 'pending'
+    const at = await $.clock.now()
+    await rebuildTodo($, held => {
+      if (status === 'deleted') {
+        const items = { ...held.items }
+        delete items[taskId]
+        return { items }
+      }
+      const was = held.items[taskId]
+      if (was === undefined) return held
+      // The start is stamped once, so the row's elapsed time does not restart
+      // every time the same task is touched again.
+      const startedAt =
+        status === 'in_progress' && was.status !== 'in_progress' ? at : was.startedAt
+      return { items: { ...held.items, [taskId]: { ...was, status, startedAt } } }
+    })
+  }
+}
+
+/**
  * Applies one change to the task items and rewrites the todo row from the
  * result.
  *
@@ -332,7 +383,12 @@ async function rebuildTodo($: EngineInterface, change: (held: Tasks) => Tasks): 
 function todoOf(items: { content?: string; status?: string; activeForm?: string }[]): Todo {
   const running = items.filter(item => item.status === 'in_progress')
   const completed = items.filter(item => item.status === 'completed').length
-  const pending = items.filter(item => item.status === 'pending').length
+  // Everything not completed, the running item included — which is what the
+  // transcript path's `extract_todo_summary` does and what `todoFromTasks`
+  // above does. Counting only `pending` left the ledger's
+  // `done = completed.max(total - pending)` reading a running item as done,
+  // so a lone running task drew `1/1 done · 0 pending`.
+  const pending = items.length - completed
   const first = running[0]
   return {
     text: first?.activeForm ?? first?.content ?? '',
@@ -736,43 +792,6 @@ export const register: Register = (on, options) => {
         const todo = todoOf(seen.todos as { content?: string; status?: string }[])
         await update($, todoList, () => todo)
       }
-      // TaskCreate and TaskUpdate are the Task API; TodoWrite above is the
-      // older one. The transcript path dispatches all three
-      // (`providers/transcript.rs`), so the band would show no task progress
-      // at all on the current API without these two.
-      if (name === 'TaskCreate' && typeof seen.subject === 'string') {
-        const item: TaskItem = {
-          subject: seen.subject,
-          status: 'pending',
-          ...(typeof seen.activeForm === 'string' ? { activeForm: seen.activeForm } : {}),
-        }
-        await rebuildTodo($, held => {
-          const counter = held.counter + 1
-          return { counter, items: { ...held.items, [String(counter)]: item } }
-        })
-      }
-      if (name === 'TaskUpdate' && typeof seen.taskId === 'string') {
-        const taskId = seen.taskId
-        const status = typeof seen.status === 'string' ? seen.status : 'pending'
-        const at = await $.clock.now()
-        await rebuildTodo($, held => {
-          if (status === 'deleted') {
-            const items = { ...held.items }
-            delete items[taskId]
-            return { ...held, items }
-          }
-          const was = held.items[taskId]
-          if (was === undefined) return held
-          // The start is stamped on the way in, once, so the row's elapsed
-          // time does not restart every time the same task is touched again.
-          const startedAt =
-            status === 'in_progress' && was.status !== 'in_progress' ? at : was.startedAt
-          return {
-            ...held,
-            items: { ...held.items, [taskId]: { ...was, status, startedAt } },
-          }
-        })
-      }
       state.active.set(id, { id, name, target: targetOf(seen) })
       // The band's reason to exist is the tool running *now*, and the rows it
       // draws are the binary's stdout — so a running tool reaches the band
@@ -792,6 +811,15 @@ export const register: Register = (on, options) => {
     try {
       const result = await next(e)
       failed = result.isError === true
+      // The Task API's bookkeeping waits for the result, where a tool's own
+      // mark cannot. `TaskCreate` answers with the id the engine assigned
+      // (`{ task: { id } }`) and that is the id a later `TaskUpdate` names, so
+      // reading it here beats counting creations: a refused or failed call
+      // leaves nothing behind, and no local counter can fall out of step.
+      // TodoWrite above is the older API; the transcript path dispatches all
+      // three, and without these two the band shows no task progress at all
+      // on the current one.
+      if (!failed) await rememberTask($, name, seen, result)
       return result
     } catch (error) {
       failed = true

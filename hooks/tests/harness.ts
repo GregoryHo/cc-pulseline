@@ -172,7 +172,26 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const tick = options.tick ?? 1_000
   let nowMs = options.startMs ?? 1_700_000_000_000
 
-  on('tool.call', () => options.toolResult ?? { result: 'ok', isReadOnly: true })
+  // The Task API's two calls are answered the way the engine answers them,
+  // because the mod reads the created task's id out of the *result* rather
+  // than counting creations. Ids are `task-1`, `task-2`, … in call order, so
+  // a case can name one without reading it back.
+  let createdTasks = 0
+  on('tool.call', ($, e) => {
+    if (options.toolResult !== undefined) return options.toolResult
+    if (e.tool === 'TaskCreate') {
+      createdTasks += 1
+      return {
+        result: { task: { id: `task-${createdTasks}`, subject: String(e.subject ?? '') } },
+      }
+    }
+    if (e.tool === 'TaskUpdate') {
+      return {
+        result: { success: true, taskId: String(e.taskId ?? ''), updatedFields: [] },
+      }
+    }
+    return { result: 'ok', isReadOnly: true }
+  })
   on('clock.now', () => ({ value: (nowMs += tick) }))
   // The classic events the mod observes need a bottom of their own; each
   // answers with an empty classic result, which is "nothing to add".
