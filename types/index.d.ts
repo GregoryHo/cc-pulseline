@@ -169,10 +169,20 @@ export type PaneWanted = {
  * or a path configured mid-session is picked up — without that an atom would
  * keep one bad answer for the life of the session.
  */
+/**
+ * Where the binary is, as the ladder last answered.
+ *
+ * The two negative answers carry `at`, the moment the walk was made, because
+ * they expire: the band's own message is `npm install -g …`, and an install
+ * raises no event at all — so a cached failure that never expired would
+ * outlive the fix it asked for and the band could not recover inside the
+ * session. A successful answer has no `at`; it is kept until a settings
+ * write clears it.
+ */
 export type BinaryChoice =
   | { kind: 'ok'; path: string; version: string; rung: string }
-  | { kind: 'too-old'; path: string; version: string; rung: string }
-  | { kind: 'missing' }
+  | { kind: 'too-old'; path: string; version: string; rung: string; at: number }
+  | { kind: 'missing'; at: number }
 
 /** The binary's last output, kept so a reload redraws rather than blanks. */
 export type DrawnOutput = {

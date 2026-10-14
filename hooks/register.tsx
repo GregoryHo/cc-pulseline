@@ -629,9 +629,19 @@ async function collect(engine: EngineInterface, state: State): Promise<Collected
  * The answer is cached in `$.state`, so this runs once a session rather
  * than once a refresh.
  */
+/**
+ * How long a failed walk is kept before the ladder is tried again.
+ *
+ * Long enough that a session with nothing installed does not re-probe five
+ * rungs on every refresh, short enough that following the band's own
+ * `npm install -g` line is seen without restarting.
+ */
+const NEGATIVE_TTL_MS = 10_000
+
 async function resolveBinary(engine: EngineInterface, state: State): Promise<BinaryChoice> {
   const held = await read(engine, binaryChoice)
-  if (held !== null) return held
+  const now = await engine.clock.now()
+  if (held !== null && (held.kind === 'ok' || now - held.at < NEGATIVE_TTL_MS)) return held
 
   const configured = state.options.binaryPath
   const home = (await engine.env.get('HOME')) ?? (await engine.env.get('USERPROFILE')) ?? ''
@@ -679,12 +689,13 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
 
   const choice: BinaryChoice =
     outdated === null
-      ? { kind: 'missing' }
+      ? { kind: 'missing', at: now }
       : {
           kind: 'too-old',
           path: outdated.path,
           version: formatVersion(outdated.version),
           rung: outdated.rung,
+          at: now,
         }
   await update(engine, binaryChoice, () => choice)
   return choice
@@ -920,6 +931,10 @@ export const register: Register = (on, options) => {
     const name = String(seen.tool ?? 'tool')
     const id = String(seen.tool_use_id ?? name)
 
+    // The draw of this tool as running, started below and settled in the
+    // `finally`. Never null once the mark succeeded.
+    let drawing: Promise<void> | null = null
+
     // Bookkeeping must never throw into the tool chain: a bad event shape
     // would take the tool call down with it, and the band with that.
     try {
@@ -934,10 +949,19 @@ export const register: Register = (on, options) => {
       // is not drawn at all: the window is closed by the previous tool's own
       // completion refresh, and the next refresh after that is this tool's
       // completion — by which time its entry is gone. A tool that ran for
-      // minutes was therefore never shown. So this pays a spawn per call,
-      // against a spawn floor under 3ms and a tool call that is tens to
-      // thousands of times that.
-      await refresh($, state)
+      // minutes was therefore never shown.
+      //
+      // Started here and awaited in the `finally`, so it runs *beside* the
+      // tool rather than in front of it. An observational mod must not put
+      // its own spawn — five seconds of timeout, twice over with the pane
+      // open — between the model and every tool call. Settling it before the
+      // completion's own refresh also keeps the two from racing: awaited
+      // back to back they would both walk the binary ladder, and the
+      // sequence guard would drop whichever lost.
+      drawing = refresh($, state).catch(async error => {
+        const note = `refresh failed: ${String(error).slice(0, 120)}`
+        await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(() => undefined)
+      })
     } catch (error) {
       const note = `mark failed: ${String(error).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
@@ -962,6 +986,9 @@ export const register: Register = (on, options) => {
       throw error
     } finally {
       try {
+        // The start's own draw, settled before anything here changes what the
+        // next one would say.
+        if (drawing !== null) await drawing
         state.active.delete(id)
         // The count lands before the refresh, and in its own write: an
         // overrun inside `maybeRefresh` must not cost this tool its place

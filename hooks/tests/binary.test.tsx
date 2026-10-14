@@ -10,6 +10,7 @@ import {
   tooOldMessage,
 } from '../binary'
 import { BAND, bottom } from './harness'
+import type { BottomOptions } from './harness'
 
 /**
  * Phase B: finding the binary, and refusing one that cannot draw the band.
@@ -224,6 +225,23 @@ describe('what the band says when it cannot draw', () => {
     expect(text).toContain('1.4.0 is too old')
     expect(text).not.toContain('1.3.0')
     await ui.unmount()
+  })
+
+  test('a failed walk is retried, so an install inside the session is found', async ($, on) => {
+    const options: BottomOptions = { binaryVersion: null, tick: 100 }
+    const seen = bottom(on, options)
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    const renders = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
+    expect(renders()).toBe(0)
+
+    // Following the band's own `npm install -g` line. An install raises no
+    // event at all, so a cached failure that never expired would outlive the
+    // fix it asked for and the band could not recover inside the session.
+    options.binaryVersion = '1.5.0'
+    seen.advance(11_000)
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/n/two' })
+
+    expect(renders()).toBeGreaterThan(0)
   })
 
   test('nothing found at all names the install command in the band', async ($, on) => {
