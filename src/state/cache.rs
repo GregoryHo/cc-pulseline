@@ -119,6 +119,23 @@ pub fn load_cache(session_key: &str) -> Option<SessionCache> {
     serde_json::from_str(&contents).ok()
 }
 
+/// Where this process stages its write before the rename publishes it.
+///
+/// The pid is in the name because the session key is not enough to tell two
+/// writers apart: a mod spawns the binary once for the band and once for the
+/// pane, and parallel tool calls overlap those refreshes — several processes,
+/// one session key, one cache file. Sharing the staging name let two of them
+/// `write` the same file at once and the rename then published a mix of two
+/// JSON bodies, which `load_cache` could only drop. Dropping the cache is
+/// exactly the flicker it exists to prevent.
+///
+/// Last writer still wins the published file, and that is intended: every
+/// rename is atomic, so whatever lands is one whole snapshot, and a reading
+/// a tick behind is corrected by the next one.
+fn staging_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_extension(format!("{}.tmp", std::process::id()))
+}
+
 /// Save a session cache to disk with atomic write. Silently ignores errors.
 pub fn save_cache(session_key: &str, cache: &SessionCache) {
     let path = cache_path(session_key);
@@ -126,9 +143,13 @@ pub fn save_cache(session_key: &str, cache: &SessionCache) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let tmp_path = path.with_extension("tmp");
+    let tmp_path = staging_path(&path);
     if fs::write(&tmp_path, contents).is_ok() {
         let _ = fs::rename(&tmp_path, &path);
+    } else {
+        // A staging file nothing renamed would otherwise sit in the temp
+        // directory for the life of the machine, one per failed write.
+        let _ = fs::remove_file(&tmp_path);
     }
 }
 

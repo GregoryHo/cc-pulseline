@@ -869,7 +869,11 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   let stale: string | null = null
   try {
     collected = await collect(engine, state)
-    state.lastCollected = collected
+    // Only the newest refresh may leave the fallback behind it. Unguarded, an
+    // older refresh finishing its collection late replaced a newer reading —
+    // and the next refresh whose own collection fails draws that older one,
+    // with its stale usage and agent list, under the `stale:` note.
+    if (seq === state.runSeq) state.lastCollected = collected
   } catch (error) {
     // Nothing has ever come back whole: there is no reading to draw, and
     // spawning the binary with fabricated zeros would draw a lie.
