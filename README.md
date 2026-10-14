@@ -199,6 +199,7 @@ cc-pulseline --preview          # preview themes (optional theme names)
 cc-pulseline --preview-layouts  # preview every layout (optional widths)
 cc-pulseline --select-theme     # interactively select and apply a theme (--project for project config)
 cc-pulseline --palette-map      # show palette field → UI element mapping (optional theme)
+cc-pulseline --layout rail --columns 120 --rows 3   # one-off overrides, handy for previewing
 ```
 
 Run `cc-pulseline --help` for the full option reference and the built-in theme list.

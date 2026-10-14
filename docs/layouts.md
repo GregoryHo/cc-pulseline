@@ -187,7 +187,7 @@ context_visual = "plot+text"     # braille line-plot + delta-time tail, then the
 
 [segments.quota]
 enabled = true
-quota_visual = "gauge"
+visual = "gauge"
 ```
 
 ```
@@ -549,6 +549,12 @@ Set in `frames::default_visuals_for(LayoutStyle)`. Resolved at
 `RenderConfig::effective_*_visual()` provides the same fallback for code
 paths (mostly tests) that construct `RenderConfig` directly.
 
+The column headers below are the `RenderConfig` field names. In TOML,
+`quota` / `tools` / `agents` / `todo` each spell theirs as a plain
+`visual` key inside their own `[segments.*]` table; only `context_visual`
+(`[segments.budget]`) and `effort_visual` (`[segments.identity]`) carry
+the full name through to the file.
+
 | Layout | `context_visual` | `quota_visual` | `tools_visual` | `agents_visual` | `todo_visual` | `effort_visual` |
 |--------|------------------|----------------|----------------|-----------------|---------------|-----------------|
 | `none` | `text` | `text` | `counts+targets` | `name+description+model` | `text` | `word` |
@@ -610,25 +616,24 @@ visual = "gauge"
 ### Implementation pointers
 
 For contributors:
-- Live dispatch hubs in `frames/shared.rs`:
-  `render_context_visual`, `render_quota_visual`. Layouts call them;
-  never call `widgets::*::render` directly from a layout (or that
-  segment loses user composability). Enforced by
-  `tests/dispatch_hub_iron_rule.rs`.
+- Live dispatch hubs in `frames/shared.rs` (grep `fn render_.*_visual`
+  for the current set). Layouts call them; never call
+  `widgets::*::render` directly from a layout (or that segment loses
+  user composability). Enforced by `tests/dispatch_hub_iron_rule.rs`.
 - Atomic widgets live in `widgets/`. The `gauge` widget takes
   `(pct, width, marks, fill_color, palette, mode, color)` — caller
   picks fill colour and threshold marks. Ascii-incompatible widgets
-  (sparkline) return `""` under `GlyphMode::Ascii` so dispatch hubs
-  drop the empty cell cleanly.
+  (the braille ones — `sparkline`, `plot`) return `""` under
+  `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly.
 - To add a new widget variant: add the renderer in `widgets/foo.rs`,
   match its name in the relevant dispatch hub, document it in this
   file's [Recognized widgets](#recognized-widgets-per-segment) table.
 
 ### Why `agents_visual` has no symmetric dispatch hub
 
-The `*_visual` segments aren't fully symmetric. `context_visual`
-and `quota_visual` flow through `render_context_visual` /
-`render_quota_visual` hubs; `agents_visual` doesn't. Its spec parser
+The `*_visual` segments aren't fully symmetric. The hub-bearing ones
+flow through a `render_*_visual` hub in `frames/shared.rs`;
+`agents_visual` doesn't. Its spec parser
 (`AgentVisualSpec::parse`) is called inline from
 `activity/builder.rs`.
 

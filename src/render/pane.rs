@@ -7,10 +7,11 @@ use super::frames;
 /// User-facing layout style. Each variant maps 1:1 to a `name = "..."` value
 /// in `[layout]` config and to a render fn in `super::frames`.
 ///
-/// All layouts are flat-row at the data level: layout.rs assembles
+/// Most layouts are flat-row at the data level: layout.rs assembles
 /// `(lines, groups)`, then `apply_pane()` decorates them with chrome. The
-/// only exception is `Ledger`, which owns its full pipeline because the
-/// TAG-column rhythm doesn't compose cleanly via `apply_pane`.
+/// exceptions are the pipeline-owning frames — see which variants
+/// `render_frame` early-returns on in layout.rs — whose row rhythm doesn't
+/// compose cleanly via `apply_pane`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutStyle {
     /// Flat output, no decoration. Default.

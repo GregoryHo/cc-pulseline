@@ -139,7 +139,7 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/pane.rs` + `render/frames/` -- Layouts
 
-`pane.rs::LayoutStyle` enumerates the layouts (the enum is the source of truth). `apply_pane()` decorates the flat-pipeline output with frame chrome (console = single outer frame + identity-in-title; `None` / `Compact` / `Budgets` pass through undecorated). `Ledger` owns its full pipeline because its TAG-column rhythm doesn't compose via `apply_pane`. `frames/` holds one file per pipeline-owning layout (`console.rs`, `ledger.rs`, `rail.rs`, `anchor.rs`; `powerline.rs` is rail's seam helper) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs `render_context_visual` and `render_quota_visual` (each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
+`pane.rs::LayoutStyle` enumerates the layouts (the enum is the source of truth). `apply_pane()` decorates the flat-pipeline output with frame chrome — only `Console` is actually decorated; `None` / `Compact` / `Budgets` pass through undecorated. The pipeline-owning frames (`Ledger`, `Rail`, `Anchor`) each own their full pipeline and never reach `apply_pane`, because their row rhythm doesn't compose via it. `frames/` holds one file per pipeline-owning layout (`console.rs`, `ledger.rs`, `rail.rs`, `anchor.rs`; `powerline.rs` is rail's seam helper) plus `shared.rs`, which carries the box-drawing glyph tables, identity headline, config row, and the per-segment dispatch hubs (grep `fn render_.*_visual` for the current set; each maps a `+`-joined visual spec like `"text+gauge+sparkline"` onto the relevant atomic widgets).
 
 ### `render/widgets/` -- Atomic Widgets
 

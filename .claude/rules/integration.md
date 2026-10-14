@@ -28,6 +28,8 @@ StdinPayload {
     worktree: Option<WorktreeInfo>,     // CC 2.1.69+: worktree session info (--worktree)
     effort: Option<EffortInfo>,         // CC 2.1.119+: effort level
     thinking: Option<ThinkingInfo>,     // CC 2.1.119+: thinking mode toggle
+    activity: Option<ActivityPayload>,  // mod-fed (hooks/), not CC: pre-assembled activity; absent on the statusline path
+    env: Option<EnvOverride>,           // mod-fed: per-count overrides for the L2 scan
 }
 ```
 
@@ -54,6 +56,10 @@ ThinkingInfo       { enabled }                                  // thinking mode
 - `used_percentage` is input-only (excludes output tokens from the percentage)
 - Project path: `worktree.original_cwd` (worktree sessions) → `workspace.current_dir` → `cwd`
 - Empty stdin (`""`) is treated as `{}` — all fields default gracefully
+- This section documents the CC-emitted contract plus pulseline's own mod-fed
+  extensions (`activity`, `env`), which arrive from the function-hooks module
+  rather than from Claude Code — see `hooks/` and `docs/band.md`. A future
+  extension belongs alongside them.
 
 ## Transcript File
 

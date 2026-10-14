@@ -331,7 +331,7 @@ Run the release gates and report each honestly (pass=false with the failure exce
 3. \`cargo test\` — all green; report total test count
 4. \`cargo build --release\` — must succeed
 5. \`./target/release/cc-pulseline --version\` — must print "cc-pulseline ${version}"
-6. \`echo '{"session_id":"smoke","version":"2.1.119","model":{"id":"sonnet","display_name":"Sonnet"}}' | ./target/release/cc-pulseline\` — must render multiple lines of ANSI output
+6. Smoke render, isolated from this machine — the repo's own gitignored \`.claude/pulseline.toml\` selects a layout that drops the budget row before the first API call, and a previous smoke run's session state in the shared \`$TMPDIR\` can feed stale metrics back, so the un-isolated form measured neither the shipped defaults nor a fresh session: \`B="$PWD/target/release/cc-pulseline"; T=$(mktemp -d); echo '{"session_id":"smoke","version":"2.1.119","model":{"id":"sonnet","display_name":"Sonnet"}}' | (cd "$T" && HOME="$T" TMPDIR="$T" "$B")\` — must render multiple lines of ANSI output (identity + budget)
 Do not fix anything — measure and report.`
 
 let gates = await agent(GATES_PROMPT, { schema: GATES_SCHEMA, label: 'verify:gates', phase: 'Verify' })

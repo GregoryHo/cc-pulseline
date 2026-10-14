@@ -82,7 +82,7 @@ RenderConfig.context_visual ("gauge+sparkline")
 
 ### Adding a hub for a new segment
 
-1. Add `*_visual: String` field via Config Layer Pattern (7 places).
+1. Add `*_visual: String` field via the Config Layer Pattern above.
 2. Add `default_visuals_for` entry per layout in `frames/mod.rs`.
 3. Add `effective_*_visual()` helper on `RenderConfig`.
 4. Implement `render_<segment>_visual` in `frames/shared.rs`.

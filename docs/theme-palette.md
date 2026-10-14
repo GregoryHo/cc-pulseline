@@ -188,12 +188,13 @@ For backward compatibility, old names map to the new tier system:
 ### Line 3: Resources & Cost (Mixed)
 
 ```
-[CTX_*(71/178/196)]CTX:pct% [separator(238/253)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(103/246)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[primary]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
+[CTX_*(71/178/196)]CTX:pct% [separator(238/253)]([secondary(146/240)]used[separator]/[secondary]total[separator]) [separator]| [structural(103/246)]TOK I:[primary(251/234)]val O:[primary]val [primary]↗speed C:[CACHE_*]val [separator]| [COST_BASE(222)]$total [separator]([RATE_*(186/221/201)]$rate/h[separator])
 ```
 
 - `71/178/196` Context: icon+pct both use CTX_GOOD/WARN/CRITICAL (semantic, state-driven)
-- `103/246` Token labels: tier.structural (I:, O:, C:, R:)
-- `251/234` Token values + speed: tier.primary (val_color) when data exists, tier.structural when absent
+- `103/246` Token labels: tier.structural for every TOK label
+- `251/234` Token values + speed: tier.primary (val_color) when data exists, tier.structural when absent — this covers `I:`, `O:` and the speed tail
+- `CACHE_*` Cache hit rate (`C:`) value: threshold-coloured by `color_for_cache_hit_pct` in `src/render/color.rs`, which owns the bands; tier.structural for the `--` no-signal form
 - `222` Total cost: COST_BASE (warm gold)
 - `186/221/201` Burn rate: COST_LOW/MED/HIGH_RATE (rate-driven)
 - `238/253` Separators, parentheses: tier.separator
@@ -225,7 +226,7 @@ ASCII mode — L1 through L5 with every color annotated:
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(238)]| [secondary(146)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main [ACTIVE_CORAL(209)]↑2
 [primary(251)]1 [structural(103)]CLAUDE.md [separator(238)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[STABLE_GREEN(71)]CTX:43% [separator(238)]([secondary(146)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[CACHE_*]50% [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 [structural(103)]Q: [secondary(146)]5h: [CTX_GOOD(71)]25% [separator(238)]([structural(103)]resets 2h 0m[separator])
 [COMPLETED_CHECK(67)]✓ Read [secondary(146)]×12 [separator(238)]| [COMPLETED_CHECK]✓ Bash [secondary]×5 [separator]| [COMPLETED_CHECK]✓ Edit [secondary]×3
 [ACTIVE_CYAN(117)]T:Read: [secondary(146)].../src/main.rs [separator(238)]| [ACTIVE_CYAN]T:Bash: [secondary]cargo test
@@ -239,7 +240,7 @@ In icon mode, L2 gains per-metric indicator colors on icons (109/108/182/179/139
 Context critical (≥70%) + high burn rate (>$50/h):
 
 ```
-[ALERT_RED(196)]CTX:75% [separator(238)]([secondary(146)]150.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]45.0k [structural]O: [primary]12.0k [structural]C:[primary]50.0k[separator]/[primary]77.0k [separator]| [COST_BASE(222)]$12.50 [separator]([COST_HIGH_RATE(201)]$75.00/h[separator])
+[ALERT_RED(196)]CTX:75% [separator(238)]([secondary(146)]150.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(103)]TOK [structural]I: [primary(251)]45.0k [structural]O: [primary]12.0k [structural]C:[CACHE_*]50% [separator]| [COST_BASE(222)]$12.50 [separator]([COST_HIGH_RATE(201)]$75.00/h[separator])
 ```
 
 Note: `ALERT_RED` (196) replaces `STABLE_GREEN` (71) on the CTX prefix and percentage. `COST_HIGH_RATE` (201, magenta) replaces `COST_LOW_RATE` (186, peach) on the burn rate. All other colors remain identical.
@@ -251,7 +252,7 @@ Same output, different emphasis tier codes — semantic colors are unchanged:
 ```
 [STABLE_BLUE(111)]M:Opus 4.6 [separator(253)]| [secondary(240)]S:explanatory [separator]| [secondary]CC:2.1.37 [separator]| [secondary]P:~/projects/myapp [separator]| [STABLE_GREEN(71)]G:main
 [primary(234)]1 [structural(246)]CLAUDE.md [separator(253)]| [primary]3 [structural]rules [separator]| [primary]2 [structural]memories [separator]| [primary]2 [structural]hooks [separator]| [primary]4 [structural]MCPs [separator]| [primary]1 [structural]skills [separator]| [primary]1h
-[STABLE_GREEN(71)]CTX:43% [separator(253)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(246)]TOK [structural]I: [primary(234)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[primary]30.0k[separator]/[primary]40.0k [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
+[STABLE_GREEN(71)]CTX:43% [separator(253)]([secondary(240)]86.0k[separator]/[secondary]200.0k[separator]) [separator]| [structural(246)]TOK [structural]I: [primary(234)]10.0k [structural]O: [primary]20.0k [primary]↗1.5K/s [structural]C:[CACHE_*]50% [separator]| [COST_BASE(222)]$3.50 [separator]([COST_LOW_RATE(186)]$3.50/h[separator])
 ```
 
 Emphasis tier shifts: Primary 251→234, Secondary 146→240, Structural 103→246, Separator 238→253 (light tiers per the Quick Reference / `light_emphasis` in `src/themes/tokyo-night.json`). All semantic colors (STABLE_BLUE 111, STABLE_GREEN 71, COST_BASE 222, etc.) remain identical.

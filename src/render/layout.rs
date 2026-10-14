@@ -41,9 +41,9 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
     });
     let config: &RenderConfig = adjusted.as_ref().unwrap_or(config);
 
-    // Ledger owns its full pipeline; every other layout flows through the
-    // flat-row assembly below and gets decorated by `apply_pane`. The
-    // height-degradation ladder therefore doesn't reach Ledger — its
+    // The pipeline-owning frames early-return in the match below; the rest
+    // flow through the flat-row assembly and are decorated by `apply_pane`.
+    // The height-degradation ladder therefore doesn't reach Ledger — its
     // height lever is `ledger_dense`.
     let palette = &config.palette;
     match config.pane_style {

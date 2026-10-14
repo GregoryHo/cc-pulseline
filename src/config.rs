@@ -589,9 +589,8 @@ pub fn load_config() -> PulselineConfig {
 pub fn default_config_toml() -> &'static str {
     r#"[display]
 theme = "dark"
-# Built-ins: tokyo-night | echo-sub-zero | titanium-precision | cnc-telemetry
-#            cyberdeck-hud | stark-hud | mako-reactor | aburaya-twilight
-#            matte-carbon-neon | pulseline-aurora
+# Built-ins: run `cc-pulseline --preview` to see them all, or `--help` for
+#            the annotated list.
 # Legacy aliases: dark | light (tokyo-night with that variant)
 # variant = "dark"      # dark | light (overrides theme-implied variant)
 icons = true            # nerd font icons vs ascii
@@ -721,8 +720,9 @@ visual = ""
 #                marks the live signal; collapses via max_total_lines.
 #
 # Trend-forward is a recipe, not a layout: any layout +
-# context_visual = "plot+text" (+ quota_visual = "gauge") leads the CONTEXT
-# row with a braille line-plot of the CTX% history and a delta-time tail.
+# context_visual = "plot+text" (+ [segments.quota] visual = "gauge") leads
+# the CONTEXT row with a braille line-plot of the CTX% history and a
+# delta-time tail.
 name = "none"
 min_width = 60          # skip framing when terminal can't fit this many cols
 max_width = 160         # clamp auto-sized frames to this many cols
@@ -1782,7 +1782,8 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
         "velocity" => {
             eprintln!(
                 "warning: layout.name \"velocity\" was removed; it was a preset of \
-                 name = \"none\" + context_visual = \"plot+text\" + quota_visual = \"gauge\" \
+                 name = \"none\" + [segments.budget] context_visual = \"plot+text\" \
+                 + [segments.quota] visual = \"gauge\" \
                  — set those instead. Falling back to \"none\" \
                  (valid: none | compact | budgets | console | ledger | rail | anchor)"
             );
