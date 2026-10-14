@@ -141,8 +141,33 @@ fn main() {
     };
 
     let project_root = payload.resolve_project_path();
-    let pulseline_config = load_merged_config(project_root.as_deref());
-    let render_config = build_render_config(&pulseline_config);
+    let mut pulseline_config = load_merged_config(project_root.as_deref());
+
+    // `--layout` is applied here, before the config is built, rather than to
+    // `render_config.pane_style` after. `build_render_config` reads the layout
+    // name once and resolves every `*_visual` field a caller left empty
+    // against *that* layout's defaults, writing the concrete string in — so an
+    // override applied afterwards changed which layout drew and left it
+    // drawing with the configured layout's widget choices. The default config
+    // leaves the visuals empty, so `--layout ledger` on it drew the ledger
+    // with `none`'s defaults, losing the ledger's own CTX sparkline. Setting
+    // the name first makes one source of truth of it.
+    if let Some(name) = string_flag(&args, "--layout") {
+        pulseline_config.layout.name = name;
+    }
+
+    let mut render_config = build_render_config(&pulseline_config);
+
+    // A caller that owns the box it draws into — a function-hooks mod
+    // drawing the rows itself — knows its size exactly, where the hook path
+    // has to infer one from COLUMNS/LINES.
+    if let Some(columns) = numeric_flag(&args, "--columns") {
+        render_config.terminal_width = Some(columns);
+        render_config.pane_cc_margin = 0;
+    }
+    if let Some(rows) = numeric_flag(&args, "--rows") {
+        render_config.max_total_lines = Some(rows);
+    }
 
     let lines = match PulseLineRunner::default().run_from_payload(&payload, render_config) {
         Ok(lines) => lines,
@@ -153,6 +178,24 @@ fn main() {
     };
 
     println!("{}", lines.join("\n"));
+}
+
+/// Reads `--flag VALUE`, ignoring a missing value or another flag.
+fn string_flag(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|at| args.get(at + 1))
+        .filter(|value| !value.starts_with('-'))
+        .cloned()
+}
+
+/// Reads `--flag N`, ignoring a missing or unparseable value.
+fn numeric_flag(args: &[String], flag: &str) -> Option<usize> {
+    args.iter()
+        .position(|arg| arg == flag)
+        .and_then(|at| args.get(at + 1))
+        .and_then(|value| value.parse().ok())
+        .filter(|value| *value > 0)
 }
 
 fn init_config() {
@@ -911,6 +954,9 @@ OPTIONS:
     --select-theme --project  Select theme for project config
     --palette-map [THEME]  Show palette field → UI element mapping
                      Example: --palette-map echo-sub-zero
+    --columns N      Render for a box N cells wide (overrides COLUMNS)
+    --rows N         Render at most N rows (overrides max_total_lines)
+    --layout NAME    Render with this layout (none|compact|budgets|console|ledger|rail|anchor)
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.

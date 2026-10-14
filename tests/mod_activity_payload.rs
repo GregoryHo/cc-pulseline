@@ -1,0 +1,822 @@
+//! The function-hooks mod path: activity arrives on the payload, already
+//! assembled from engine events, instead of being parsed out of a transcript.
+
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+
+use cc_pulseline::{config::RenderConfig, PulseLineRunner};
+use serde_json::json;
+use tempfile::TempDir;
+
+fn config() -> RenderConfig {
+    RenderConfig {
+        transcript_poll_throttle_ms: 0,
+        color_enabled: false,
+        max_tool_lines: 4,
+        max_agent_lines: 4,
+        ..RenderConfig::default()
+    }
+}
+
+fn base_payload(workspace: &TempDir) -> serde_json::Value {
+    json!({
+        "session_id": "mod-activity",
+        "cwd": workspace.path(),
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus"},
+        "version": "2.1.275"
+    })
+}
+
+#[test]
+fn renders_activity_supplied_on_the_payload() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "tools": [{"id": "t1", "name": "Bash", "target": "cargo test"}],
+        "completed_counts": [{"name": "Read", "count": 12, "failed": 2}],
+        "completed_total": 12,
+        "failed_total": 2,
+        "agents": [{
+            "id": "a1",
+            "description": "Investigate logic",
+            "agent_type": "Explore"
+        }],
+        "todo": {
+            "text": "Fixing auth bug",
+            "pending": 2,
+            "completed": 1,
+            "total": 3,
+            "is_task_api": true,
+            "in_progress_items": [{"text": "Fixing auth bug"}]
+        }
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("Bash"),
+        "running tool should render: {joined}"
+    );
+    assert!(
+        joined.contains("Read"),
+        "completed count should render: {joined}"
+    );
+    assert!(
+        joined.contains("Investigate logic"),
+        "agent row should render: {joined}"
+    );
+    assert!(
+        joined.contains("Fixing auth bug"),
+        "todo row should render: {joined}"
+    );
+}
+
+#[test]
+fn payload_activity_wins_over_the_transcript_file() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("session.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_tool_flow.jsonl")
+        .expect("tool fixture should exist");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&transcript)
+        .expect("transcript should open");
+    for line in fixture.lines() {
+        writeln!(file, "{line}").expect("line should append");
+    }
+
+    let mut payload = base_payload(&workspace);
+    payload["transcript_path"] = json!(transcript);
+    payload["activity"] = json!({
+        "tools": [{"id": "t1", "name": "Grep", "target": "needle"}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("Grep"),
+        "payload activity should render: {joined}"
+    );
+    assert!(
+        !joined.contains("ReadFile"),
+        "the transcript must not be parsed on the mod path: {joined}"
+    );
+}
+
+#[test]
+fn a_payload_without_activity_still_reads_the_transcript() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let transcript = workspace.path().join("session.jsonl");
+    let fixture = fs::read_to_string("tests/fixtures/transcript_tool_flow.jsonl")
+        .expect("tool fixture should exist");
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&transcript)
+        .expect("transcript should open");
+    for line in fixture.lines() {
+        writeln!(file, "{line}").expect("line should append");
+    }
+
+    let mut payload = base_payload(&workspace);
+    payload["transcript_path"] = json!(transcript);
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("ReadFile"),
+        "the classic statusline path must keep parsing the transcript: {joined}"
+    );
+}
+
+#[test]
+fn env_counts_from_the_payload_override_the_scan() {
+    let workspace = TempDir::new().expect("temp workspace");
+    // A CLAUDE.md on disk the scan would find and count.
+    fs::write(workspace.path().join("CLAUDE.md"), "# project\n").expect("file writes");
+
+    let mut payload = base_payload(&workspace);
+    payload["env"] = json!({"claude_md_count": 7, "mcp_count": 2});
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 CLAUDE.md"),
+        "the payload's count wins over the scan: {joined}"
+    );
+    assert!(
+        joined.contains("2 MCPs"),
+        "the payload's MCP count is rendered: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_context_percentage_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // TypeScript hands over whatever `usage.context.percent` holds; a whole
+    // number on the statusline path can be `43.7` on the mod path.
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "used_percentage": 43.7
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional percentage must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("44%"),
+        "43.7 rounds to 44%: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_fractional_token_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // Every producer today increments an integer, so a float here is
+    // defensive — but one unreadable figure must cost its own cell, not the
+    // whole payload, exactly as for `used_percentage`.
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "used_percentage": 43,
+        "current_usage": {"input_tokens": 10.6, "output_tokens": 20}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional token count must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("I:11"),
+        "10.6 input tokens round to 11: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_context_window_without_a_percentage_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["context_window"] = json!({ "context_window_size": 200_000 });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing percentage must stay optional");
+
+    assert!(!lines.is_empty(), "the identity line still renders");
+}
+
+// --- A missing key must cost its own cell, never the whole payload. -------
+//
+// serde rejects the *entire* stdin JSON on one unreadable field, which blanks
+// every statusline row. A mod assembles the payload in TypeScript, so a scalar
+// it leaves out has to fall back instead. One test per hardened field, so a
+// regression names the field that broke.
+
+#[test]
+fn a_completed_count_without_count_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read"}, {"name": "Bash", "count": 3}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `count` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the well-formed sibling proves the activity was parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_completed_count_without_failed_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 12}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `failed` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the completed count still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_pending_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "completed": 1, "total": 3}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `pending` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_completed_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "pending": 2, "total": 3}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `completed` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_total_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "pending": 2, "completed": 1}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `total` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_running_tool_without_id_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "tools": [{"name": "Bash", "target": "cargo test"}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `id` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the running tool still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_running_tool_without_name_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "tools": [{"id": "t1", "target": "cargo test"}],
+        "completed_counts": [{"name": "Read", "count": 4}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `name` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the rest of the activity still renders: {}",
+        lines.join("\n")
+    );
+}
+
+// --- The same contract for the remaining `String` fields. ----------------
+//
+// These had neither `Option` nor a default, so a missing key rejected the
+// whole payload exactly as the scalars above did. They are now covered by
+// struct-level `#[serde(default)]`, which states the contract once per struct
+// rather than once per field.
+
+#[test]
+fn an_agent_without_id_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "agents": [
+            {"description": "Investigate logic"},
+            {"id": "a2", "description": "Check config"}
+        ]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing agent `id` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Check config"),
+        "the well-formed sibling proves the agents were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn an_agent_without_description_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "agents": [
+            {"id": "a1"},
+            {"id": "a2", "description": "Check config"}
+        ]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing agent `description` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Check config"),
+        "the well-formed sibling proves the agents were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_completed_count_without_name_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"count": 3}, {"name": "Bash", "count": 5}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `name` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the well-formed sibling proves the counts were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_text_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"pending": 1, "completed": 0, "total": 1},
+        "completed_counts": [{"name": "Read", "count": 4}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing todo `text` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the rest of the activity proves the payload was parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_item_without_text_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {
+            "text": "Fixing auth bug",
+            "pending": 1,
+            "completed": 0,
+            "total": 2,
+            // Per-item rows need the task API plus room for more than one.
+            "is_task_api": true,
+            "in_progress_items": [{"started_at": 1}, {"text": "Second item"}]
+        }
+    });
+
+    let config = RenderConfig {
+        max_todo_lines: 4,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a missing todo item `text` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Second item"),
+        "the well-formed sibling item proves the todo was parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn the_payload_answers_the_cumulative_cache_read_total() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // Only the transcript path can dedupe per-API-call usage by `message.id`,
+    // so the mod keeps the running sum itself and answers with the total.
+    payload["activity"] = json!({ "cache_read_total": 4_400_000u64 });
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "current_usage": {"cache_read_input_tokens": 418_000}
+    });
+
+    // The `read total` cell is the ledger's CACHE row; the flat layouts show
+    // only the hit-rate sparkline, so the figure has nowhere to appear there.
+    let config = RenderConfig {
+        show_cache_trend: true,
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("4.4M"),
+        "the payload's total wins over the uncounted session state: {joined}"
+    );
+}
+
+#[test]
+fn a_payload_without_a_cache_total_falls_back_to_the_session_state() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({});
+
+    let config = RenderConfig {
+        show_cache_trend: true,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("render should succeed");
+
+    assert!(
+        !lines.is_empty(),
+        "a missing total stays optional, it does not reject the payload"
+    );
+}
+
+#[test]
+fn a_fractional_tool_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 2.4, "failed": 1.6}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional tool count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("Read") && joined.contains('2'),
+        "2.4 calls round to 2: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_completed_total_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // The TOOL row draws the session total, but only once there is a tool to
+    // have a row for — which is how the mod sends it: counts and total together.
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 7}],
+        "completed_total": 7.4,
+        "failed_total": 2.6
+    });
+
+    // `✓ N tools` is the ticker atom's grand-total cell: the one place the
+    // uncapped total is drawn rather than the per-tool counts.
+    let config = RenderConfig {
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        tools_visual: "ticker".to_string(),
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a fractional total must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 tools"),
+        "7.4 completed calls round to 7: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_compaction_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({ "compact_count": 2.6 });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional compaction count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(joined.contains("3"), "2.6 compactions round to 3: {joined}");
+}
+
+#[test]
+fn a_fractional_todo_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth", "pending": 1.4, "completed": 2.4, "total": 3.4}
+    });
+
+    // The ledger's TODO row spells the progress out; the flat layouts show the
+    // in-progress text alone, so the counts have no cell there.
+    let config = RenderConfig {
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a fractional todo count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("2/3 done"),
+        "2.4 of 3.4 tasks round to 2/3: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_env_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["env"] = json!({"claude_md_count": 7.4, "mcp_count": 2.6});
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional env count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 CLAUDE.md"),
+        "7.4 CLAUDE.md files round to 7: {joined}"
+    );
+    assert!(
+        joined.contains("3 MCPs"),
+        "2.6 MCP servers round to 3: {joined}"
+    );
+}
+
+/// The band shows at most `max_completed_tools` tool kinds — four by default —
+/// and the mod sends them in the order it first saw each one. Passed through,
+/// the renderer's `take` kept the four a session happened to open with and hid
+/// every tool it went on to lean on, for the rest of the session.
+#[test]
+fn the_completed_tools_kept_are_the_most_used_not_the_first_seen() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // First-seen order, each used once, and then the workhorses last.
+    payload["activity"] = json!({
+        "completed_counts": [
+            {"name": "Glob", "count": 1},
+            {"name": "Write", "count": 1},
+            {"name": "WebFetch", "count": 1},
+            {"name": "TodoWrite", "count": 1},
+            {"name": "Read", "count": 40},
+            {"name": "Bash", "count": 30},
+            {"name": "Edit", "count": 20},
+            {"name": "Grep", "count": 10}
+        ],
+        "completed_total": 103
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("the payload renders");
+    let joined = lines.join("\n");
+
+    for kept in ["Read", "Bash", "Edit", "Grep"] {
+        assert!(
+            joined.contains(kept),
+            "{kept} is one of the four most used: {joined}"
+        );
+    }
+    for dropped in ["Glob", "Write", "WebFetch"] {
+        assert!(
+            !joined.contains(dropped),
+            "{dropped} was used once and must not hold a place: {joined}"
+        );
+    }
+}
+
+/// A tool used once a moment ago outranks one used more but long ago, which is
+/// the recency half of the score the statusline path has always applied.
+#[test]
+fn a_tool_completed_just_now_outranks_a_stale_busier_one() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_millis() as u64;
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [
+            {"name": "Stale", "count": 3, "last_completed_at": now - 600_000},
+            {"name": "Fresh", "count": 1, "last_completed_at": now}
+        ],
+        "completed_total": 4
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(
+            &payload.to_string(),
+            RenderConfig {
+                max_completed_tools: 1,
+                ..config()
+            },
+        )
+        .expect("the payload renders");
+    let joined = lines.join("\n");
+
+    assert!(joined.contains("Fresh"), "the recent one is kept: {joined}");
+    assert!(
+        !joined.contains("Stale"),
+        "the stale one is dropped: {joined}"
+    );
+}
+
+/// A compaction resets the window the trend widgets describe. The transcript
+/// path clears both sample buffers on `compact_boundary`; on the payload path
+/// the buffers still live in `SessionState`, which the mod cannot reach, so
+/// the collector has to do it from the count it is told.
+#[test]
+fn an_advancing_compaction_count_clears_the_trend_windows() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.push_ctx_sample(55, 2_000);
+    state.push_cache_sample(70, 1_000);
+    state.compact_count = 1;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":2}}"#)
+            .expect("the payload parses");
+    let snapshot =
+        PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(
+        snapshot.compact_count, 2,
+        "the badge follows the mod's count"
+    );
+    assert!(
+        state.ctx_history.is_empty(),
+        "the context trail starts over at the new window: {:?}",
+        state.ctx_history
+    );
+    assert!(
+        state.cache_history.is_empty(),
+        "and so does the cache trail: {:?}",
+        state.cache_history
+    );
+    assert_eq!(state.compact_count, 2, "the mark moves with it");
+}
+
+/// The same count twice is the ordinary case — every refresh of a session that
+/// has compacted once reports 1 — and must not keep wiping the trail.
+#[test]
+fn a_steady_compaction_count_leaves_the_trend_windows_alone() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.compact_count = 2;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":2}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(
+        state.ctx_history.len(),
+        1,
+        "nothing advanced, so nothing is cleared: {:?}",
+        state.ctx_history
+    );
+}
+
+/// A count that went backwards — a fresh session's atom, or one the host
+/// cleared — re-syncs the mark instead of leaving one the new count has to
+/// climb past before a real compaction clears anything again.
+#[test]
+fn a_compaction_count_that_went_backwards_resyncs_without_clearing() {
+    use cc_pulseline::providers::{PayloadActivityCollector, TranscriptCollector};
+    use cc_pulseline::state::SessionState;
+    use cc_pulseline::types::StdinPayload;
+
+    let mut state = SessionState::default();
+    state.push_ctx_sample(40, 1_000);
+    state.compact_count = 5;
+
+    let payload: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":0}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&payload, &mut state, &RenderConfig::default());
+
+    assert_eq!(state.compact_count, 0, "the mark follows the count down");
+    assert_eq!(
+        state.ctx_history.len(),
+        1,
+        "going backwards is not a compaction: {:?}",
+        state.ctx_history
+    );
+
+    // And the next real one still clears, which the stale mark would have
+    // swallowed for the next five compactions.
+    let next: StdinPayload =
+        serde_json::from_str(r#"{"session_id":"t","activity":{"compact_count":1}}"#)
+            .expect("the payload parses");
+    PayloadActivityCollector.collect_transcript(&next, &mut state, &RenderConfig::default());
+    assert!(state.ctx_history.is_empty(), "cleared on the next advance");
+}

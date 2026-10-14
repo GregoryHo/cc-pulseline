@@ -201,6 +201,62 @@ impl TranscriptCollector for FileTranscriptCollector {
     }
 }
 
+/// Collector for the function-hooks mod path: the activity arrives on the
+/// payload, already assembled from engine events, so nothing is read from
+/// disk and no session state is touched.
+#[derive(Debug, Default)]
+pub struct PayloadActivityCollector;
+
+impl TranscriptCollector for PayloadActivityCollector {
+    fn collect_transcript(
+        &self,
+        payload: &StdinPayload,
+        state: &mut SessionState,
+        config: &RenderConfig,
+    ) -> TranscriptSnapshot {
+        let Some(activity) = payload.activity.as_ref() else {
+            return TranscriptSnapshot::default();
+        };
+
+        // A compaction resets the window the trend widgets describe, and on
+        // this path the samples still live in `SessionState` — the mod cannot
+        // reach them. The transcript path clears both on `compact_boundary`;
+        // left standing here, the sparkline joined the new window's context
+        // and cache readings to the old window's and stayed misleading until
+        // they aged out. Cleared before the samples of this tick are pushed,
+        // which `run` does further on. `cache_read_total` is cumulative over
+        // the session and survives, as it does there.
+        if activity.compact_count != state.compact_count {
+            if activity.compact_count > state.compact_count {
+                state.ctx_history.clear();
+                state.cache_history.clear();
+            }
+            // Re-synced either way, so a count that went backwards — a fresh
+            // session's atom, or one the host cleared — cannot leave a mark
+            // the new count must climb past before anything clears again.
+            state.compact_count = activity.compact_count;
+        }
+
+        TranscriptSnapshot {
+            tools: activity.tools.clone(),
+            // Ranked and capped the way the transcript path's own list is,
+            // rather than passed through: the renderer takes the first
+            // `max_completed_tools` of whatever it is given, and the mod sends
+            // them in the order it first saw each tool.
+            completed_counts: crate::state::rank_completed_tools(
+                activity.completed_counts.clone(),
+                config.max_completed_tools,
+            ),
+            completed_total: activity.completed_total,
+            failed_total: activity.failed_total,
+            agents: activity.agents.clone(),
+            todo: activity.todo.clone(),
+            compact_count: activity.compact_count,
+            last_api_error_ms: activity.last_api_error_ms,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StubTranscriptCollector;
 

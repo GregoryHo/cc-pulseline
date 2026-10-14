@@ -73,7 +73,10 @@ fn version_flag_shows_version() {
         stdout.contains("cc-pulseline"),
         "should contain binary name"
     );
-    assert!(stdout.contains("1.4.0"), "should contain version number");
+    assert!(
+        stdout.contains(env!("CARGO_PKG_VERSION")),
+        "should contain version number"
+    );
 }
 
 #[test]
@@ -86,7 +89,7 @@ fn short_version_flag_works() {
     assert!(output.status.success(), "should exit 0");
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
-        stdout.contains("cc-pulseline 1.4.0"),
+        stdout.contains(&format!("cc-pulseline {}", env!("CARGO_PKG_VERSION"))),
         "should show name and version"
     );
 }

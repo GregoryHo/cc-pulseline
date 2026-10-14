@@ -7,6 +7,113 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-14
+
+Release on the *surfaces* axis: cc-pulseline gains a second canvas.
+The repository is now also a Claude Code plugin — function hooks
+read the engine's own events, feed the same binary through a new
+`activity` field on the stdin payload, and draw the result above
+the prompt (the **band**) and in a `/pulseline` **pane**. The
+statusline path is untouched and stays the default: the two are a
+division of labour, not a replacement, so there is no setting to
+remove and no output that changes.
+
+Two measured facts shaped it. The band refreshes in 4.66 ms p50
+against the statusline path's 43 ms cold start on a 6.4 MB
+transcript, because the engine hands over the activity instead of
+the binary reconstructing it; and steady state is a tie (4.66 vs
+4.77 ms), so the statusline keeps the summary it is already good
+at. `src/providers/transcript.rs` therefore stays — it remains the
+only way to draw on the statusline row, which no plugin surface
+can reach.
+
+Additive for existing users, with two correctness fixes that land
+on **both** paths.
+
+### Added
+
+- **The activity band** (`hooks/`) — a hooks module that draws
+  above the prompt while a turn is working: running tools with
+  their targets, completed tool counts with failure marks,
+  subagents with elapsed time, todo progress, and the budget row.
+  `/pulseline` opens a pane carrying the full ledger, switchable
+  to `budgets`, `compact` or `rail`; `/pulseline` again closes it. Installs with the
+  statusline's commands as one plugin:
+  `/plugin install pulseline --marketplace GregoryHo/cc-pulseline`.
+  Needs this release's binary or newer on the machine.
+- **`activity` on the stdin payload** — a caller that already
+  knows what is running can answer with it rather than have the
+  binary reconstruct it from the transcript: tool summaries,
+  completed counts, agents, todo state, environment counts, the
+  cumulative cache-read total, and the last API-error timestamp.
+  Payload activity wins over the transcript file when both are
+  present; nothing changes for a caller that sends neither.
+- **`--columns`, `--rows` and `--layout` overrides** — width, row
+  cap and layout on the command line, for a caller that owns a box
+  of a known size (the band is one; so is a pane).
+- **A five-rung binary ladder with a version gate** — the plugin
+  finds the binary itself: a configured path, the plugin's `bin/`,
+  `~/.claude/pulseline/`, `PATH`, then a local `target/release`
+  build, each probed by running `--version` rather than by a stat,
+  because `~/.claude/pulseline/` exists and holds only
+  `config.toml` on a machine that installed from source. A rung
+  older than 1.5.0 is **passed over** and the walk continues
+  rather than stopping — on the machine this was written on,
+  `cargo install` had left 1.4.0 on `PATH` while the dev build was
+  current, and a first-answer-wins ladder would have drawn the old
+  one. 1.4.0 does not fail; it draws the classic layout into the
+  band at the wrong width and row count, which is harder to
+  diagnose, so the message names the statusline as unaffected.
+- **Live environment counts from engine events** — CLAUDE.md,
+  rules, memory and MCP-server counts arrive from the events
+  instead of a disk scan while the band is drawing. The MCP count
+  there is the servers *serving tools*, which is deliberately not
+  the same number as the statusline's count of servers
+  *configured*.
+
+### Fixed
+
+- **The environment and git cache TTL never expired under active
+  use.** The 10-second lease was re-stamped on every save, and the
+  session state is saved on every invocation, so the check
+  measured time since the last tick rather than time since the
+  last scan. Only ten seconds of complete idleness could expire
+  it: adding a CLAUDE.md, starting an MCP server or dropping in a
+  rules file left line 2 frozen until you stopped working. The
+  in-memory snapshot now carries the scan's own timestamp, in the
+  same shape the on-disk cache already used — so **the disk format
+  is unchanged** and existing cache files stay valid. Both the
+  statusline and the band benefit.
+- **A missing `activity` key no longer rejects the whole
+  payload.** Serde refused the entire object when one field of an
+  activity struct was absent, which blanked the surface rather
+  than dropping a field. The five activity structs now state the
+  default contract at the struct level, covering all eleven
+  fields — the contract the integration rules already described.
+- **Fractional numbers on the payload are read leniently** — a
+  `used_percentage` of `43.7`, or any count arriving as a float
+  from a JSON producer with no integer type, is now accepted
+  instead of rejecting the payload. Classic-only fields are left
+  strict.
+
+### Internal
+
+- The plugin's TypeScript half is checked three ways in CI's
+  footsteps: `claude plugin validate .` (hooks, `$` calls,
+  `$.state` keys, and that every gating hook carries a `.catch` —
+  ten did not), `claude plugin test .` (112 tests across seven
+  files, run against the engine itself), and `tsc -p .`.
+- State that must survive a hot reload lives in `$.state` atoms
+  under a declared contract rather than in module variables:
+  editing the hooks no longer resets tool counts, todo state,
+  agent start times or the person's pane choice.
+- `docs/band.md` documents the band, the ladder, the test kit's
+  sharp edges and what each surface can and cannot show;
+  `docs/event-coverage.md` records which facts the events carry
+  outright and which still need the transcript.
+- `Cargo.toml`'s `exclude` keeps `hooks/`, `types/` and
+  `tsconfig.json` out of the crates.io tarball.
+
 ## [1.4.0] - 2026-06-22
 
 Feature release on the layout axis: two new Powerline-tier
@@ -862,6 +969,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.5.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.0...v1.2.1

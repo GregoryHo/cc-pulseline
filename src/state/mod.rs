@@ -195,8 +195,13 @@ pub struct SessionState {
     // Todo tracking: TaskCreate/TaskUpdate stateful accumulation
     pub task_items: HashMap<String, TaskItem>,
     pub task_counter: u32,
-    pub cached_env: Option<(String, EnvSnapshot)>,
-    pub cached_git: Option<(String, GitSnapshot)>,
+    /// Last env scan, stamped at scan time. `CacheEntry` (the on-disk type)
+    /// rather than a `(path, snapshot)` tuple so the timestamp survives a
+    /// save/load round trip instead of being re-invented on every save —
+    /// otherwise every tick renews the lease and the TTL never expires.
+    pub cached_env: Option<CacheEntry<EnvSnapshot>>,
+    /// Last repository scan, stamped at scan time. See `cached_env`.
+    pub cached_git: Option<CacheEntry<GitSnapshot>>,
     pub cached_line3: Option<Line3Metrics>,
     // Token speed tracking (output only)
     pub last_output_tokens: Option<u64>,
@@ -234,6 +239,52 @@ pub struct SessionState {
     /// Timestamp (epoch ms) of the last `system/api_error` event seen.
     /// Cleared when the transcript changes. Used for the 30s TTL badge.
     pub last_api_error_ms: Option<u64>,
+}
+
+/// Ranks completed tool counts by count plus a recency bonus that decays over
+/// two minutes, then keeps the first `max`.
+///
+/// Both collectors rank with this, so the band and the statusline choose the
+/// same tools. The transcript path builds the list from its own per-tool map;
+/// the payload path is handed one by the mod, whose `last_completed_at` is
+/// `$.clock.now()` — the same epoch milliseconds `now_epoch_ms` reads. A
+/// count with no stamp scores on its count alone, which is what an older mod
+/// that does not send one gets.
+///
+/// Without this on the payload path the renderer's `take(max_completed_tools)`
+/// cut a list in first-seen order, and `max_completed_tools` is 4 by default:
+/// the four tool kinds a session happened to use first hid every one it went
+/// on to use, for the rest of the session.
+pub fn rank_completed_tools(tools: Vec<CompletedToolCount>, max: usize) -> Vec<CompletedToolCount> {
+    const RECENCY_WEIGHT: f64 = 3.0;
+    const DECAY_WINDOW_MS: u64 = 120_000; // 2 minutes
+
+    let now = cache::now_epoch_ms();
+    let mut scored: Vec<(CompletedToolCount, f64)> = tools
+        .into_iter()
+        .map(|tool| {
+            let recency = tool
+                .last_completed_at
+                .map(|last_at| {
+                    let age_ms = now.saturating_sub(last_at);
+                    if age_ms < DECAY_WINDOW_MS {
+                        RECENCY_WEIGHT * (1.0 - age_ms as f64 / DECAY_WINDOW_MS as f64)
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0);
+            let score = tool.count as f64 + recency;
+            (tool, score)
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.name.cmp(&b.0.name))
+    });
+    scored.truncate(max);
+    scored.into_iter().map(|(tool, _)| tool).collect()
 }
 
 impl SessionState {
@@ -317,32 +368,51 @@ impl SessionState {
         result
     }
 
+    /// The cached env scan, if it is for this path and still inside the TTL.
+    ///
+    /// The TTL check lives here, not only in `load_from_cache`: a long-lived
+    /// host keeps the `SessionState` in `PulseLineRunner`'s map, so the load
+    /// path never re-runs and this is the only gate that fires.
     pub fn cached_env_for(&self, cwd: &str) -> Option<EnvSnapshot> {
-        self.cached_env.as_ref().and_then(|(path, snapshot)| {
-            if path == cwd {
-                Some(snapshot.clone())
+        let now = cache::now_epoch_ms();
+        self.cached_env.as_ref().and_then(|entry| {
+            if entry.path == cwd && now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
+                Some(entry.snapshot.clone())
             } else {
                 None
             }
         })
     }
 
+    /// Stamps the scan time once, here, where the scan actually happened.
     pub fn set_cached_env(&mut self, cwd: String, snapshot: EnvSnapshot) {
-        self.cached_env = Some((cwd, snapshot));
+        self.cached_env = Some(CacheEntry {
+            path: cwd,
+            snapshot,
+            cached_at_ms: cache::now_epoch_ms(),
+        });
     }
 
+    /// The cached repository scan, if it is for this path and still inside the
+    /// TTL. See `cached_env_for`.
     pub fn cached_git_for(&self, cwd: &str) -> Option<GitSnapshot> {
-        self.cached_git.as_ref().and_then(|(path, snapshot)| {
-            if path == cwd {
-                Some(snapshot.clone())
+        let now = cache::now_epoch_ms();
+        self.cached_git.as_ref().and_then(|entry| {
+            if entry.path == cwd && now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
+                Some(entry.snapshot.clone())
             } else {
                 None
             }
         })
     }
 
+    /// Stamps the scan time once, here, where the scan actually happened.
     pub fn set_cached_git(&mut self, cwd: String, snapshot: GitSnapshot) {
-        self.cached_git = Some((cwd, snapshot));
+        self.cached_git = Some(CacheEntry {
+            path: cwd,
+            snapshot,
+            cached_at_ms: cache::now_epoch_ms(),
+        });
     }
 
     pub fn upsert_tool(&mut self, id: String, name: String, target: Option<String>) {
@@ -388,40 +458,18 @@ impl SessionState {
     /// Hybrid scoring: count + recency bonus (decays over 2 minutes).
     /// Recently used tools float up even with low counts.
     pub fn scored_completed_tools(&self, max: usize) -> Vec<CompletedToolCount> {
-        const RECENCY_WEIGHT: f64 = 3.0;
-        const DECAY_WINDOW_MS: u64 = 120_000; // 2 minutes
-
-        let now = cache::now_epoch_ms();
-        let mut scored: Vec<(CompletedToolCount, f64)> = self
-            .completed_tool_counts
-            .iter()
-            .map(|(name, (count, last_at))| {
-                let age_ms = now.saturating_sub(*last_at);
-                let recency = if age_ms < DECAY_WINDOW_MS {
-                    RECENCY_WEIGHT * (1.0 - age_ms as f64 / DECAY_WINDOW_MS as f64)
-                } else {
-                    0.0
-                };
-                let score = *count as f64 + recency;
-                let failed = self.completed_tool_failures.get(name).copied().unwrap_or(0);
-                (
-                    CompletedToolCount {
-                        name: name.clone(),
-                        count: *count,
-                        last_completed_at: Some(*last_at),
-                        failed,
-                    },
-                    score,
-                )
-            })
-            .collect();
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.0.name.cmp(&b.0.name))
-        });
-        scored.truncate(max);
-        scored.into_iter().map(|(tool, _)| tool).collect()
+        rank_completed_tools(
+            self.completed_tool_counts
+                .iter()
+                .map(|(name, (count, last_at))| CompletedToolCount {
+                    name: name.clone(),
+                    count: *count,
+                    last_completed_at: Some(*last_at),
+                    failed: self.completed_tool_failures.get(name).copied().unwrap_or(0),
+                })
+                .collect(),
+            max,
+        )
     }
 
     /// Uncapped session total of completed tool invocations across ALL tool
@@ -713,19 +761,18 @@ impl SessionState {
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
             if now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
-                self.cached_env = Some((entry.path, entry.snapshot));
+                self.cached_env = Some(entry);
             }
         }
         if let Some(entry) = cache.git {
             if now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
-                self.cached_git = Some((entry.path, entry.snapshot));
+                self.cached_git = Some(entry);
             }
         }
     }
 
     /// Export current state to a cache struct for disk persistence.
     pub fn to_cache(&self) -> SessionCache {
-        let now = cache::now_epoch_ms();
         SessionCache {
             transcript_offset: self.last_transcript_offset,
             transcript_path: self.last_transcript_path.clone(),
@@ -752,16 +799,11 @@ impl SessionState {
             sub_agents: self.sub_agents.clone(),
             compact_count: self.compact_count,
             last_api_error_ms: self.last_api_error_ms,
-            env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
-                path: path.clone(),
-                snapshot: snapshot.clone(),
-                cached_at_ms: now,
-            }),
-            git: self.cached_git.as_ref().map(|(path, snapshot)| CacheEntry {
-                path: path.clone(),
-                snapshot: snapshot.clone(),
-                cached_at_ms: now,
-            }),
+            // The stored stamp passes through: re-stamping here would
+            // renew the lease on every tick, so the TTL would only expire
+            // after the user stopped working altogether.
+            env: self.cached_env.clone(),
+            git: self.cached_git.clone(),
         }
     }
 }
@@ -769,6 +811,171 @@ impl SessionState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- The env/repo scan TTL has to measure time since the *scan*. ------
+    //
+    // `save_cache` runs on every invocation, so a `to_cache` that re-stamped
+    // `cached_at_ms` renewed the lease each tick: the entry only expired after
+    // the user stopped working, and a CLAUDE.md added mid-session never
+    // reached the config row. The timestamp now lives on the in-memory entry
+    // and passes through untouched.
+    //
+    // These back-date the stamp rather than waiting on the clock: a real
+    // round trip completes well inside one millisecond, so a re-stamp would
+    // otherwise be indistinguishable from the original.
+
+    /// `tests/adaptive_performance.rs` never reaches the re-scan path: its
+    /// 120 iterations finish in well under a second, so every tick after the
+    /// first is a cache hit. This crosses the TTL on a live runner and checks
+    /// the render that follows — correctness only, no wall-clock assertion.
+    #[test]
+    fn a_render_after_the_ttl_lapses_rescans_and_still_renders() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let path = workspace.path().display().to_string();
+        let payload = serde_json::json!({
+            "session_id": "ttl-rescan",
+            "cwd": path,
+            "workspace": {"current_dir": path},
+            "model": {"display_name": "Opus"},
+            "version": "2.1.275"
+        })
+        .to_string();
+        let config = crate::config::RenderConfig {
+            transcript_poll_throttle_ms: 0,
+            color_enabled: false,
+            ..crate::config::RenderConfig::default()
+        };
+
+        // The env scan this test re-runs must not read the developer's real
+        // ~/.claude — testing.md calls filesystem isolation critical, and a
+        // test *about* the scan is the last place to depend on host state.
+        let fake_home = tempfile::TempDir::new().expect("temp home");
+        let mut runner =
+            crate::PulseLineRunner::default().with_user_home(fake_home.path().to_path_buf());
+        let first = runner
+            .run_from_str(&payload, config.clone())
+            .expect("the first render scans and succeeds");
+
+        // Age both live snapshots past the TTL. This is the gate that fires in
+        // a long-lived host: the runner keeps the `SessionState` in its map, so
+        // `load_from_cache` never runs a second time.
+        let lapse = CACHE_TTL_MS + 1_000;
+        for state in runner.sessions.values_mut() {
+            if let Some(entry) = state.cached_env.as_mut() {
+                entry.cached_at_ms = entry.cached_at_ms.saturating_sub(lapse);
+            }
+            if let Some(entry) = state.cached_git.as_mut() {
+                entry.cached_at_ms = entry.cached_at_ms.saturating_sub(lapse);
+            }
+        }
+
+        let second = runner
+            .run_from_str(&payload, config)
+            .expect("the re-scan path must still render");
+
+        assert_eq!(
+            first, second,
+            "a re-scan of unchanged surroundings reproduces the same rows"
+        );
+        assert!(
+            second.iter().any(|line| line.contains("Opus")),
+            "the identity row survives the re-scan: {second:?}"
+        );
+
+        // A fresh stamp proves the lapsed scan was re-run rather than served.
+        let now = cache::now_epoch_ms();
+        for state in runner.sessions.values() {
+            let entry = state.cached_env.as_ref().expect("env was re-scanned");
+            assert!(
+                now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS,
+                "the env scan was re-run and re-stamped, not served stale"
+            );
+        }
+    }
+
+    #[test]
+    fn to_cache_keeps_the_original_scan_stamp_across_round_trips() {
+        let mut state = SessionState::default();
+        state.set_cached_env("/project".to_string(), EnvSnapshot::default());
+
+        // A scan 5s ago: still inside the TTL, but far enough from `now` that
+        // a renewed stamp is unmistakable.
+        let first_stamp = cache::now_epoch_ms().saturating_sub(5_000);
+        state
+            .cached_env
+            .as_mut()
+            .expect("env was just cached")
+            .cached_at_ms = first_stamp;
+
+        for _ in 0..3 {
+            let round_trip = state.to_cache();
+            state = SessionState::default();
+            state.load_from_cache(round_trip);
+        }
+
+        assert_eq!(
+            state.cached_env.as_ref().map(|entry| entry.cached_at_ms),
+            Some(first_stamp),
+            "three saves must not renew the lease on the scan"
+        );
+    }
+
+    #[test]
+    fn load_from_cache_drops_an_env_scan_older_than_the_ttl() {
+        let stale = cache::now_epoch_ms().saturating_sub(CACHE_TTL_MS + 1_000);
+        let disk = SessionCache {
+            env: Some(CacheEntry {
+                path: "/project".to_string(),
+                snapshot: EnvSnapshot::default(),
+                cached_at_ms: stale,
+            }),
+            ..SessionCache::default()
+        };
+
+        let mut state = SessionState::default();
+        state.load_from_cache(disk);
+
+        assert!(
+            state.cached_env.is_none(),
+            "an expired scan must be re-run, not restored"
+        );
+    }
+
+    #[test]
+    fn cached_env_for_stops_serving_once_the_ttl_lapses() {
+        let mut state = SessionState::default();
+        state.set_cached_env("/project".to_string(), EnvSnapshot::default());
+        assert!(
+            state.cached_env_for("/project").is_some(),
+            "a fresh scan is served from memory"
+        );
+
+        let entry = state.cached_env.as_mut().expect("env was just cached");
+        entry.cached_at_ms = entry.cached_at_ms.saturating_sub(CACHE_TTL_MS + 1_000);
+
+        assert!(
+            state.cached_env_for("/project").is_none(),
+            "a long-lived host keeps the SessionState, so this is the only TTL gate"
+        );
+    }
+
+    #[test]
+    fn cached_git_for_stops_serving_once_the_ttl_lapses() {
+        let mut state = SessionState::default();
+        state.set_cached_git("/project".to_string(), GitSnapshot::default());
+        assert!(
+            state.cached_git_for("/project").is_some(),
+            "a fresh scan is served from memory"
+        );
+
+        let entry = state.cached_git.as_mut().expect("repo was just cached");
+        entry.cached_at_ms = entry.cached_at_ms.saturating_sub(CACHE_TTL_MS + 1_000);
+
+        assert!(
+            state.cached_git_for("/project").is_none(),
+            "the repository scan expires on the same gate as the env scan"
+        );
+    }
 
     #[test]
     fn update_output_speed_first_call_returns_none() {

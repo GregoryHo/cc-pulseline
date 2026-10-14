@@ -1,5 +1,57 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Deserializes a JSON number into `Option<u64>`, rounding a float.
+///
+/// Claude Code's own statusline payload sends whole percentages, but the
+/// function-hooks path assembles the payload in TypeScript, where the same
+/// figure can arrive as `43.0` or `43.2`. A plain `Option<u64>` rejects those,
+/// and serde rejects the *whole* payload on one bad field — which blanks the
+/// statusline entirely. Rounding is the graceful read.
+///
+/// A value that is not a number becomes `None` rather than an error, for the
+/// same reason: the payload contract is "a missing field falls back, never
+/// panics", and one unreadable figure should cost its own cell, not every row.
+fn lenient_u64<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .or_else(|| number.as_f64().map(|float| float.max(0.0).round() as u64)),
+        _ => None,
+    }))
+}
+
+/// `lenient_u64`'s reading, for a count the caller must always send.
+///
+/// A float rounds and anything unreadable becomes zero, which is the same
+/// trade made above and for the same reason: one figure the caller spelled in
+/// a shape serde dislikes should cost its own cell, not every row.
+fn lenient_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.unwrap_or(0).min(u32::MAX as u64) as u32)
+}
+
+/// `lenient_u32` for a count the caller may leave out.
+fn lenient_opt_u32<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.map(|value| value.min(u32::MAX as u64) as u32))
+}
+
+/// `lenient_u32` for a count that is a length.
+fn lenient_usize<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.unwrap_or(0) as usize)
+}
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct StdinPayload {
@@ -24,6 +76,70 @@ pub struct StdinPayload {
     /// Thinking mode toggle (CC 2.1.119+).
     #[serde(default)]
     pub thinking: Option<ThinkingInfo>,
+    /// Activity handed over by a function-hooks mod, already assembled from
+    /// engine events. Absent on the classic statusline path, where the
+    /// activity is parsed out of the transcript JSONL instead.
+    #[serde(default)]
+    pub activity: Option<ActivityPayload>,
+    /// Environment counts a mod can answer better than a filesystem scan
+    /// can: what actually loaded, not what exists on disk. Each field
+    /// overrides the scan; the ones left out keep the scanned value.
+    #[serde(default)]
+    pub env: Option<EnvOverride>,
+}
+
+/// Per-count overrides for the environment row, all optional so a caller
+/// corrects only what it actually knows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EnvOverride {
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub claude_md_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub rules_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub hooks_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub mcp_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub memory_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub skills_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub plugins_count: Option<u32>,
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
+    pub agents_md_count: Option<u32>,
+}
+
+/// The transcript-derived activity, as a mod supplies it: the serde form of
+/// `providers::TranscriptSnapshot`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActivityPayload {
+    #[serde(default)]
+    pub tools: Vec<ToolSummary>,
+    #[serde(default)]
+    pub completed_counts: Vec<CompletedToolCount>,
+    #[serde(default, deserialize_with = "lenient_u32")]
+    pub completed_total: u32,
+    #[serde(default, deserialize_with = "lenient_u32")]
+    pub failed_total: u32,
+    #[serde(default)]
+    pub agents: Vec<AgentSummary>,
+    #[serde(default)]
+    pub todo: Option<TodoSummary>,
+    #[serde(default, deserialize_with = "lenient_u32")]
+    pub compact_count: u32,
+    #[serde(default, deserialize_with = "lenient_u64")]
+    pub last_api_error_ms: Option<u64>,
+    /// Session-cumulative cache-read tokens, summed by the caller.
+    ///
+    /// Only the transcript path can dedupe per-API-call usage by `message.id`,
+    /// so on the mod path the figure has to arrive already totalled: the mod
+    /// sees `turn.complete`'s usage once per turn and keeps the running sum
+    /// itself. Totalling it here instead would multiply-count, because every
+    /// refresh re-sends the same last-turn usage — twice per refresh when the
+    /// pane is open.
+    #[serde(default, deserialize_with = "lenient_u64")]
+    pub cache_read_total: Option<u64>,
 }
 
 impl StdinPayload {
@@ -97,16 +213,22 @@ pub struct WorkspaceInfo {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ContextWindow {
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub context_window_size: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub used_percentage: Option<u64>,
     pub current_usage: Option<CurrentUsage>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct CurrentUsage {
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub input_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub output_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub cache_read_input_tokens: Option<u64>,
 }
 
@@ -265,21 +387,35 @@ impl Line3Metrics {
     }
 }
 
+/// A tool currently in flight.
+///
+/// `#[serde(default)]` at the struct level is the payload contract stated once:
+/// a missing key falls back, never rejects. A mod assembles this in
+/// TypeScript, and serde rejects the *whole* payload on one unreadable field,
+/// so an omitted key here would blank every statusline row rather than its own
+/// cell.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ToolSummary {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     pub target: Option<String>,
 }
 
+/// Session tally for one tool name. See `ToolSummary` for the struct-level
+/// `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompletedToolCount {
     pub name: String,
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub count: u32,
     #[serde(default)]
     pub last_completed_at: Option<u64>,
     /// Number of times this tool returned an error result (`is_error: true`).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub failed: u32,
 }
 
@@ -308,13 +444,18 @@ pub struct TaskItem {
     pub started_at: Option<u64>,
 }
 
+/// One sub-agent, active or recently completed. See `ToolSummary` for the
+/// struct-level `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AgentSummary {
     pub id: String,
     pub description: String,
     pub agent_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub started_at: Option<u64>,
     pub model: Option<String>,
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub completed_at: Option<u64>,
     /// Anthropic API message ID of the assistant turn that spawned this
     /// agent. Agents sharing this ID belong to one parallel batch (filled
@@ -390,18 +531,27 @@ impl QuotaMetrics {
     }
 }
 
+/// One in-progress todo item. See `ToolSummary` for the struct-level
+/// `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TodoInProgressItem {
     pub text: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u64")]
     pub started_at: Option<u64>,
 }
 
+/// The todo roll-up. See `ToolSummary` for the struct-level `default`
+/// contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TodoSummary {
     pub text: String,
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub pending: usize,
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub completed: usize,
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub total: usize,
     #[serde(default)]
     pub in_progress_items: Vec<TodoInProgressItem>,

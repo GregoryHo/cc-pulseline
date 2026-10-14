@@ -12,3 +12,11 @@ npm-publish/
 
 # Serena MCP cache directory
 .serena/
+
+# The engine rewrites this on every load of the plugin from a --plugin-dir folder.
+.claude-plugin/types/
+
+# Local tool state. `cargo package` picks up untracked files, so an
+# uncommitted one of these would ship to crates.io from a local
+# `cargo publish --allow-dirty`.
+.arcforge/

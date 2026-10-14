@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "pulseline",
-      "description": "Setup and manage the cc-pulseline statusline — install binary, configure display, and diagnose issues",
-      "version": "1.4.0",
+      "description": "cc-pulseline: a multi-line statusline plus an above-the-prompt activity band, with setup commands and diagnostics",
+      "version": "1.5.0",
       "source": ".",
       "category": "productivity"
     }

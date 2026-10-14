@@ -5,5 +5,6 @@ pub mod transcript;
 pub use env::{EnvCollector, EnvSnapshot, FileSystemEnvCollector, StubEnvCollector};
 pub use git::{GitCollector, GitSnapshot, LocalGitCollector, StubGitCollector};
 pub use transcript::{
-    FileTranscriptCollector, StubTranscriptCollector, TranscriptCollector, TranscriptSnapshot,
+    FileTranscriptCollector, PayloadActivityCollector, StubTranscriptCollector,
+    TranscriptCollector, TranscriptSnapshot,
 };

@@ -1,7 +1,16 @@
 {
   "name": "pulseline",
-  "description": "High-performance multi-line statusline for Claude Code with setup commands and diagnostics",
-  "version": "1.4.0",
+  "description": "High-performance statusline and above-the-prompt activity band for Claude Code, with setup commands and diagnostics",
+  "version": "1.5.0",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "binaryPath": {
+      "type": "string",
+      "title": "cc-pulseline binary",
+      "description": "Path to the cc-pulseline binary (1.5.0 or newer). Leave empty to look in the plugin's bin/, ~/.claude/pulseline/, PATH, and the repo's target/release.",
+      "default": ""
+    }
+  },
   "author": {
     "name": "cc-pulseline"
   }

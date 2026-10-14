@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use config::RenderConfig;
 use providers::{
     EnvCollector, EnvSnapshot, FileSystemEnvCollector, FileTranscriptCollector, GitCollector,
-    GitSnapshot, LocalGitCollector, TranscriptCollector, TranscriptSnapshot,
+    GitSnapshot, LocalGitCollector, PayloadActivityCollector, TranscriptCollector,
+    TranscriptSnapshot,
 };
 use state::cache;
 use state::SessionState;
@@ -56,14 +57,24 @@ impl PulseLineRunner {
             }
         }
 
-        let transcript_snapshot = self
-            .transcript_collector
-            .collect_transcript(payload, state, &config);
+        // A mod that hooks the engine's events hands the activity over on the
+        // payload; only the classic statusline path parses the transcript.
+        let transcript_snapshot = if payload.activity.is_some() {
+            PayloadActivityCollector.collect_transcript(payload, state, &config)
+        } else {
+            self.transcript_collector
+                .collect_transcript(payload, state, &config)
+        };
 
         let project_path = payload
             .resolve_project_path()
             .unwrap_or_else(|| "unknown".to_string());
-        let env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
+        let mut env_snapshot = collect_env_snapshot(&self.env_collector, state, &project_path);
+        // A mod knows which of these actually loaded; the scan only knows
+        // which files exist. Correct the counts it answered for.
+        if let Some(over) = payload.env.as_ref() {
+            apply_env_override(&mut env_snapshot, over);
+        }
         let git_snapshot = collect_git_snapshot(&self.git_collector, state, &project_path);
 
         let mut frame =
@@ -121,7 +132,13 @@ impl PulseLineRunner {
         // knob-gated; skip the copy otherwise — tight allocation hot path.
         if config.show_cache_trend {
             frame.cache_history = state.cache_history.iter().copied().collect();
-            frame.cache_read_total = state.cache_read_total;
+            // The mod answers with its own running total; only the transcript
+            // path accumulates into `SessionState`.
+            frame.cache_read_total = payload
+                .activity
+                .as_ref()
+                .and_then(|activity| activity.cache_read_total)
+                .unwrap_or(state.cache_read_total);
         }
 
         let lines = render::layout::render_frame(&frame, &config);
@@ -135,6 +152,25 @@ impl PulseLineRunner {
 
 pub fn run_from_str(input: &str, config: RenderConfig) -> Result<Vec<String>, String> {
     PulseLineRunner::default().run_from_str(input, config)
+}
+
+/// Overwrites each count the caller answered, leaving the rest scanned.
+fn apply_env_override(snapshot: &mut EnvSnapshot, over: &types::EnvOverride) {
+    let fields: [(&mut u32, Option<u32>); 8] = [
+        (&mut snapshot.claude_md_count, over.claude_md_count),
+        (&mut snapshot.rules_count, over.rules_count),
+        (&mut snapshot.hooks_count, over.hooks_count),
+        (&mut snapshot.mcp_count, over.mcp_count),
+        (&mut snapshot.memory_count, over.memory_count),
+        (&mut snapshot.skills_count, over.skills_count),
+        (&mut snapshot.plugins_count, over.plugins_count),
+        (&mut snapshot.agents_md_count, over.agents_md_count),
+    ];
+    for (field, value) in fields {
+        if let Some(value) = value {
+            *field = value;
+        }
+    }
 }
 
 fn collect_env_snapshot(
@@ -217,6 +253,17 @@ fn build_render_frame(
     frame
 }
 
+/// The disk cache's key: `session_id|transcript_path|project_path`.
+///
+/// The transcript path is in it, and a mod sends no `transcript_path` — so the
+/// band and the statusline key *different* cache files even inside one
+/// session, and neither can roll back the other's transcript offset or
+/// accumulated state. Checked, not assumed: one invocation of each with the
+/// same session id and project writes two files.
+///
+/// A caller that sent both `activity` and a `transcript_path` would share one
+/// file with the statusline. Nothing does today; it would need its own
+/// namespace if anything did.
 fn session_key(payload: &StdinPayload) -> String {
     format!(
         "{}|{}|{}",

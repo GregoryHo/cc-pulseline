@@ -513,3 +513,89 @@ fn completed_agent_elapsed_is_fixed() {
         "completed agent should show [done]: got {joined}"
     );
 }
+
+/// A mod spawns the binary twice for one refresh — band and pane — and
+/// parallel tool calls overlap those refreshes. Every one of those processes
+/// shares the session key, so they share the cache file, and they used to
+/// share the staging file the atomic write renames from.
+///
+/// What this case guarantees is the invariant, not the race: a published
+/// cache file is always one whole snapshot, and nothing is left staged. The
+/// interleaving itself did **not** reproduce — 144 process-pairs against the
+/// shared staging name, three runs, no corruption — because a few hundred
+/// bytes go out in one `write` and the kernel does not split it. So the fix
+/// is the staging name made per-process, which is what the architecture
+/// notes' "atomic writes" already claimed, rather than a repair for a
+/// failure seen here.
+#[test]
+fn concurrent_processes_never_publish_a_half_written_cache() {
+    use std::process::{Command, Stdio};
+
+    let workspace = TempDir::new().expect("temp workspace");
+    let temp = TempDir::new().expect("temp dir for the cache");
+    let payload = json!({
+        "session_id": "shared-session",
+        "cwd": workspace.path(),
+        "workspace": {"current_dir": workspace.path()},
+        "model": {"display_name": "Opus"},
+        "version": "2.2.0",
+        "context_window": {"context_window_size": 200_000, "used_percentage": 43},
+    })
+    .to_string();
+
+    // Enough rounds that an interleaving has every chance to show: the window
+    // is one `write` of a few hundred bytes wide.
+    for _ in 0..12 {
+        let children: Vec<_> = (0..4)
+            .map(|_| {
+                let mut child = Command::new(env!("CARGO_BIN_EXE_cc-pulseline"))
+                    .current_dir(workspace.path())
+                    .env("HOME", workspace.path())
+                    .env("USERPROFILE", workspace.path())
+                    .env("TMPDIR", temp.path())
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .spawn()
+                    .expect("the binary starts");
+                child
+                    .stdin
+                    .as_mut()
+                    .expect("stdin is piped")
+                    .write_all(payload.as_bytes())
+                    .expect("the payload is written");
+                child
+            })
+            .collect();
+        for mut child in children {
+            child.wait().expect("the binary exits");
+        }
+
+        for entry in fs::read_dir(temp.path()).expect("the temp dir reads") {
+            let path = entry.expect("the entry reads").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let body = fs::read_to_string(&path).expect("the cache file reads");
+            serde_json::from_str::<serde_json::Value>(&body).unwrap_or_else(|error| {
+                panic!(
+                    "a published cache file must be one whole snapshot, not a mix: {error} in {}",
+                    path.display()
+                )
+            });
+        }
+    }
+
+    // And nothing is left staged: a write that failed to rename must not leave
+    // a file behind in the temp directory for the life of the machine.
+    let staged = fs::read_dir(temp.path())
+        .expect("the temp dir reads")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .path()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".tmp"))
+        })
+        .count();
+    assert_eq!(staged, 0, "no staging files are left behind");
+}
