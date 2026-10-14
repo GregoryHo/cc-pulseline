@@ -45,6 +45,11 @@ export type Recorder = {
   lastPanePayload: () => PayloadShape
   /** Every band payload, parsed, in order — for asserting across refreshes. */
   payloads: () => PayloadShape[]
+  /**
+   * Each candidate the binary ladder probed with `--version`, in order.
+   * Claude Code's own version probe is not one of these.
+   */
+  probes: string[]
   /** Moves the fake clock on, so the 400ms refresh gate opens. */
   advance: (ms: number) => void
 }
@@ -129,6 +134,28 @@ export type BottomOptions = {
    * registering `tool.call` a second time of its own.
    */
   toolResult?: { result?: unknown; isError?: true; isReadOnly?: true }
+  /**
+   * What a probed candidate answers `--version` with.
+   *
+   * A version string means every candidate is a working binary of that
+   * version, so the first rung probed wins. `null` means every candidate
+   * fails, as a missing file does, and the ladder runs out.
+   */
+  binaryVersion?: string | null
+  /**
+   * Candidate paths that answer; every other one fails. Left out, all of
+   * them answer. Use it to make a particular rung the one that hits.
+   */
+  binaryAt?: readonly string[]
+  /**
+   * A version per candidate path, for a ladder whose rungs disagree — which
+   * is the real shape of this machine, where `cargo install` left 1.4.0 on
+   * PATH while the dev build is 1.5.0. Given, a path absent from it fails
+   * as a missing file does.
+   */
+  binaryVersions?: Readonly<Record<string, string | null>>
+  /** What `$.env.get('HOME')` answers, for the installed rung's path. */
+  home?: string
 }
 
 /**
@@ -139,6 +166,7 @@ export type BottomOptions = {
  */
 export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const spawns: Spawn[] = []
+  const probes: string[] = []
   const tick = options.tick ?? 1_000
   let nowMs = options.startMs ?? 1_700_000_000_000
 
@@ -168,22 +196,48 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('agent.list', () => ({ value: options.agents ?? [] }))
   on('tool.list', () => ({ value: options.tools ?? [] }))
   on('process.run', ($, e) => {
+    const argv = [...e.argv]
     const stdin = String(e.init?.stdin ?? '')
-    spawns.push({ argv: [...e.argv], stdin })
-    return {
-      value: {
-        exitCode: 0,
-        // The version probe asks the CLI; every other spawn is the binary.
-        stdout: e.argv[1] === '--version' ? '2.1.296 (Claude Code)' : (options.stdout ?? stdin),
-        stderr: '',
-        isStdoutTruncated: false,
-        isStderrTruncated: false,
-      },
+    spawns.push({ argv, stdin })
+
+    const answer = (exitCode: number, stdout: string) => ({
+      value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+    })
+
+    // Three different spawns reach here. Claude Code's own version probe,
+    // which asks the CLI by name:
+    if (argv[0] === 'claude') return answer(0, '2.1.296 (Claude Code)')
+
+    // The binary ladder, probing one candidate:
+    if (argv[1] === '--version') {
+      const path = argv[0] ?? ''
+      probes.push(path)
+      const version =
+        options.binaryVersions !== undefined
+          ? options.binaryVersions[path]
+          : 'binaryVersion' in options
+            ? options.binaryVersion
+            : '1.5.0'
+      const present = options.binaryAt === undefined || options.binaryAt.includes(path)
+      if (version === null || version === undefined || !present) {
+        // As a missing file does: nothing on stdout and a non-zero status.
+        return answer(127, '')
+      }
+      return answer(0, `cc-pulseline ${version}`)
     }
+
+    // And a real render, which is handed the payload on stdin.
+    return answer(0, options.stdout ?? stdin)
   })
   // The mod pins a status line and logs; nothing beneath answers either by
   // default, and an unanswered one is only dropped, but answering keeps the
   // runner's report clean.
+  // The ladder asks for HOME to build the installed path; Claude Code's own
+  // version probe asks for CLAUDE_CODE_EXECPATH and must not find one, so
+  // that path falls through to asking the CLI.
+  on('env.get', (_engine, e) => ({
+    value: e.name === 'HOME' ? (options.home ?? '/home/under-test') : undefined,
+  }))
   on('ui.status', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   // The pane. Without a `ui.open` beneath, the mod's `command.run` hook
@@ -215,6 +269,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
 
   return {
     spawns,
+    probes,
     lastPayload: () => parse(binaryRuns().at(-1), 'for the band'),
     payloads: () =>
       binaryRuns()

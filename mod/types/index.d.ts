@@ -115,6 +115,20 @@ export type PaneWanted = {
   layout: string
 }
 
+/**
+ * Which binary the mod resolved, and whether it can be used.
+ *
+ * Held rather than recomputed because resolving it means running up to five
+ * candidates: a closure would re-probe the whole ladder on every hot reload.
+ * It is set back to `null` on `classic.ConfigChange`, so a binary installed
+ * or a path configured mid-session is picked up — without that an atom would
+ * keep one bad answer for the life of the session.
+ */
+export type BinaryChoice =
+  | { kind: 'ok'; path: string; version: string; rung: string }
+  | { kind: 'too-old'; path: string; version: string; rung: string }
+  | { kind: 'missing' }
+
 /** The binary's last output, kept so a reload redraws rather than blanks. */
 export type DrawnOutput = {
   rows: Span[][]
@@ -133,6 +147,7 @@ declare module 'claude-code' {
       todo: Todo | null
       pane: PaneWanted
       output: DrawnOutput
+      binary: BinaryChoice | null
     }
   }
 }
