@@ -25,6 +25,34 @@ where
     }))
 }
 
+/// `lenient_u64`'s reading, for a count the caller must always send.
+///
+/// A float rounds and anything unreadable becomes zero, which is the same
+/// trade made above and for the same reason: one figure the caller spelled in
+/// a shape serde dislikes should cost its own cell, not every row.
+fn lenient_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.unwrap_or(0).min(u32::MAX as u64) as u32)
+}
+
+/// `lenient_u32` for a count the caller may leave out.
+fn lenient_opt_u32<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.map(|value| value.min(u32::MAX as u64) as u32))
+}
+
+/// `lenient_u32` for a count that is a length.
+fn lenient_usize<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(lenient_u64(deserializer)?.unwrap_or(0) as usize)
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct StdinPayload {
     pub session_id: Option<String>,
@@ -64,21 +92,21 @@ pub struct StdinPayload {
 /// corrects only what it actually knows.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnvOverride {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub claude_md_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub rules_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub hooks_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub mcp_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub memory_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub skills_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub plugins_count: Option<u32>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_opt_u32")]
     pub agents_md_count: Option<u32>,
 }
 
@@ -90,15 +118,15 @@ pub struct ActivityPayload {
     pub tools: Vec<ToolSummary>,
     #[serde(default)]
     pub completed_counts: Vec<CompletedToolCount>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub completed_total: u32,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub failed_total: u32,
     #[serde(default)]
     pub agents: Vec<AgentSummary>,
     #[serde(default)]
     pub todo: Option<TodoSummary>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub compact_count: u32,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub last_api_error_ms: Option<u64>,
@@ -382,12 +410,12 @@ pub struct ToolSummary {
 #[serde(default)]
 pub struct CompletedToolCount {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub count: u32,
     #[serde(default)]
     pub last_completed_at: Option<u64>,
     /// Number of times this tool returned an error result (`is_error: true`).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_u32")]
     pub failed: u32,
 }
 
@@ -519,11 +547,11 @@ pub struct TodoInProgressItem {
 #[serde(default)]
 pub struct TodoSummary {
     pub text: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub pending: usize,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub completed: usize,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_usize")]
     pub total: usize,
     #[serde(default)]
     pub in_progress_items: Vec<TodoInProgressItem>,

@@ -534,3 +534,112 @@ fn a_payload_without_a_cache_total_falls_back_to_the_session_state() {
         "a missing total stays optional, it does not reject the payload"
     );
 }
+
+#[test]
+fn a_fractional_tool_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 2.4, "failed": 1.6}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional tool count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("Read") && joined.contains('2'),
+        "2.4 calls round to 2: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_completed_total_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // The TOOL row draws the session total, but only once there is a tool to
+    // have a row for — which is how the mod sends it: counts and total together.
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 7}],
+        "completed_total": 7.4,
+        "failed_total": 2.6
+    });
+
+    // `✓ N tools` is the ticker atom's grand-total cell: the one place the
+    // uncapped total is drawn rather than the per-tool counts.
+    let config = RenderConfig {
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        tools_visual: "ticker".to_string(),
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a fractional total must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 tools"),
+        "7.4 completed calls round to 7: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_compaction_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({ "compact_count": 2.6 });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional compaction count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(joined.contains("3"), "2.6 compactions round to 3: {joined}");
+}
+
+#[test]
+fn a_fractional_todo_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth", "pending": 1.4, "completed": 2.4, "total": 3.4}
+    });
+
+    // The ledger's TODO row spells the progress out; the flat layouts show the
+    // in-progress text alone, so the counts have no cell there.
+    let config = RenderConfig {
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a fractional todo count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("2/3 done"),
+        "2.4 of 3.4 tasks round to 2/3: {joined}"
+    );
+}
+
+#[test]
+fn a_fractional_env_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["env"] = json!({"claude_md_count": 7.4, "mcp_count": 2.6});
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional env count must not reject the payload");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("7 CLAUDE.md"),
+        "7.4 CLAUDE.md files round to 7: {joined}"
+    );
+    assert!(
+        joined.contains("3 MCPs"),
+        "2.6 MCP servers round to 3: {joined}"
+    );
+}
