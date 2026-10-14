@@ -207,7 +207,7 @@ field, which the hooks module does not use.
 | Context, cost, rate limits | `$.session.usage()` |
 | Token breakdown | `turn.complete`'s `e.usage` (per turn, not per tick) |
 | Claude Code's version | `claude --version`, probed once. `CLAUDE_CODE_EXECPATH` is tried first and is never there — see below |
-| Effort level | `classic.PostToolUse`'s `e.effort.level` |
+| Effort level | `classic.PostToolUse`'s and `classic.Stop`'s `e.effort.level`. Two hooks because `BaseHookInput.effort` rides only on the hooks that fire "within a tool-use context … absent for session-lifecycle hooks": `PostToolUse` is the frequent one, `Stop` is all a turn with no tool call in it has |
 | Output style | `prompt.compose`'s `e.outputStyle` |
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
 | Compaction count | `classic.PostCompact` — the end that means one happened. `PreCompact` can be blocked (`SessionCompactSkipped`: "Core answers it too, when a classic PreCompact hook blocks"), so counting there raised the badge over a compaction that never ran |
@@ -256,10 +256,19 @@ hook draws.
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
 
 `classic.*` events close what the engine's own events do not: effort rides
-on every classic hook input (except `classic.PreToolUse`, whose argument is
-the tool call envelope), `SubagentStart` / `SubagentStop` give real agent
+on the classic hook inputs that fire within a tool-use context — not
+`classic.PreToolUse`, whose argument is the tool call envelope, and not the
+session-lifecycle ones — `SubagentStart` / `SubagentStop` give real agent
 timings, and `PostCompact` is the compaction the transcript parser counts by
 watching for `compact_boundary` — both fire once one has finished.
+
+Effort has a window nothing closes: a turn's level is unknown until something
+in it finishes, so the first tool of a session's first turn draws without the
+pip ramp, and a level changed mid-turn reaches the band when that turn's
+first tool returns. `turn.start` carries only `text` and `turnId`, no `$`
+call answers effort, and the one event holding the request's own effort is
+`turn.step` — which streams and sits on every model request, so reading it
+is part of the deferred serve-mode work rather than a fix for this.
 
 None of those hooks run in a plugin a person installs where an organization
 manages Claude Code — there they pass over the plugins you install, and only

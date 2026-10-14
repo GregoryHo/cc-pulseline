@@ -1015,6 +1015,17 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 }
 
 /**
+ * Writes the turn's effort level, when the hook that saw it carried one.
+ *
+ * Declared at the top of the file because the loader only lets `$` be passed
+ * to a function declared here — a closure inside `register` is refused, and
+ * the refusal is a module that does not load at all.
+ */
+async function rememberEffort(engine: EngineInterface, level: string | undefined): Promise<void> {
+  if (level) await update(engine, sessionFacts, facts => ({ ...facts, effort: level }))
+}
+
+/**
  * Starts a refresh and does not wait for it, noting a failure on the band.
  *
  * The rule every site follows: await the drawing only where a person is
@@ -1237,13 +1248,32 @@ export const register: Register = (on, options) => {
     }
   }).catch(($, e, next) => next(e))
 
-  // Classic hook inputs carry `effort` on every tool-use-context event, so
-  // one cheap hook closes the gap a streaming `turn.step` hook would have.
-  // `classic.PreToolUse` is the exception: its argument is the tool call
-  // envelope, not the hook input, so the effort rides on PostToolUse.
+  // `BaseHookInput.effort` is carried by the classic hooks that fire "within a
+  // tool-use context (PreToolUse, PostToolUse, Stop, SubagentStop, etc.) …
+  // absent for session-lifecycle hooks". `classic.PreToolUse` is out even so:
+  // its argument is the tool call envelope rather than the hook input.
+  //
+  // So two of them. `PostToolUse` is the frequent one, and `Stop` is what a
+  // turn with no tool calls in it has — the only place such a turn's effort
+  // can be read at all, since `turn.start` carries just `text` and `turnId`
+  // and the one event with the request's own effort is `turn.step`, which
+  // streams and sits on every model request (the deferred serve-mode work).
+  //
+  // What stays wrong, because nothing carries it earlier: the effort of a
+  // turn is unknown until something in it finishes, so the first tool of the
+  // first turn of a session draws without the pip ramp, and a level the
+  // person changes mid-turn reaches the band when that turn's first tool
+  // returns rather than when they changed it.
   on('classic.PostToolUse', async ($, e, next) => {
-    const level = e.effort?.level
-    if (level) await update($, sessionFacts, facts => ({ ...facts, effort: level }))
+    await rememberEffort($, e.effort?.level)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // A turn's end, so a turn that called no tool still records the level. Not
+  // `SubagentStop`, which carries the subagent's own effort rather than the
+  // session's.
+  on('classic.Stop', async ($, e, next) => {
+    await rememberEffort($, e.effort?.level)
     return next(e)
   }).catch(($, e, next) => next(e))
 

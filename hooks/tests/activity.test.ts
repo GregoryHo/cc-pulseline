@@ -526,6 +526,18 @@ describe('classic events', () => {
     expect(seen.lastPayload().effort).toEqual({ level: 'xhigh' })
   })
 
+  test('a turn that called no tool still records its effort', async ($, on) => {
+    const seen = bottom(on)
+    // `BaseHookInput.effort` is carried by the tool-use-context hooks, so a
+    // turn with no tool in it has only its `Stop`. Without that hook the
+    // level a person set in such a turn was never recorded at all.
+    await $.classic.Stop({ stop_hook_active: false, effort: { level: 'max' } })
+    await $.tool.call(call('after-stop'))
+    await seen.settle()
+
+    expect(seen.lastPayload().effort).toEqual({ level: 'max' })
+  })
+
   test('a compaction is counted once it has happened, not once it is asked for', async ($, on) => {
     const seen = bottom(on)
     // `PreCompact` is the wrong end: it can be blocked, and a vetoed or

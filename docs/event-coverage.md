@@ -55,14 +55,17 @@ event equivalent today.
 
 ## What first looked uncovered
 
-Three facts that first looked uncovered are not: **effort** rides on every
-classic hook input (`BaseHookInput.effort`), the **compaction count** is
+Three facts that first looked uncovered are not: **effort** rides on the
+classic hook inputs that fire within a tool-use context
+(`BaseHookInput.effort`, "absent for session-lifecycle hooks"), the
+**compaction count** is
 `classic.PostCompact`, and the **output style** rides on `prompt.compose`'s
 input, which the engine resolves as
 `outputStyle: { name, isKeepingCodingInstructions } | null` at the moment it
 renders a system prompt. The exception is `classic.PreToolUse`, whose
 argument `ClassicEventOf` special-cases to the tool call envelope, so the
-effort is read from `classic.PostToolUse` instead.
+effort is read from `classic.PostToolUse`, and from `classic.Stop` as well —
+a turn that called no tool has only that one.
 
 ## What this adds up to
 

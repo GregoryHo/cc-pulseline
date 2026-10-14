@@ -223,6 +223,8 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // The classic events the mod observes need a bottom of their own; each
   // answers with an empty classic result, which is "nothing to add".
   on('classic.PostToolUse', () => ({}))
+  // A turn's end, where a turn that called no tool carries its effort.
+  on('classic.Stop', () => ({}))
   on('classic.InstructionsLoaded', () => ({}))
   on('classic.ConfigChange', () => ({}))
   on('classic.SubagentStart', () => ({}))
