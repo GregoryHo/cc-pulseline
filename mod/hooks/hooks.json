@@ -1,4 +1,4 @@
 {
   "description": "Stage 0 smoke test: pins a status line, draws the AbovePrompt band, runs the cc-pulseline binary over stdin, and probes which color encoding the band accepts",
-  "modules": ["./register.ts"]
+  "modules": ["./register.tsx"]
 }

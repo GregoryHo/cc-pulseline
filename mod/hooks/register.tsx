@@ -1,4 +1,4 @@
-import type { AgentInfo, EngineInterface, On, SessionUsage, TextProps } from 'claude-code'
+import type { AgentInfo, EngineInterface, Register, SessionUsage, TextProps } from 'claude-code'
 
 import { buildPayload } from './payload'
 import type { ActiveTool, Todo, Tokens, ToolCount } from './payload'
@@ -391,7 +391,7 @@ async function maybeRefresh(
   await refresh(engine, state)
 }
 
-export function register(on: On) {
+export const register: Register = (on, options) => {
   const state: State = {
     cwd: '',
     tokens: null,
@@ -577,7 +577,7 @@ export function register(on: On) {
     // tells us nothing about why.
     if (state.rows.length === 0 && !DEBUG) {
       const { Text } = $.ui.resolve(e)
-      return Text({ children: `pulseline-mod: ${state.runNote}` })
+      return <Text>{`pulseline-mod: ${state.runNote}`}</Text>
     }
 
     state.bandRows = e.props.maxRows
@@ -585,19 +585,28 @@ export function register(on: On) {
     state.bandCols = Math.max(20, e.props.bodyColumns - 2)
 
     const { Box, Text } = $.ui.resolve(e)
-    const notes = DEBUG ? [Text({ children: state.runNote })] : []
+    const notes = DEBUG ? [<Text>{state.runNote}</Text>] : []
     // Clip to what the band shows whole; a taller tree hides behind `n more`.
     const drawn = state.rows.slice(0, Math.max(1, e.props.maxRows - notes.length))
 
-    return Box({
-      flexDirection: 'column',
-      children: [
-        ...notes,
-        ...drawn.map(spans =>
-          Box({ flexDirection: 'row', children: spans.map(span => Text(span)) }),
-        ),
-      ],
-    })
+    return (
+      <Box flexDirection="column">
+        {notes}
+        {drawn.map(spans => (
+          <Box flexDirection="row">
+            {/*
+              A span's text is pulled out of the spread on purpose. `h` takes
+              children as rest arguments and ignores `props.children`, so
+              `<Text {...span} />` compiles and type-checks and then draws the
+              style with no text in it — the row keeps its colours and loses
+              every character. Splitting them emits `h(Text, style, children)`,
+              which is the only form the engine reads.
+            */}
+            {spans.map(({ children, ...style }) => <Text {...style}>{children}</Text>)}
+          </Box>
+        ))}
+      </Box>
+    )
   })
 
   on('command.run', { command: 'pulseline' }, async ($, e, next) => {
@@ -629,31 +638,33 @@ export function register(on: On) {
         ? state.paneRows
         : [[{ children: state.paneNote }], [{ children: state.runNote }]]
 
-    const switcher = Box({
-      flexDirection: 'row',
-      gap: 2,
-      children: LAYOUTS.map((name, index) =>
-        Button({
-          key: `${LAYOUT_KEY}${name}`,
-          label: `${index + 1}: ${name}`,
-          plain: true,
-          dimColor: name !== state.paneLayout,
-          // The press also raises `ui.press`, where the switch is handled:
-          // this handler is its bottom, and it cannot await a re-render.
-          onPress: () => {},
-        }),
-      ),
-    })
+    const switcher = (
+      <Box flexDirection="row" gap={2}>
+        {LAYOUTS.map((name, index) => (
+          <Button
+            key={`${LAYOUT_KEY}${name}`}
+            label={`${index + 1}: ${name}`}
+            plain
+            dimColor={name !== state.paneLayout}
+            // The press also raises `ui.press`, where the switch is handled:
+            // this handler is its bottom, and it cannot await a re-render.
+            onPress={() => {}}
+          />
+        ))}
+      </Box>
+    )
 
-    return Box({
-      flexDirection: 'column',
-      children: [
-        ...drawn.map(spans =>
-          Box({ flexDirection: 'row', children: spans.map(span => Text(span)) }),
-        ),
-        switcher,
-      ],
-    })
+    return (
+      <Box flexDirection="column">
+        {drawn.map(spans => (
+          <Box flexDirection="row">
+            {/* Split for the same reason as the band's rows above. */}
+            {spans.map(({ children, ...style }) => <Text {...style}>{children}</Text>)}
+          </Box>
+        ))}
+        {switcher}
+      </Box>
+    )
   })
 
   on('ui.press', { requestId: PANE_ID }, async ($, e, next) => {
