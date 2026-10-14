@@ -1,5 +1,7 @@
 import type { AgentInfo, SessionUsage } from 'claude-code'
 
+import type { Todo, Tokens, ToolCount } from '../types'
+
 /**
  * The stdin contract between the mod and the cc-pulseline binary.
  *
@@ -10,30 +12,13 @@ import type { AgentInfo, SessionUsage } from 'claude-code'
  * snapshot twice and it returns the same bytes.
  */
 
-/** Turn token counts, kept from the last `turn.complete`. */
-export type Tokens = {
-  input_tokens: number
-  output_tokens: number
-  cache_read_input_tokens: number
-  cache_creation_input_tokens: number
-}
-
-/** One running tool call, keyed by its `tool_use_id`. */
+/**
+ * One running tool call, keyed by its `tool_use_id`.
+ *
+ * Not in the `$.state` contract: running tools live in the module's closure,
+ * since nothing is mid-flight at the moment a reload happens.
+ */
 export type ActiveTool = { id: string; name: string; target?: string }
-
-/** Session totals per tool name, as the completed-counts row shows them. */
-export type ToolCount = { count: number; failed: number }
-
-/** The todo list as the last TodoWrite call left it. */
-export type Todo = {
-  text: string
-  pending: number
-  completed: number
-  total: number
-  in_progress_items: { text: string }[]
-  all_done: boolean
-  is_task_api: boolean
-}
 
 /**
  * Everything one payload is built from: what the engine answered for this
@@ -67,14 +52,22 @@ export type PayloadSnapshot = {
   rulesCount: number
   memoryCount: number
 
-  /** Activity the hooks accumulated. */
+  /**
+   * Activity the hooks accumulated.
+   *
+   * Plain records rather than `Map`s: every one of these but `active` is an
+   * atom value now, and an atom value crosses to the host as JSON. Key order
+   * is insertion order either way, so the rows come out as they did — tool
+   * names are never integer-like, which is the one case where an object
+   * would reorder them.
+   */
   active: ReadonlyMap<string, ActiveTool>
-  counts: ReadonlyMap<string, ToolCount>
+  counts: Readonly<Record<string, ToolCount>>
   completedTotal: number
   failedTotal: number
-  startedAt: ReadonlyMap<string, number>
-  finishedAt: ReadonlyMap<string, number>
-  agentType: ReadonlyMap<string, string>
+  startedAt: Readonly<Record<string, number>>
+  finishedAt: Readonly<Record<string, number>>
+  agentType: Readonly<Record<string, string>>
   compactCount: number
   todo: Todo | null
 }
@@ -139,7 +132,7 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
         name: tool.name,
         target: tool.target ?? null,
       })),
-      completed_counts: [...snapshot.counts.entries()].map(([name, count]) => ({
+      completed_counts: Object.entries(snapshot.counts).map(([name, count]) => ({
         name,
         count: count.count,
         failed: count.failed,
@@ -149,12 +142,12 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
       agents: snapshot.agents.map(agent => ({
         id: agent.id,
         description: agent.description,
-        agent_type: snapshot.agentType.get(agent.id) ?? agent.type,
-        started_at: snapshot.startedAt.get(agent.id) ?? now,
+        agent_type: snapshot.agentType[agent.id] ?? agent.type,
+        started_at: snapshot.startedAt[agent.id] ?? now,
         // A real stop timestamp when SubagentStop gave one; otherwise the
         // status is all there is to go on.
         completed_at:
-          snapshot.finishedAt.get(agent.id) ?? (agent.status === 'running' ? null : now),
+          snapshot.finishedAt[agent.id] ?? (agent.status === 'running' ? null : now),
       })),
       compact_count: snapshot.compactCount,
       todo: snapshot.todo,
