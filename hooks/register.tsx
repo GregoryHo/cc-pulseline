@@ -1029,13 +1029,18 @@ export const register: Register = (on, options) => {
           $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {
           const note = `refresh failed: ${String(error).slice(0, 120)}`
-          await update($, drawnOutput, out => ({ ...out, runNote: note }))
+          // Guarded like the start site's, because this write *is* the place
+          // the failure gets reported: unguarded, a throw here would reach the
+          // backstop below and the note would be lost without a word.
+          await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(
+            () => undefined,
+          )
           $.ui.status(note)
         }
         // Nothing above is awaited by the hook any more, so a throw here would
-        // be a rejection with no handler. The note is best effort and the band
-        // is observational: there is nowhere left to report a failure to
-        // report a failure.
+        // be a rejection with no handler. The band is observational and the
+        // note above has already had its own try: there is nowhere left to
+        // report a failure to report a failure.
       })().catch(() => undefined)
     }
   }).catch(($, e, next) => next(e))
