@@ -1,4 +1,7 @@
-import type { EngineInterface, On, TextProps } from 'claude-code'
+import type { AgentInfo, EngineInterface, On, SessionUsage, TextProps } from 'claude-code'
+
+import { buildPayload } from './payload'
+import type { ActiveTool, Todo, Tokens, ToolCount } from './payload'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -41,14 +44,6 @@ const DEBUG = false
 
 /** One run of text carrying the style the SGR codes before it set. */
 type Span = TextProps & { children: string }
-
-/** Turn token counts, kept from the last `turn.complete`. */
-type Tokens = {
-  input_tokens: number
-  output_tokens: number
-  cache_read_input_tokens: number
-  cache_creation_input_tokens: number
-}
 
 // Built from a char code on purpose: a literal escape in this source
 // does not survive every editor round-trip.
@@ -118,21 +113,13 @@ function spansOf(line: string): Span[] {
   return spans
 }
 
-/** One running tool call, keyed by its `tool_use_id`. */
-type ActiveTool = { id: string; name: string; target?: string }
-
-/** Session totals per tool name, as the completed-counts row shows them. */
-type ToolCount = { count: number; failed: number }
-
-/** The todo list as the last TodoWrite call left it. */
-type Todo = {
-  text: string
-  pending: number
-  completed: number
-  total: number
-  in_progress_items: { text: string }[]
-  all_done: boolean
-  is_task_api: boolean
+/** What one refresh's engine calls answered, kept so a failed one can reuse it. */
+type Collected = {
+  usage: SessionUsage
+  modelId: string
+  sessionId: string
+  agents: readonly AgentInfo[]
+  now: number
 }
 
 /** What the hooks collect between draws. */
@@ -169,6 +156,8 @@ type State = {
   claudeMd: Set<string>
   rules: Set<string>
   memories: Set<string>
+  /** The last reading that came back whole, drawn again when one fails. */
+  lastCollected: Collected | null
 }
 
 /**
@@ -184,26 +173,6 @@ function targetOf(event: Record<string, unknown>): string | undefined {
     if (typeof value === 'string' && value.length > 0) return value.slice(0, 120)
   }
   return undefined
-}
-
-/**
- * Turns a model id into the name the statusline shows.
- *
- * The engine hands out ids (`claude-opus-5[1m]`); the statusline payload
- * that Claude Code itself writes carries a display name, and there is no
- * call for that one, so this rebuilds it.
- */
-function modelName(id: string): string {
-  const isMillion = id.includes('[1m]')
-  const base = id
-    .replace('[1m]', '')
-    .replace(/^claude-/, '')
-    .replace(/-\d{8}$/, '')
-  const words = base
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ')
-  return isMillion ? `${words} (1M context)` : words
 }
 
 /** Folds one TodoWrite call's arguments into the todo row's shape. */
@@ -249,91 +218,98 @@ async function probeVersion(engine: EngineInterface, state: State): Promise<void
 }
 
 /**
- * Builds the payload from the engine, runs the binary, parses its rows.
+ * Asks the engine everything one draw needs, in one round trip.
  *
- * Declared at the top of the file on purpose: the loader only lets `$` be
- * passed to a function declared here, never to a closure inside `register`.
+ * These used to be six sequential awaits in `refresh`, outside any `try`, so
+ * a single engine call failing took the whole draw down to a note. They run
+ * together now and the caller owns the failure.
+ *
+ * It also stamps `lastRunMs` first thing, before anything is awaited on the
+ * engine: the stamp used to come after all six, so two callers could both
+ * clear `maybeRefresh`'s gate and spawn the binary twice.
  */
-async function refresh(engine: EngineInterface, state: State): Promise<void> {
-  const usage = await engine.session.usage()
-  const model = await engine.session.model()
-  const id = await engine.session.id()
-  const agents = await engine.agent.list()
+async function collect(engine: EngineInterface, state: State): Promise<Collected> {
+  const now = await engine.clock.now()
+  state.lastRunMs = now
+
+  const [usage, modelId, sessionId, agents, tools] = await Promise.all([
+    engine.session.usage(),
+    engine.session.model(),
+    engine.session.id(),
+    engine.agent.list(),
+    engine.tool.list(),
+  ])
+
   // Which MCP servers are actually serving tools, as against how many are
   // written down in the settings files.
-  const tools = await engine.tool.list()
   state.mcpServers = new Set(
     tools
       .filter(tool => tool.mcp)
       .map(tool => tool.name.split('__')[1])
       .filter((server): server is string => server !== undefined && server.length > 0),
   )
-  const now = await engine.clock.now()
-  // Effort rides on every classic hook input (see the `classic.PreToolUse`
-  // hook below); `$.env` does not carry it, being Claude Code's own
-  // environment rather than the one it hands to the children it spawns.
-  state.lastRunMs = now
 
-  const limits: Record<string, { used_percentage: number; resets_at: number }> = {}
-  for (const limit of usage.rateLimits) {
-    limits[limit.kind] = {
-      used_percentage: limit.percentUsed,
-      resets_at: limit.resetsAt ? Math.floor(Date.parse(limit.resetsAt) / 1000) : 0,
-    }
+  // An agent the engine lists that no SubagentStart announced starts now,
+  // and stays started then: the stamp has to outlive this draw, or the
+  // agent's age would reset to zero on every row the band draws.
+  for (const agent of agents) {
+    if (!state.startedAt.has(agent.id)) state.startedAt.set(agent.id, now)
   }
 
-  const payload = JSON.stringify({
-    session_id: id,
-    model: { display_name: modelName(model) },
-    version: state.version ?? undefined,
-    effort: state.effort ? { level: state.effort } : undefined,
+  return { usage, modelId, sessionId, agents, now }
+}
+
+/**
+ * Builds the payload from the engine, runs the binary, parses its rows.
+ *
+ * Declared at the top of the file on purpose: the loader only lets `$` be
+ * passed to a function declared here, never to a closure inside `register`.
+ */
+async function refresh(engine: EngineInterface, state: State): Promise<void> {
+  let collected: Collected
+  let stale: string | null = null
+  try {
+    collected = await collect(engine, state)
+    state.lastCollected = collected
+  } catch (error) {
+    // Nothing has ever come back whole: there is no reading to draw, and
+    // spawning the binary with fabricated zeros would draw a lie.
+    if (state.lastCollected === null) {
+      state.runNote = `engine refused — ${String(error).slice(0, 160)}`
+      state.rows = []
+      state.paneRows = []
+      return
+    }
+    collected = state.lastCollected
+    stale = String(error).slice(0, 80)
+  }
+
+  // Effort rides on every classic hook input (see the `classic.PostToolUse`
+  // hook below); `$.env` does not carry it, being Claude Code's own
+  // environment rather than the one it hands to the children it spawns.
+  const payload = buildPayload({
+    sessionId: collected.sessionId,
+    modelId: collected.modelId,
+    usage: collected.usage,
+    agents: collected.agents,
+    now: collected.now,
     cwd: state.cwd,
-    workspace: { current_dir: state.cwd },
-    context_window: {
-      context_window_size: usage.context.window,
-      used_percentage: usage.context.percent,
-      current_usage: state.tokens ?? undefined,
-    },
-    cost: usage.cost ? { total_cost_usd: usage.cost.usd } : undefined,
-    rate_limits: limits,
-    // Only the counts the engine answered for; the rest stay as the
-    // binary's own filesystem scan found them.
-    env: {
-      mcp_count: state.mcpServers.size,
-      claude_md_count: state.claudeMd.size > 0 ? state.claudeMd.size : undefined,
-      rules_count: state.rules.size > 0 ? state.rules.size : undefined,
-      memory_count: state.memories.size > 0 ? state.memories.size : undefined,
-    },
-    activity: {
-      tools: [...state.active.values()].map(tool => ({
-        id: tool.id,
-        name: tool.name,
-        target: tool.target ?? null,
-      })),
-      completed_counts: [...state.counts.entries()].map(([name, count]) => ({
-        name,
-        count: count.count,
-        failed: count.failed,
-      })),
-      completed_total: state.completedTotal,
-      failed_total: state.failedTotal,
-      agents: agents.map(agent => {
-        const startedAt = state.startedAt.get(agent.id) ?? now
-        state.startedAt.set(agent.id, startedAt)
-        return {
-          id: agent.id,
-          description: agent.description,
-          agent_type: state.agentType.get(agent.id) ?? agent.type,
-          started_at: startedAt,
-          // A real stop timestamp when SubagentStop gave one; otherwise the
-          // status is all there is to go on.
-          completed_at:
-            state.finishedAt.get(agent.id) ?? (agent.status === 'running' ? null : now),
-        }
-      }),
-      compact_count: state.compactCount,
-      todo: state.todo,
-    },
+    version: state.version,
+    effort: state.effort,
+    tokens: state.tokens,
+    mcpCount: state.mcpServers.size,
+    claudeMdCount: state.claudeMd.size,
+    rulesCount: state.rules.size,
+    memoryCount: state.memories.size,
+    active: state.active,
+    counts: state.counts,
+    completedTotal: state.completedTotal,
+    failedTotal: state.failedTotal,
+    startedAt: state.startedAt,
+    finishedAt: state.finishedAt,
+    agentType: state.agentType,
+    compactCount: state.compactCount,
+    todo: state.todo,
   })
 
   try {
@@ -357,6 +333,10 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     state.runNote = `run refused — ${String(error).slice(0, 160)}`
     state.rows = []
   }
+
+  // A reading that did not come back is worth saying out loud: the rows
+  // above are the previous one's, and silence would pass them off as live.
+  if (stale !== null) state.runNote = `${state.runNote} · stale: ${stale}`
 
   if (!state.paneOpen) {
     state.paneRows = []
@@ -404,6 +384,10 @@ async function maybeRefresh(
 ): Promise<void> {
   const now = await engine.clock.now()
   if (now - state.lastRunMs < gapMs) return
+  // Claim the window before awaiting anything else, or a second caller
+  // arriving while this one is in `refresh` reads the old stamp and spawns
+  // the binary too. `collect` stamps it again with its own reading.
+  state.lastRunMs = now
   await refresh(engine, state)
 }
 
@@ -438,6 +422,7 @@ export function register(on: On) {
     claudeMd: new Set(),
     rules: new Set(),
     memories: new Set(),
+    lastCollected: null,
   }
 
   on('session.start', async ($, e, next) => {
@@ -535,10 +520,12 @@ export function register(on: On) {
   })
 
   // A settings file changed: re-read rather than wait out the binary's
-  // ten-second environment cache.
+  // ten-second environment cache. Throttled, unlike the other refresh
+  // sites: the rest are once-per-turn or the person's own doing, while one
+  // settings write can raise a burst of these.
   on('classic.ConfigChange', async ($, e, next) => {
     const result = await next(e)
-    await refresh($, state)
+    await maybeRefresh($, state, 400)
     $.ui.invalidate('ui.render')
     return result
   })
