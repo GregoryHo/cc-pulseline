@@ -70,8 +70,12 @@ export type PayloadSnapshot = {
    * is insertion order either way, so the rows come out as they did — tool
    * names are never integer-like, which is the one case where an object
    * would reorder them.
+   *
+   * `active` is a list, and a copy: `refresh` takes it when it starts, so a
+   * tool that finishes while the draw is still gathering cannot be drawn as
+   * running by it, nor lost from the draw it was started for.
    */
-  active: ReadonlyMap<string, ActiveTool>
+  active: readonly ActiveTool[]
   counts: Readonly<Record<string, ToolCount>>
   completedTotal: number
   failedTotal: number
@@ -145,7 +149,7 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
       memory_count: snapshot.memoryCount > 0 ? snapshot.memoryCount : undefined,
     },
     activity: {
-      tools: [...snapshot.active.values()].map(tool => ({
+      tools: snapshot.active.map(tool => ({
         id: tool.id,
         name: tool.name,
         target: tool.target ?? null,

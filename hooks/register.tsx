@@ -522,17 +522,18 @@ async function rememberTodoCall(
 }
 
 /**
- * Applies one change to the task items and rewrites the todo row from the
- * result.
+ * Applies one change to the task items. One write, and the only one.
  *
- * Two writes rather than one because the row is a fold over every item while
- * an update names a single id — and they are two atoms because `todo` is the
- * payload's own shape, which the items are not. Task events are a handful per
- * turn, so the second round trip is not on any hot path.
+ * It used to fold the result into the `todo` atom as a second write, and two
+ * task calls in flight together could interleave: both commit their items
+ * correctly, then the one that committed the *older* snapshot writes its fold
+ * last and the row drops or reopens a task until some later task event
+ * rebuilt it. The row is a fold over every item, so it is derived where it is
+ * drawn instead — `refresh` folds whatever the items atom holds at that
+ * moment, which is always the committed state.
  */
 async function rebuildTodo($: EngineInterface, change: (held: Tasks) => Tasks): Promise<void> {
-  const next = await update($, taskItems, change)
-  await update($, todoList, () => todoFromTasks(next.items))
+  await update($, taskItems, change)
 }
 
 /** Folds one TodoWrite call's arguments into the todo row's shape. */
@@ -829,6 +830,13 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // reading can replace a newer one and leave a finished tool drawn as
   // running until the next event.
   const seq = (state.runSeq += 1)
+  // The running list as it is *now*, not as it will be when the payload is
+  // built: between here and there are a binary probe, a root read and seven
+  // engine calls, and a tool that finishes in that window is deleted from
+  // `state.active` by its own hook. Read late, this refresh would either
+  // lose the tool it was started to draw, or — from another event's refresh
+  // — serialise a tool that had already finished as still running.
+  const running = [...state.active.values()]
   const publish = async (change: (out: DrawnOutput) => DrawnOutput): Promise<void> => {
     if (seq !== state.runSeq) return
     // Checked again *inside* the change, because `update` is a read-apply-write
@@ -880,15 +888,23 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 
   // One read per atom the payload is built from. `collect` has already made
   // its own writes, so these are the values the payload goes on to describe.
-  const [facts, totals, timings, loaded, todo, pane, held] = await Promise.all([
+  const [facts, totals, timings, loaded, written, tasks, pane, held] = await Promise.all([
     read(engine, sessionFacts),
     read(engine, toolTotals),
     read(engine, agentTimings),
     read(engine, instructions),
     read(engine, todoList),
+    read(engine, taskItems),
     read(engine, paneWanted),
     read(engine, drawnOutput),
   ])
+
+  // The Task API's row is folded here rather than written beside each change,
+  // so it is always the committed items and never an older snapshot's fold.
+  // Tasks win while any exist, because `todoFromTasks` answers `null` when
+  // none do — which is also how a session that only ever calls `TodoWrite`
+  // keeps its own row.
+  const todo = todoFromTasks(tasks.items) ?? written
 
   // Effort rides on every classic hook input (see the `classic.PostToolUse`
   // hook below); `$.env` does not carry it, being Claude Code's own
@@ -911,7 +927,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     agentsMdCount: loaded.agentsMd.length,
     rulesCount: loaded.rules.length,
     memoryCount: loaded.memories.length,
-    active: state.active,
+    active: running,
     counts: totals.counts,
     completedTotal: totals.completedTotal,
     failedTotal: totals.failedTotal,
@@ -945,7 +961,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       .map(spansOf)
     runNote =
       run.exitCode === 0
-        ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${state.active.size} running · ${totals.completedTotal} done · ${paneNote}`
+        ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${running.length} running · ${totals.completedTotal} done · ${paneNote}`
         : `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`
   } catch (error) {
     runNote = `run refused — ${noteText(String(error)).slice(0, 160)}`
@@ -1158,7 +1174,13 @@ export const register: Register = (on, options) => {
       // refresh has written `binaryChoice` before this one reads it.
       void (async () => {
         try {
-          if (drawing !== null) await drawing
+          // Bookkeeping first, and not behind the start's draw. Held there,
+          // this tool stayed in `state.active` for as long as that draw took
+          // — and any other refresh in that window, the turn ending or the
+          // next tool starting, drew it as still running. With a slow binary
+          // and the pane's second render that phantom lasted seconds.
+          // `refresh` takes its own snapshot of the list when it starts, so
+          // the start's draw already holds what it was started to draw.
           state.active.delete(id)
           // The count lands before the refresh, and in its own write: an
           // overrun inside `update` must not cost this tool its place in the
@@ -1186,6 +1208,11 @@ export const register: Register = (on, options) => {
           // later event reopened the window — and between two bursts inside one
           // turn that is seconds of a phantom running tool. One spawn per
           // completion is the price, and the spawn floor is under 3ms.
+          //
+          // Chained behind the start's draw even so: run together, both would
+          // walk the binary ladder before either had written its answer, and
+          // two of the probing cases say so in exact numbers.
+          if (drawing !== null) await drawing
           await refresh($, state)
           $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {

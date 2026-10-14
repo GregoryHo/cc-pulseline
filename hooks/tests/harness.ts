@@ -147,6 +147,12 @@ export type BottomOptions = {
   startMs?: number
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
   stdout?: string
+  /**
+   * Milliseconds a render waits on the clock before answering, so a case can
+   * hold a draw open and see what the rest of the mod does meanwhile. The
+   * spawn is recorded as it is made, before the wait.
+   */
+  renderDelayMs?: number
   /** Exit code the stand-in binary answers a render with; 0 when not given. */
   exitCode?: number
   /** What the stand-in binary writes to stderr on a render. */
@@ -246,7 +252,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('session.id', () => ({ value: options.sessionId ?? 'session-under-test' }))
   on('agent.list', () => ({ value: options.agents ?? [] }))
   on('tool.list', () => ({ value: options.tools ?? [] }))
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     const argv = [...e.argv]
     const stdin = String(e.init?.stdin ?? '')
     spawns.push({ argv, stdin })
@@ -278,6 +284,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     }
 
     // And a real render, which is handed the payload on stdin.
+    if (options.renderDelayMs !== undefined) await clock.sleep(options.renderDelayMs)
     if (options.exitCode !== undefined && options.exitCode !== 0) {
       return {
         value: {

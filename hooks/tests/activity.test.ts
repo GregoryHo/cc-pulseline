@@ -71,6 +71,40 @@ describe('tool calls', () => {
     expect(draws()).toBeGreaterThan(atReturn)
   })
 
+  test('a finished tool is out of the running list before its draw settles', async ($, on) => {
+    // The binary holds its answer, so the draw started for this tool is still
+    // in flight when the tool itself is done.
+    const seen = bottom(on, { renderDelayMs: 5_000 })
+    const runningIn = () =>
+      seen
+        .payloads()
+        .map(payload => (payload.activity?.tools ?? []).map(tool => tool.id))
+        .filter(ids => ids.includes('slow')).length
+
+    // Not awaited: the hook returns the moment the tool does.
+    const call = $.tool.call({ tool: 'Read', tool_use_id: 'slow', file_path: '/n/slow' })
+    await seen.settle()
+
+    // Another event draws in that window. Its payload is built from the list
+    // as it stands now, and the tool has finished — so it must not carry it.
+    await $.turn.complete({
+      reason: 'answer',
+      answer: '',
+      durationMs: 1,
+      isAborted: false,
+      turnId: 'meanwhile',
+    })
+    await seen.settle()
+    await seen.advance(10_000)
+    await seen.settle()
+    await call
+
+    // Exactly once: by the draw that was started for it. Done after the
+    // draw, the delete left it in `state.active` for as long as the binary
+    // took, and every refresh in that window drew a tool that had finished.
+    expect(runningIn()).toBe(1)
+  })
+
   test('a tool that starts inside the refresh gate is still drawn', async ($, on) => {
     // The clock stands still unless a case moves it, and that is what closes
     // the 400ms window: the previous tool's own completion refresh stamped it
@@ -387,6 +421,29 @@ describe('the Task API', () => {
     // and, when the id was a local count rather than the engine's, every
     // later update would address the phantom instead of the real task.
     expect(seen.lastPayload().activity?.todo).toBeNull()
+  })
+
+  test('two task calls in flight together both reach the row', async ($, on) => {
+    const seen = bottom(on)
+    // Issued together, as the model issues a block of calls. The row used to
+    // be a second write built from each call's own return value, so whichever
+    // committed the older snapshot wrote its fold last and the other task
+    // vanished from the row until some later task event rebuilt it.
+    //
+    // This case does not reproduce that interleaving — the host schedules the
+    // two `update` pairs in order, and nothing here can make it do otherwise,
+    // so it passes against the old shape too. It is here for the outcome, not
+    // as proof: the row is a fold over the committed items now, computed where
+    // it is drawn, so there is no second write left to land out of order.
+    await Promise.all([
+      $.tool.call({ tool: 'TaskCreate', tool_use_id: 'p1', subject: 'One', description: 'First' }),
+      $.tool.call({ tool: 'TaskCreate', tool_use_id: 'p2', subject: 'Two', description: 'Second' }),
+    ])
+    await seen.settle()
+
+    const todo = seen.lastPayload().activity?.todo
+    expect(todo?.total).toBe(2)
+    expect(todo?.pending).toBe(2)
   })
 
   test('a TaskUpdate carrying no status leaves the status alone', async ($, on) => {

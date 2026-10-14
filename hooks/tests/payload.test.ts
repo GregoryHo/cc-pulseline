@@ -38,7 +38,7 @@ const BASE: PayloadSnapshot = {
   agentsMdCount: 0,
   rulesCount: 0,
   memoryCount: 0,
-  active: new Map(),
+  active: [],
   counts: {},
   completedTotal: 0,
   failedTotal: 0,
@@ -130,10 +130,10 @@ describe('buildPayload', () => {
 
   test('running tools keep their order and null their missing target', () => {
     const payload = built({
-      active: new Map([
-        ['t1', { id: 't1', name: 'Read', target: '/work/src/main.rs' }],
-        ['t2', { id: 't2', name: 'Bash', target: undefined }],
-      ]),
+      active: [
+        { id: 't1', name: 'Read', target: '/work/src/main.rs' },
+        { id: 't2', name: 'Bash', target: undefined },
+      ],
     })
     expect(payload.activity?.tools).toEqual([
       { id: 't1', name: 'Read', target: '/work/src/main.rs' },
