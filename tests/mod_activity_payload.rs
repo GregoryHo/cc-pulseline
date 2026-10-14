@@ -187,6 +187,30 @@ fn a_fractional_context_percentage_rounds_instead_of_failing() {
 }
 
 #[test]
+fn a_fractional_token_count_rounds_instead_of_failing() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // Every producer today increments an integer, so a float here is
+    // defensive — but one unreadable figure must cost its own cell, not the
+    // whole payload, exactly as for `used_percentage`.
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "used_percentage": 43,
+        "current_usage": {"input_tokens": 10.6, "output_tokens": 20}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a fractional token count must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("I:11"),
+        "10.6 input tokens round to 11: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
 fn a_context_window_without_a_percentage_still_renders() {
     let workspace = TempDir::new().expect("temp workspace");
     let mut payload = base_payload(&workspace);
@@ -197,4 +221,145 @@ fn a_context_window_without_a_percentage_still_renders() {
         .expect("a missing percentage must stay optional");
 
     assert!(!lines.is_empty(), "the identity line still renders");
+}
+
+// --- A missing key must cost its own cell, never the whole payload. -------
+//
+// serde rejects the *entire* stdin JSON on one unreadable field, which blanks
+// every statusline row. A mod assembles the payload in TypeScript, so a scalar
+// it leaves out has to fall back instead. One test per hardened field, so a
+// regression names the field that broke.
+
+#[test]
+fn a_completed_count_without_count_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read"}, {"name": "Bash", "count": 3}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `count` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the well-formed sibling proves the activity was parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_completed_count_without_failed_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"name": "Read", "count": 12}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `failed` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the completed count still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_pending_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "completed": 1, "total": 3}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `pending` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_completed_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "pending": 2, "total": 3}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `completed` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_total_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"text": "Fixing auth bug", "pending": 2, "completed": 1}
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `total` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Fixing auth bug"),
+        "the todo row still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_running_tool_without_id_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "tools": [{"name": "Bash", "target": "cargo test"}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `id` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the running tool still renders: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_running_tool_without_name_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "tools": [{"id": "t1", "target": "cargo test"}],
+        "completed_counts": [{"name": "Read", "count": 4}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `name` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the rest of the activity still renders: {}",
+        lines.join("\n")
+    );
 }
