@@ -11,7 +11,7 @@ homepage = "https://github.com/GregoryHo/cc-pulseline"
 readme = "README.md"
 keywords = ["claude", "statusline", "claude-code", "cli", "observability"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = [".claude/", ".claude-plugin/", ".serena/", ".github/", "tests/fixtures/", "scripts/", "npm/", "docs/", "benches/", "commands/", "skills/", "mod/"]
+exclude = [".claude/", ".claude-plugin/", ".serena/", ".github/", "tests/fixtures/", "scripts/", "npm/", "docs/", "benches/", "commands/", "skills/", "hooks/", "types/", "tsconfig.json"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

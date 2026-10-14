@@ -153,7 +153,7 @@ export type DrawnOutput = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'pulseline-mod': {
+    'pulseline': {
       session: SessionFacts
       tools: ToolTotals
       agents: AgentTimings

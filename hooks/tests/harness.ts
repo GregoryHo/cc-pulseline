@@ -293,7 +293,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
 
 /** The `AbovePrompt` band's props, with room for four rows. */
 export const BAND = {
-  plugin: 'pulseline-mod',
+  plugin: 'pulseline',
   surface: 'terminal',
   component: 'AbovePrompt',
   props: {
@@ -308,7 +308,7 @@ export const BAND = {
 
 /** The pane's props, at the twelve rows `$.ui.open` asks for. */
 export const PANE = {
-  plugin: 'pulseline-mod',
+  plugin: 'pulseline',
   surface: 'terminal',
   component: 'Pane',
   requestId: 'pulseline',

@@ -8,7 +8,7 @@ import {
   missingMessage,
   parseVersion,
   tooOldMessage,
-} from '../hooks/binary'
+} from '../binary'
 import { BAND, bottom } from './harness'
 
 /**
@@ -21,7 +21,7 @@ import { BAND, bottom } from './harness'
  */
 
 const WHERE = {
-  pluginRoot: '/plugins/pulseline-mod',
+  pluginRoot: '/plugins/pulseline',
   home: '/home/me',
   cwd: '/work/cc-pulseline',
 }
@@ -38,7 +38,7 @@ describe('the ladder', () => {
     ])
     expect(ladder.map(rung => rung.path)).toEqual([
       '/custom/cc-pulseline',
-      '/plugins/pulseline-mod/bin/cc-pulseline',
+      '/plugins/pulseline/bin/cc-pulseline',
       '/home/me/.claude/pulseline/cc-pulseline',
       'cc-pulseline',
       '/work/cc-pulseline/target/release/cc-pulseline',

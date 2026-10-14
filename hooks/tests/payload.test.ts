@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { buildPayload, modelName } from '../hooks/payload'
-import type { PayloadSnapshot } from '../hooks/payload'
+import { buildPayload, modelName } from '../payload'
+import type { PayloadSnapshot } from '../payload'
 
 import type { PayloadShape } from './harness'
 

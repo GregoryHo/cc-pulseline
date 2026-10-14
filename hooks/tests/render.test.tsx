@@ -128,7 +128,7 @@ describe('the band', () => {
     const ui = await $.ui.mount(BAND)
 
     const text = await ui.find({ type: 'Text' })
-    expect(text?.text).toContain('pulseline-mod:')
+    expect(text?.text).toContain('pulseline:')
 
     await ui.unmount()
   })

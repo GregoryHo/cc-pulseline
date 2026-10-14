@@ -75,7 +75,7 @@ const DEBUG = false
  * lists every `$.state` key and holds it to the contract in `../types`, and
  * only a family member's `id` may be computed.
  */
-const sessionFacts = atom({ plugin: 'pulseline-mod', key: 'session' } as const, {
+const sessionFacts = atom({ plugin: 'pulseline', key: 'session' } as const, {
   cwd: '',
   version: null,
   effort: null,
@@ -86,28 +86,28 @@ const sessionFacts = atom({ plugin: 'pulseline-mod', key: 'session' } as const, 
   cacheReadTotal: 0,
 })
 
-const toolTotals = atom({ plugin: 'pulseline-mod', key: 'tools' } as const, {
+const toolTotals = atom({ plugin: 'pulseline', key: 'tools' } as const, {
   counts: {},
   completedTotal: 0,
   failedTotal: 0,
 })
 
-const agentTimings = atom({ plugin: 'pulseline-mod', key: 'agents' } as const, {
+const agentTimings = atom({ plugin: 'pulseline', key: 'agents' } as const, {
   startedAt: {},
   finishedAt: {},
   agentType: {},
 })
 
-const instructions = atom({ plugin: 'pulseline-mod', key: 'instructions' } as const, {
+const instructions = atom({ plugin: 'pulseline', key: 'instructions' } as const, {
   claudeMd: [],
   rules: [],
   memories: [],
 })
 
-const todoList = atom({ plugin: 'pulseline-mod', key: 'todo' } as const, null)
+const todoList = atom({ plugin: 'pulseline', key: 'todo' } as const, null)
 
 /** The person's own pane choices: a reload must not close it or reset it. */
-const paneWanted = atom({ plugin: 'pulseline-mod', key: 'pane' } as const, {
+const paneWanted = atom({ plugin: 'pulseline', key: 'pane' } as const, {
   open: false,
   layout: 'ledger',
 })
@@ -126,9 +126,9 @@ const paneWanted = atom({ plugin: 'pulseline-mod', key: 'pane' } as const, {
  * Cleared on `classic.ConfigChange`, so configuring the path or installing
  * the binary mid-session takes effect without restarting.
  */
-const binaryChoice = atom({ plugin: 'pulseline-mod', key: 'binary' } as const, null)
+const binaryChoice = atom({ plugin: 'pulseline', key: 'binary' } as const, null)
 
-const drawnOutput = atom({ plugin: 'pulseline-mod', key: 'output' } as const, {
+const drawnOutput = atom({ plugin: 'pulseline', key: 'output' } as const, {
   rows: [],
   paneRows: [],
   runNote: 'binary: not run yet',
@@ -843,7 +843,7 @@ export const register: Register = (on, options) => {
     // tells us nothing about why.
     if (held.rows.length === 0 && !DEBUG) {
       const { Text } = $.ui.resolve(e)
-      return <Text>{`pulseline-mod: ${held.runNote}`}</Text>
+      return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
     state.bandRows = e.props.maxRows

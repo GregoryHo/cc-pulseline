@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { shouldRefresh } from '../hooks/throttle'
+import { shouldRefresh } from '../throttle'
 
 /**
  * The refresh gate, tested as arithmetic rather than as timing.

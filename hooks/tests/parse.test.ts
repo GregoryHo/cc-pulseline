@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { ansi256Hex, spansOf, targetOf } from '../hooks/register'
+import { ansi256Hex, spansOf, targetOf } from '../register'
 
 /**
  * The three pure readers in the hooks module.
