@@ -126,3 +126,23 @@ fn an_unparseable_value_leaves_the_config_alone() {
         "a bad flag value must not kill the render"
     );
 }
+
+#[test]
+fn layout_also_selects_that_layout_s_visual_defaults() {
+    // `--layout` has to be applied before the config is built. Every
+    // `*_visual` field the caller left empty — which is every one of them in a
+    // default config — is resolved against the layout name once and written in
+    // as a concrete string, so an override applied to `pane_style` afterwards
+    // drew the new layout with the old layout's widget choices. The ledger's
+    // own CTX default is `text+sparkline`; `none`'s is `text`.
+    let ledger = render(&["--rows", "14", "--columns", "100", "--layout", "ledger"]);
+    let ctx = ledger
+        .iter()
+        .find(|line| line.contains("CTX"))
+        .expect("the ledger labels a CTX row");
+
+    assert!(
+        ctx.chars().any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+        "the ledger's CTX row carries its braille sparkline: {ctx}"
+    );
+}

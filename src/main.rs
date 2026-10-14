@@ -141,7 +141,21 @@ fn main() {
     };
 
     let project_root = payload.resolve_project_path();
-    let pulseline_config = load_merged_config(project_root.as_deref());
+    let mut pulseline_config = load_merged_config(project_root.as_deref());
+
+    // `--layout` is applied here, before the config is built, rather than to
+    // `render_config.pane_style` after. `build_render_config` reads the layout
+    // name once and resolves every `*_visual` field a caller left empty
+    // against *that* layout's defaults, writing the concrete string in — so an
+    // override applied afterwards changed which layout drew and left it
+    // drawing with the configured layout's widget choices. The default config
+    // leaves the visuals empty, so `--layout ledger` on it drew the ledger
+    // with `none`'s defaults, losing the ledger's own CTX sparkline. Setting
+    // the name first makes one source of truth of it.
+    if let Some(name) = string_flag(&args, "--layout") {
+        pulseline_config.layout.name = name;
+    }
+
     let mut render_config = build_render_config(&pulseline_config);
 
     // A caller that owns the box it draws into — a function-hooks mod
@@ -153,9 +167,6 @@ fn main() {
     }
     if let Some(rows) = numeric_flag(&args, "--rows") {
         render_config.max_total_lines = Some(rows);
-    }
-    if let Some(name) = string_flag(&args, "--layout") {
-        render_config.pane_style = cc_pulseline::config::parse_layout_name(&name);
     }
 
     let lines = match PulseLineRunner::default().run_from_payload(&payload, render_config) {
