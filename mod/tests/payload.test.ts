@@ -31,6 +31,7 @@ const BASE: PayloadSnapshot = {
   effort: null,
   outputStyle: null,
   lastApiErrorMs: null,
+  cacheReadTotal: 0,
   tokens: null,
   mcpCount: 0,
   claudeMdCount: 0,

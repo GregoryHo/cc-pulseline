@@ -86,6 +86,20 @@ export type SessionFacts = {
    * stale one cannot light the badge.
    */
   lastApiErrorMs: number | null
+  /**
+   * Cache-read tokens summed over the session, for the ledger's CACHE row.
+   *
+   * The mod has to total this itself. The binary cannot: only the transcript
+   * path can dedupe per-API-call usage by `message.id`, and every refresh
+   * re-sends the same last-turn usage as `current_usage` — twice over when
+   * the pane is open — so accumulating there would multiply-count.
+   *
+   * Not reset on compaction, deliberately. The transcript path keeps it
+   * across `compact_boundary` and clears only the trend window
+   * (`providers/transcript.rs`), and the row claims a session total, so
+   * resetting here would make the two paths disagree.
+   */
+  cacheReadTotal: number
 }
 
 /** What the tool-call hook has counted this session. */

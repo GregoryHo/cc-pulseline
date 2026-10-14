@@ -174,6 +174,48 @@ describe('classic events', () => {
     expect(agent?.completed_at).toBeGreaterThan(agent?.started_at ?? 0)
   })
 
+  test('the cache-read total is summed over turns, not replaced', async ($, on) => {
+    const seen = bottom(on)
+    const turn = (cacheRead: number) =>
+      $.turn.complete({
+        reason: 'answer',
+        answer: '',
+        durationMs: 1,
+        isAborted: false,
+        turnId: `t-${cacheRead}`,
+        usage: {
+          input_tokens: 10,
+          output_tokens: 20,
+          cache_read_input_tokens: cacheRead,
+          cache_creation_input_tokens: 5,
+          model: 'claude-opus-5[1m]',
+        },
+      })
+
+    await turn(1_000_000)
+    await turn(3_400_000)
+
+    // The whole bug class in one assertion: the binary cannot total this
+    // itself, because every refresh re-sends the same last-turn usage, so a
+    // payload carrying 3_400_000 would be the last value rather than the sum.
+    expect(seen.lastPayload().activity?.cache_read_total).toBe(4_400_000)
+  })
+
+  test('a turn with no usage leaves the cache-read total alone', async ($, on) => {
+    const seen = bottom(on)
+    await $.turn.complete({
+      reason: 'aborted',
+      answer: '',
+      durationMs: 1,
+      isAborted: true,
+      turnId: 't-none',
+    })
+
+    // Nothing read, so the field is left out and the binary keeps its own
+    // figure rather than being told the session read zero.
+    expect(seen.lastPayload().activity?.cache_read_total).toBeUndefined()
+  })
+
   test('a settings change refreshes without waiting out the binary cache', async ($, on) => {
     const seen = bottom(on)
     const before = seen.spawns.length
