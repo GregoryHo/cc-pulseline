@@ -2,6 +2,7 @@
   "name": "pulseline-mod",
   "version": "0.0.1",
   "description": "Experimental spike: draws cc-pulseline above the prompt from function-hook events instead of the statusline hook",
+  "types": "./types/index.d.ts",
   "author": {
     "name": "Gregory Ho"
   }
