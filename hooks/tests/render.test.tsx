@@ -233,6 +233,23 @@ describe('the pane', () => {
     await ui.unmount()
   })
 
+  test('opening the pane runs the binary again once the pane is placed', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS })
+    await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+
+    // Two runs, not one: the first fills the rows so the pane never opens
+    // empty, and the second is the one sized to the box the pane was drawn
+    // into — `ui.open` resolves once drawn, so a live surface has measured it
+    // by then. Without it the pane keeps the initial 12x120 rows until some
+    // later tool call or press happens to refresh it.
+    //
+    // What this case pins is that the second run happens when the pane was
+    // placed. The box it carries is the next case's: here nothing has drawn
+    // the pane yet, because the kit draws only on `ui.mount`.
+    const paneRuns = seen.spawns.filter(run => run.argv.includes('--layout')).length
+    expect(paneRuns).toBe(2)
+  })
+
   test('the /pulseline toggle stops the pane spawn', async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS })
     const layoutRuns = () => seen.spawns.filter(run => run.argv.includes('--layout')).length

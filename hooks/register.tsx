@@ -1024,7 +1024,17 @@ export const register: Register = (on, options) => {
     // write, which is not worth running.
     await update($, paneWanted, pane => ({ ...pane, open: true }))
     await refresh($, state)
-    await $.ui.open({ id: PANE_ID, title: 'pulseline', rows: 12, closeOnEscape: true })
+    const opened = await $.ui.open({ id: PANE_ID, title: 'pulseline', rows: 12, closeOnEscape: true })
+    // `ui.open` resolves once the pane has been drawn, so by here the render
+    // hook has run and the closure holds the box the surface actually gave —
+    // rarely the 12x120 the refresh above was sized for. A second run puts
+    // rows of the right width and count in before anyone looks.
+    //
+    // The render hook cannot do this itself: `$.state.set` is refused while a
+    // drawing is in flight, which is why the geometry lives in the closure in
+    // the first place. Nothing is drawn when the pane was not placed, so the
+    // second run would have nothing to measure against.
+    if (opened.isPlaced) await refresh($, state)
     return { text: undefined }
   })
 
