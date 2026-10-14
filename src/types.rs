@@ -102,6 +102,16 @@ pub struct ActivityPayload {
     pub compact_count: u32,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub last_api_error_ms: Option<u64>,
+    /// Session-cumulative cache-read tokens, summed by the caller.
+    ///
+    /// Only the transcript path can dedupe per-API-call usage by `message.id`,
+    /// so on the mod path the figure has to arrive already totalled: the mod
+    /// sees `turn.complete`'s usage once per turn and keeps the running sum
+    /// itself. Totalling it here instead would multiply-count, because every
+    /// refresh re-sends the same last-turn usage — twice per refresh when the
+    /// pane is open.
+    #[serde(default, deserialize_with = "lenient_u64")]
+    pub cache_read_total: Option<u64>,
 }
 
 impl StdinPayload {

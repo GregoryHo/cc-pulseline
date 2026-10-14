@@ -484,3 +484,53 @@ fn a_todo_item_without_text_still_renders() {
         lines.join("\n")
     );
 }
+
+#[test]
+fn the_payload_answers_the_cumulative_cache_read_total() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    // Only the transcript path can dedupe per-API-call usage by `message.id`,
+    // so the mod keeps the running sum itself and answers with the total.
+    payload["activity"] = json!({ "cache_read_total": 4_400_000u64 });
+    payload["context_window"] = json!({
+        "context_window_size": 200_000,
+        "current_usage": {"cache_read_input_tokens": 418_000}
+    });
+
+    // The `read total` cell is the ledger's CACHE row; the flat layouts show
+    // only the hit-rate sparkline, so the figure has nowhere to appear there.
+    let config = RenderConfig {
+        show_cache_trend: true,
+        pane_style: cc_pulseline::render::pane::LayoutStyle::Ledger,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("render should succeed");
+    let joined = lines.join("\n");
+
+    assert!(
+        joined.contains("4.4M"),
+        "the payload's total wins over the uncounted session state: {joined}"
+    );
+}
+
+#[test]
+fn a_payload_without_a_cache_total_falls_back_to_the_session_state() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({});
+
+    let config = RenderConfig {
+        show_cache_trend: true,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("render should succeed");
+
+    assert!(
+        !lines.is_empty(),
+        "a missing total stays optional, it does not reject the payload"
+    );
+}
