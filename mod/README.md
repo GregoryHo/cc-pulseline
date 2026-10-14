@@ -101,12 +101,15 @@ mod/hooks/payload.ts(1,46): error TS2307: Cannot find module 'claude-code' …
 
 Two ways to get it:
 
-1. **Run the mod once** — the better option. `claude --plugin-dir mod` in
-   an interactive session; the engine lays
-   `mod/.claude-plugin/types/claude-code/index.d.ts` beside the mod as it
-   loads it, and per its own header the built-in tools
+1. **Run the mod once** — the better option, if it works. `claude
+   --plugin-dir mod` in an interactive session; the contract's own header
+   says the engine lays
+   `mod/.claude-plugin/types/claude-code/index.d.ts` beside the mod each
+   time it loads it from a folder you own, with the built-in tools
    (`claude-code-tools/`) and the connected MCP tools (`claude-code-mcp/`)
-   with it.
+   next to it. That is quoted from the header, not something this repo has
+   watched happen — every contract here so far has been laid by hand, so
+   if it does not appear, use option 2 and say so.
 2. **Copy it by hand**, which is enough for `tsc` and no more. The bundled
    `plugin-authoring` skill writes the same API contract for the running
    build at `<skill>/types/claude-code.d.ts`; copy that one file to
@@ -233,8 +236,14 @@ hook draws.
 on every classic hook input (except `classic.PreToolUse`, whose argument is
 the tool call envelope), `SubagentStart` / `SubagentStop` give real agent
 timings, and `PreCompact` is the compaction the transcript parser counts by
-watching for `compact_boundary`. Those hooks do not run in a plugin a person
-installs where an organization manages Claude Code; `validate` lists which.
+watching for `compact_boundary`.
+
+None of those hooks run in a plugin a person installs where an organization
+manages Claude Code — there they pass over the plugins you install, and only
+a plugin the organization lists in managed settings runs them. `validate`
+names the list, and `prompt.compose` is on it too, so output style goes with
+them. Everything in the table above that comes from `$` directly is
+unaffected.
 
 ## Files
 
