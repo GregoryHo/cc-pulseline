@@ -124,6 +124,28 @@ describe('the band', () => {
     await ui.unmount()
   })
 
+  test('a panic on stderr still reaches the band as a note', async ($, on) => {
+    const seen = bottom(on, {
+      exitCode: 101,
+      stderr: '\u001b[31mthread \u2018main\u2019 panicked\u001b[0m\nat src/main.rs:1:1',
+    })
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
+
+    // Unflattened, this took the whole band down with it rather than the one
+    // line: `ui.render (AbovePrompt) refused: a text child holds a control
+    // character (an escape sequence); the engine drew its own` — so the note
+    // explaining the failure was the thing the failure removed.
+    const ui = await $.ui.mount(BAND)
+    const text = (await ui.find({ type: 'Text' }))?.text ?? ''
+    expect(text).toContain('exit 101')
+    expect(text).toContain('panicked')
+    // The second line is kept, and kept apart: a run of control characters
+    // becomes one space, so the location does not run into the message.
+    expect(text).toContain('panicked at src/main.rs:1:1')
+    await ui.unmount()
+  })
+
   test('with nothing run yet it draws its note rather than disappearing', async ($, on) => {
     bottom(on)
     const ui = await $.ui.mount(BAND)

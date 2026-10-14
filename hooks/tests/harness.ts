@@ -141,6 +141,10 @@ export type BottomOptions = {
   startMs?: number
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
   stdout?: string
+  /** Exit code the stand-in binary answers a render with; 0 when not given. */
+  exitCode?: number
+  /** What the stand-in binary writes to stderr on a render. */
+  stderr?: string
   /**
    * What the tool beneath answers. `on` throws on a repeat registration, so
    * a test that wants a failing tool asks for it here rather than
@@ -265,6 +269,17 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     }
 
     // And a real render, which is handed the payload on stdin.
+    if (options.exitCode !== undefined && options.exitCode !== 0) {
+      return {
+        value: {
+          exitCode: options.exitCode,
+          stdout: '',
+          stderr: options.stderr ?? '',
+          isStdoutTruncated: false,
+          isStderrTruncated: false,
+        },
+      }
+    }
     return answer(0, options.stdout ?? stdin)
   })
   // The mod pins a status line and logs; nothing beneath answers either by

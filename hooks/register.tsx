@@ -201,6 +201,40 @@ export function ansi256Hex(index: number): string {
   return hex((level << 16) | (level << 8) | level)
 }
 
+/**
+ * Flattens text from outside the module before it goes on the band: a
+ * stderr dump, a caught error.
+ *
+ * The band refuses the *whole tree* over one control character — the engine
+ * says `ui.render (AbovePrompt) refused: a text child holds a control
+ * character (an escape sequence); the engine drew its own` — so an
+ * unflattened panic takes down the note that was meant to explain it, and the
+ * band goes blank with nothing to read. Runs become one space rather than
+ * nothing, where `stripControls` below drops them: a panic's first line is
+ * the useful one, and `at src/main.rs:1:1` must not be glued to the end of
+ * it. Flatten before slicing, or a cut can land inside an escape sequence.
+ */
+function noteText(text: string): string {
+  // SGR codes first, whole. Dropping the escape alone and keeping the rest
+  // left `[31mthread 'main' panicked [0m` on the band: accepted by the
+  // engine, and unreadable.
+  let flat = ''
+  let spaced = false
+  for (const char of text.replace(ANSI_PATTERN, '')) {
+    const code = char.codePointAt(0) ?? 32
+    if (code >= 32 && code !== 127) {
+      flat += char
+      spaced = false
+      continue
+    }
+    if (!spaced && flat.length > 0) {
+      flat += ' '
+      spaced = true
+    }
+  }
+  return flat.trimEnd()
+}
+
 /** Drops the control characters the band refuses to draw. */
 function stripControls(text: string): string {
   let clean = ''
@@ -836,12 +870,12 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         ...out,
         rows: [],
         paneRows: [],
-        runNote: `engine refused — ${String(error).slice(0, 160)}`,
+        runNote: `engine refused — ${noteText(String(error)).slice(0, 160)}`,
       }))
       return
     }
     collected = state.lastCollected
-    stale = String(error).slice(0, 80)
+    stale = noteText(String(error)).slice(0, 80)
   }
 
   // One read per atom the payload is built from. `collect` has already made
@@ -912,9 +946,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     runNote =
       run.exitCode === 0
         ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${state.active.size} running · ${totals.completedTotal} done · ${paneNote}`
-        : `exit ${run.exitCode} — ${run.stderr.slice(0, 120)}`
+        : `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`
   } catch (error) {
-    runNote = `run refused — ${String(error).slice(0, 160)}`
+    runNote = `run refused — ${noteText(String(error)).slice(0, 160)}`
     rows = []
   }
 
@@ -950,10 +984,10 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       paneNote =
         paneRun.exitCode === 0
           ? `pane: ${paneRows.length}r ${pane.layout} at ${state.paneHeight}x${state.paneCols}`
-          : `pane: exit ${paneRun.exitCode} — ${paneRun.stderr.slice(0, 120)}`
+          : `pane: exit ${paneRun.exitCode} — ${noteText(paneRun.stderr).slice(0, 120)}`
     } catch (error) {
       paneRows = []
-      paneNote = `pane: run failed — ${String(error).slice(0, 160)}`
+      paneNote = `pane: run failed — ${noteText(String(error)).slice(0, 160)}`
     }
   }
 
@@ -980,7 +1014,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
  */
 function drawSoon(engine: EngineInterface, state: State): Promise<void> {
   return refresh(engine, state).catch(async error => {
-    const note = `refresh failed: ${String(error).slice(0, 120)}`
+    const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
     await update(engine, drawnOutput, out => ({ ...out, runNote: note })).catch(
       () => undefined,
     )
@@ -1038,7 +1072,7 @@ export const register: Register = (on, options) => {
         description: 'Open the statusline in a pane, where it has room for activity rows',
       })
     } catch (error) {
-      const note = `command refused — ${String(error).slice(0, 120)}`
+      const note = `command refused — ${noteText(String(error)).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
     }
     await refresh($, state)
@@ -1079,7 +1113,7 @@ export const register: Register = (on, options) => {
       // binary ladder, and the sequence guard would drop whichever lost.
       drawing = drawSoon($, state)
     } catch (error) {
-      const note = `mark failed: ${String(error).slice(0, 120)}`
+      const note = `mark failed: ${noteText(String(error)).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
     }
 
@@ -1150,7 +1184,7 @@ export const register: Register = (on, options) => {
           await refresh($, state)
           $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {
-          const note = `refresh failed: ${String(error).slice(0, 120)}`
+          const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
           // Guarded like the start site's, because this write *is* the place
           // the failure gets reported: unguarded, a throw here would reach the
           // backstop below and the note would be lost without a word.
