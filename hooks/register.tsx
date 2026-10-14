@@ -304,13 +304,71 @@ type State = {
  * `tool.call` carries the tool's own arguments on `e`, so this is a lookup,
  * not the guess-by-shape that the transcript parser has to make.
  */
+/**
+ * Which key each tool's useful argument is under, mirrored from
+ * `providers/transcript.rs`'s `extract_target`.
+ *
+ * A generic key sweep is not enough and was quietly wrong: `Grep` carries
+ * both `path` and `pattern`, and reading `path` first showed the directory
+ * being searched instead of what was being looked for. Tools whose argument
+ * is under none of the generic keys — `WebSearch`, `Skill`, `SendMessage`,
+ * `Monitor`, `PushNotification` — showed no target at all.
+ */
+const TARGET_KEYS: Record<string, readonly string[]> = {
+  Read: ['file_path'],
+  Write: ['file_path'],
+  Edit: ['file_path'],
+  NotebookEdit: ['file_path'],
+  Bash: ['command'],
+  PowerShell: ['command'],
+  Monitor: ['script_id', 'pattern'],
+  PushNotification: ['title'],
+  Advisor: ['query'],
+  MCPSearch: ['query'],
+  Glob: ['pattern'],
+  Grep: ['pattern'],
+  WebFetch: ['url'],
+  WebSearch: ['query'],
+  Skill: ['skill'],
+  SendMessage: ['to'],
+  LSP: ['command'],
+}
+
+/** The generic sweep, for a tool with no entry above. */
+const FALLBACK_TARGET_KEYS = ['file_path', 'command', 'pattern'] as const
+
+/**
+ * The argument a tool call shows in the band.
+ *
+ * Returned whole, only flattened to one line: the renderer truncates per tool
+ * kind and per available width (`render/activity/cells/recent_tool.rs` keeps
+ * the *tail* of a Read or Edit path, so cutting the head off here lost the
+ * filename and showed the wrong end).
+ */
 export function targetOf(event: Record<string, unknown>): string | undefined {
-  const keys = ['file_path', 'command', 'path', 'pattern', 'url', 'prompt', 'description']
-  for (const key of keys) {
+  const name = typeof event.tool === 'string' ? event.tool : ''
+  const read = (key: string): string | undefined => {
     const value = event[key]
-    if (typeof value === 'string' && value.length > 0) return value.slice(0, 120)
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+  }
+
+  // `AskUserQuestion` keeps its text one level down, in the first question.
+  if (name === 'AskUserQuestion') {
+    const first = Array.isArray(event.questions) ? event.questions[0] : undefined
+    const asked = (first as { question?: unknown } | undefined)?.question
+    return typeof asked === 'string' && asked.length > 0 ? singleLine(asked) : undefined
+  }
+
+  for (const key of TARGET_KEYS[name] ?? FALLBACK_TARGET_KEYS) {
+    const value = read(key)
+    if (value !== undefined) return singleLine(value)
   }
   return undefined
+}
+
+/** `fmt::sanitize_single_line`: a row is one line, so these become spaces. */
+function singleLine(text: string): string {
+  return text.replace(/[\n\r\t]/g, ' ')
 }
 
 /**
@@ -967,10 +1025,15 @@ export const register: Register = (on, options) => {
           ? loaded
           : { ...loaded, claudeMd: [...loaded.claudeMd, path] }
       }
-      if (path.includes('/rules/')) {
+      // Native separators on Windows, where `file_path` arrives as
+      // `C:\repo\.claude\rules\testing.md` — matched slash-only, those
+      // rules and memories fell out of the counts entirely and the band went
+      // back to the filesystem scan it is meant to correct.
+      const unix = path.replace(/\\/g, '/')
+      if (unix.includes('/rules/')) {
         return loaded.rules.includes(path) ? loaded : { ...loaded, rules: [...loaded.rules, path] }
       }
-      if (path.includes('/memory/')) {
+      if (unix.includes('/memory/')) {
         return loaded.memories.includes(path)
           ? loaded
           : { ...loaded, memories: [...loaded.memories, path] }

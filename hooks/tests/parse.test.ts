@@ -109,26 +109,51 @@ describe('spansOf', () => {
 })
 
 describe('targetOf', () => {
-  test('picks the first argument worth showing, in priority order', () => {
-    expect(targetOf({ file_path: '/work/src/main.rs' })).toBe('/work/src/main.rs')
-    expect(targetOf({ command: 'cargo test' })).toBe('cargo test')
-    expect(targetOf({ pattern: '*.rs' })).toBe('*.rs')
-    expect(targetOf({ url: 'https://example.com' })).toBe('https://example.com')
-    expect(targetOf({ description: 'Map pain points' })).toBe('Map pain points')
+  test('each tool is read at its own key', () => {
+    expect(targetOf({ tool: 'Read', file_path: '/work/src/main.rs' })).toBe('/work/src/main.rs')
+    expect(targetOf({ tool: 'Bash', command: 'cargo test' })).toBe('cargo test')
+    expect(targetOf({ tool: 'WebFetch', url: 'https://example.com' })).toBe('https://example.com')
+    expect(targetOf({ tool: 'WebSearch', query: 'braille gauge' })).toBe('braille gauge')
+    expect(targetOf({ tool: 'Skill', skill: 'eli5' })).toBe('eli5')
+    expect(targetOf({ tool: 'SendMessage', to: 'docs-track' })).toBe('docs-track')
+    expect(targetOf({ tool: 'PushNotification', title: 'CI is green' })).toBe('CI is green')
+    expect(targetOf({ tool: 'Monitor', script_id: 'b9tf' })).toBe('b9tf')
   })
 
-  test('file_path wins over a command on the same call', () => {
-    expect(targetOf({ command: 'cargo test', file_path: '/a.rs' })).toBe('/a.rs')
+  test('a Grep shows what it looked for, not where', () => {
+    // Both keys are on the call, and a generic sweep that read `path` first
+    // drew the directory being searched instead of the pattern.
+    expect(targetOf({ tool: 'Grep', pattern: 'spansOf', path: '/work/hooks' })).toBe('spansOf')
+  })
+
+  test('a question is read out of the first question', () => {
+    expect(
+      targetOf({ tool: 'AskUserQuestion', questions: [{ question: 'Merge or keep separate?' }] }),
+    ).toBe('Merge or keep separate?')
+  })
+
+  test('an unknown tool falls back to file_path, command, pattern — in that order', () => {
+    // The same three the transcript path's generic arm uses.
+    expect(targetOf({ tool: 'Unheard', command: 'cargo test', file_path: '/a.rs' })).toBe('/a.rs')
+    expect(targetOf({ tool: 'Unheard', pattern: '*.rs' })).toBe('*.rs')
   })
 
   test('nothing to show is undefined, not an empty string', () => {
     expect(targetOf({})).toBeUndefined()
-    expect(targetOf({ file_path: '' })).toBeUndefined()
-    expect(targetOf({ todos: [] })).toBeUndefined()
+    expect(targetOf({ tool: 'Read', file_path: '' })).toBeUndefined()
+    expect(targetOf({ tool: 'TodoWrite', todos: [] })).toBeUndefined()
   })
 
-  test('a long argument is clipped, so one row cannot run away', () => {
-    const long = `/work/${'x'.repeat(300)}.rs`
-    expect(targetOf({ file_path: long })?.length).toBe(120)
+  test('a long argument is passed whole, for the renderer to truncate', () => {
+    // The renderer keeps the *tail* of a Read path, so a head-only clip here
+    // threw away the filename and drew the wrong end of the path.
+    const long = `/work/${'x'.repeat(300)}/main.rs`
+    expect(targetOf({ tool: 'Read', file_path: long })).toBe(long)
+  })
+
+  test('a multi-line command becomes one line', () => {
+    expect(targetOf({ tool: 'Bash', command: 'cargo test\n  --release' })).toBe(
+      'cargo test   --release',
+    )
   })
 })

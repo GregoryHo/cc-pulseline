@@ -392,6 +392,21 @@ describe('classic events', () => {
     expect(env?.memory_count).toBeUndefined()
   })
 
+  test('a Windows path is classified like any other', async ($, on) => {
+    const seen = bottom(on)
+    const load = (file_path: string) =>
+      $.classic.InstructionsLoaded({ file_path, memory_type: 'Project', load_reason: 'session_start' })
+    await load('C:\\repo\\.claude\\rules\\testing.md')
+    await load('C:\\Users\\me\\.claude\\projects\\p\\memory\\MEMORY.md')
+    await $.tool.call(call('one'))
+
+    // Matched on `/rules/` alone, these fell out of the counts and the band
+    // went back to the filesystem scan it exists to correct.
+    const env = seen.lastPayload().env
+    expect(env?.rules_count).toBe(1)
+    expect(env?.memory_count).toBe(1)
+  })
+
   test('an AGENTS.md is counted in its own column, not as a CLAUDE.md', async ($, on) => {
     const seen = bottom(on)
     const load = (file_path: string) =>

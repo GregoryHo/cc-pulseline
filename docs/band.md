@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 107 tests across seven files that run
+It passes `claude plugin validate`, has 111 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -165,7 +165,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 107 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 111 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -201,7 +201,7 @@ field, which the hooks module does not use.
 | Row | Source |
 | --- | --- |
 | Running tools, per-tool counts, failures | `tool.call` for every tool but the ones the transcript path dispatches elsewhere or ignores (`Agent`, the Task API's and TodoWrite's own calls, and that file's `NOISE_TOOLS`): marked before `next(e)` and refreshed there, so the running tool is in the band while it runs; counted after, `result.isError` is the failure flag. Both ends refresh unconditionally: the 400ms gate, which still guards the events that fire without a tool call of their own, would drop a start whose window the previous call's completion had just closed, and that start has no later refresh to fall back on |
-| Tool argument (`cargo test`, a file path) | the tool's own arguments on `e` — a lookup, not a guess |
+| Tool argument (`cargo test`, a file path) | the tool's own arguments on `e`, at the key that tool uses — the same per-tool table as the transcript path's `extract_target`, so a `Grep` shows its pattern rather than its directory. Passed whole; the renderer truncates per tool kind and width |
 | Todo | the `TodoWrite` call's `todos` array, or the Task API's `TaskCreate` / `TaskUpdate` calls accumulated in the `tasks` atom. All three are read from the call's *result*, so a refused list or task is never drawn as current, and a created task is keyed by the id the engine answered with rather than by a count of creations |
 | Agents | `$.agent.list()` |
 | Context, cost, rate limits | `$.session.usage()` |
@@ -280,7 +280,7 @@ hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     107 tests
+hooks/tests/*.test.ts(x)     111 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```
