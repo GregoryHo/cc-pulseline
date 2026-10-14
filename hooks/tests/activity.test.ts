@@ -274,6 +274,30 @@ describe('classic events', () => {
     expect(env?.memory_count).toBeUndefined()
   })
 
+  test('a completed agent keeps the stop time it was first given', async ($, on) => {
+    // No SubagentStop for this one — the engine just stops calling it running,
+    // which is the case where the time has to be inferred and then held.
+    const seen = bottom(on, {
+      agents: [
+        { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'completed' },
+      ],
+    })
+    await $.tool.call(call('one'))
+    seen.advance(5_000)
+    await $.tool.call(call('two'))
+
+    const stamps = seen
+      .payloads()
+      .map(payload => payload.activity?.agents?.[0]?.completed_at)
+      .filter((stamp): stamp is number => typeof stamp === 'number')
+
+    // More than one draw, or the case proves nothing about holding a value.
+    expect(stamps.length).toBeGreaterThan(1)
+    // The renderer shows `completed_at - started_at`, so a second answer here
+    // is a completed agent whose age keeps growing.
+    expect(new Set(stamps).size).toBe(1)
+  })
+
   test('an agent gets a real start and stop time', async ($, on) => {
     const seen = bottom(on, {
       agents: [{ id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' }],

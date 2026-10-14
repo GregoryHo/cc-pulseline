@@ -160,8 +160,11 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
         description: agent.description,
         agent_type: snapshot.agentType[agent.id] ?? agent.type,
         started_at: snapshot.startedAt[agent.id] ?? now,
-        // A real stop timestamp when SubagentStop gave one; otherwise the
-        // status is all there is to go on.
+        // A stamp from `SubagentStop`, or the one `collect` wrote the first
+        // time the engine stopped listing the agent as running. The `now`
+        // below is only reached by a snapshot built without that write — a
+        // live refresh always has the stamp, which is what keeps a completed
+        // agent's elapsed time still.
         completed_at:
           snapshot.finishedAt[agent.id] ?? (agent.status === 'running' ? null : now),
       })),

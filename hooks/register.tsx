@@ -411,14 +411,24 @@ async function collect(engine: EngineInterface, state: State): Promise<Collected
   // write, not a default, which is why it cannot live in `buildPayload`.
   await update(engine, agentTimings, timings => {
     const startedAt = { ...timings.startedAt }
+    const finishedAt = { ...timings.finishedAt }
     let added = false
     for (const agent of agents) {
       if (startedAt[agent.id] === undefined) {
         startedAt[agent.id] = now
         added = true
       }
+      // The same write at the other end. An agent the engine no longer lists
+      // as running that no `SubagentStop` stamped finished *now*, and stays
+      // finished: the renderer shows `completed_at - started_at`, so without
+      // the stamp a completed agent's elapsed time grows by one refresh
+      // interval on every draw instead of standing still.
+      if (agent.status !== 'running' && finishedAt[agent.id] === undefined) {
+        finishedAt[agent.id] = now
+        added = true
+      }
     }
-    return added ? { ...timings, startedAt } : timings
+    return added ? { ...timings, startedAt, finishedAt } : timings
   })
 
   return { usage, modelId, sessionId, agents, now }
