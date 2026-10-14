@@ -496,7 +496,17 @@ async function rebuildTodo($: EngineInterface, change: (held: Tasks) => Tasks): 
 }
 
 /** Folds one TodoWrite call's arguments into the todo row's shape. */
-function todoOf(items: { content?: string; status?: string; activeForm?: string }[]): Todo {
+function todoOf(
+  items: { content?: string; status?: string; activeForm?: string }[],
+): Todo | null {
+  // A cleared list is no list, not a list of nothing. The renderer reads any
+  // non-null todo as present and drew `0/0 done · 0 pending` in the ledger
+  // the pane shows; both siblings already answer this way —
+  // `extract_todo_summary` with `None`, `todoFromTasks` with `null` — and the
+  // transcript path's `dispatch_todo_write` passes that `None` straight to
+  // `set_todo`, so clearing is what the other path does too.
+  if (items.length === 0) return null
+
   const running = items.filter(item => item.status === 'in_progress')
   const completed = items.filter(item => item.status === 'completed').length
   // Everything not completed, the running item included — which is what the
@@ -906,6 +916,33 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 }
 
 /**
+ * Starts a refresh and does not wait for it, noting a failure on the band.
+ *
+ * The rule every site follows: await the drawing only where a person is
+ * waiting for the drawing itself — `/pulseline`, a keypress, the session's
+ * first draw. Everywhere else the engine is waiting on the hook, and a band
+ * is not worth holding up the model or the turn for: the binary's
+ * `timeoutMs` is five seconds, twice over with the pane open.
+ *
+ * The engine's contract floats work out of a hook the same way.
+ * `$.process.spawn`'s second example runs its loop `void (async () => …)()`
+ * from `session.start`, and names what ends the child: the loop, the stream,
+ * the signal, the module unloading, and "nothing else does, a hook's return
+ * included". So a captured `$` outlives the hook that took it.
+ *
+ * The promise it hands back is already handled, so chaining onto it is safe
+ * and dropping it leaves nothing unhandled.
+ */
+function drawSoon(engine: EngineInterface, state: State): Promise<void> {
+  return refresh(engine, state).catch(async error => {
+    const note = `refresh failed: ${String(error).slice(0, 120)}`
+    await update(engine, drawnOutput, out => ({ ...out, runNote: note })).catch(
+      () => undefined,
+    )
+  })
+}
+
+/**
  * Refreshes only if the last run is older than `gapMs`.
  *
  * One caller is left: `classic.ConfigChange`, which a single settings write
@@ -924,7 +961,7 @@ async function maybeRefresh(
   // arriving while this one is in `refresh` reads the old stamp and spawns
   // the binary too. `collect` stamps it again with its own reading.
   state.lastRunMs = now
-  await refresh(engine, state)
+  await drawSoon(engine, state)
 }
 
 export const register: Register = (on, options) => {
@@ -994,10 +1031,7 @@ export const register: Register = (on, options) => {
       // the model and every tool call. The `finally`'s draw chains onto this
       // promise rather than racing it: run together they would both walk the
       // binary ladder, and the sequence guard would drop whichever lost.
-      drawing = refresh($, state).catch(async error => {
-        const note = `refresh failed: ${String(error).slice(0, 120)}`
-        await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(() => undefined)
-      })
+      drawing = drawSoon($, state)
     } catch (error) {
       const note = `mark failed: ${String(error).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
@@ -1146,7 +1180,10 @@ export const register: Register = (on, options) => {
     // gets configured, and a binary installed since can now be found. The
     // next refresh walks the ladder again.
     await update($, binaryChoice, () => null)
-    await maybeRefresh($, state, 400)
+    // Floated, as the other observational sites are: nobody is waiting on
+    // this drawing, and a settings write is not the place to hold the engine
+    // up for one.
+    void maybeRefresh($, state, 400).catch(() => undefined)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -1169,7 +1206,11 @@ export const register: Register = (on, options) => {
     // this event lands milliseconds later with the window shut — so a gated
     // refresh here is dropped, and the next one is the call's completion. A
     // subagent that ran for minutes was drawn only once it had finished.
-    await refresh($, state)
+    //
+    // Floated as well as ungated, and here it matters most: awaited, this one
+    // sat *in front of* `next(e)`, so the subagent could not start until the
+    // band had drawn.
+    void drawSoon($, state)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1182,8 +1223,8 @@ export const register: Register = (on, options) => {
     }))
     // Ungated for the matching reason: a gated stop leaves a finished agent
     // drawn as running. Agents start and stop a handful of times a session,
-    // so neither end is a burst to bound.
-    await refresh($, state)
+    // so neither end is a burst to bound. Floated for the matching reason too.
+    void drawSoon($, state)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1236,7 +1277,10 @@ export const register: Register = (on, options) => {
           (facts.cacheReadTotal ?? 0) + (usage ? usage.cache_read_input_tokens : 0),
       }))
     }
-    await refresh($, state)
+    // Floated, like the tool path's. Awaited, a hanging binary withheld the
+    // turn's own result for five seconds, or ten with the pane open — after
+    // every turn.
+    void drawSoon($, state)
     return result
   })
 

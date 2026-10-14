@@ -207,6 +207,26 @@ describe('TodoWrite', () => {
     expect(seen.lastPayload().activity?.todo).toBeNull()
   })
 
+  test('clearing the list clears the row, rather than drawing a list of nothing', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TodoWrite',
+      tool_use_id: 'e1',
+      todos: [{ content: 'Something', activeForm: 'Doing something', status: 'in_progress' }],
+    })
+    await seen.settle()
+    expect(seen.lastPayload().activity?.todo).not.toBeNull()
+
+    await $.tool.call({ tool: 'TodoWrite', tool_use_id: 'e2', todos: [] })
+    await seen.settle()
+
+    // The renderer reads any non-null todo as present: an empty object drew
+    // `TODO  0/0 done · 0 pending` in the ledger the pane shows. The
+    // transcript path hands `set_todo` a `None` here, so this is the shape
+    // both paths agree on.
+    expect(seen.lastPayload().activity?.todo).toBeNull()
+  })
+
   test('a denied TodoWrite is not drawn as the current list', async ($, on) => {
     // The sibling case above refuses with `isError`; this one refuses the way
     // a permission check or another plugin does, which carries no `isError`
@@ -512,6 +532,22 @@ describe('classic events', () => {
     expect(drawn.some(agent => agent.id === 'a1' && agent.completed_at === null)).toBe(true)
   })
 
+  test('a subagent starts without waiting for the band to draw it', async ($, on) => {
+    const seen = bottom(on, {
+      agents: [
+        { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' },
+      ],
+    })
+    const draws = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
+    await $.classic.SubagentStart({ agent_id: 'a1', agent_type: 'Explore' })
+
+    // This one sat in front of `next(e)`, so awaited it was the band drawing
+    // before the subagent was allowed to start.
+    const atReturn = draws()
+    await seen.settle()
+    expect(draws()).toBeGreaterThan(atReturn)
+  })
+
   test('a completed agent keeps the stop time it was first given', async ($, on) => {
     // No SubagentStop for this one — the engine just stops calling it running,
     // which is the case where the time has to be inferred and then held.
@@ -561,6 +597,24 @@ describe('classic events', () => {
     expect(agent?.completed_at).toBeGreaterThan(agent?.started_at ?? 0)
   })
 
+  test('a turn ends without waiting for the band to draw it', async ($, on) => {
+    const seen = bottom(on)
+    const draws = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
+    await $.turn.complete({
+      reason: 'answer',
+      answer: '',
+      durationMs: 1,
+      isAborted: false,
+      turnId: 'open',
+    })
+
+    // Awaited, a hanging binary withheld the turn's own result for five
+    // seconds, or ten with the pane open — after every turn.
+    const atReturn = draws()
+    await seen.settle()
+    expect(draws()).toBeGreaterThan(atReturn)
+  })
+
   test('the cache-read total is summed over turns, not replaced', async ($, on) => {
     const seen = bottom(on)
     const turn = (cacheRead: number) =>
@@ -581,6 +635,7 @@ describe('classic events', () => {
 
     await turn(1_000_000)
     await turn(3_400_000)
+    await seen.settle()
 
     // The whole bug class in one assertion: the binary cannot total this
     // itself, because every refresh re-sends the same last-turn usage, so a
