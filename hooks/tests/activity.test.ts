@@ -483,6 +483,41 @@ describe('classic events', () => {
     expect(env?.memory_count).toBeUndefined()
   })
 
+  test('a moved root takes the old project’s instruction counts with it', async ($, on) => {
+    const seen = bottom(on, { root: '/work', home: '/home/me' })
+    const load = (file_path: string) =>
+      $.classic.InstructionsLoaded({
+        file_path,
+        memory_type: 'Project',
+        load_reason: 'session_start',
+      })
+
+    await load('/work/CLAUDE.md')
+    await load('/home/me/.claude/CLAUDE.md')
+    await load('/work/.claude/rules/testing.md')
+    await load('/home/me/.claude/projects/work/memory/MEMORY.md')
+    await $.tool.call(call('before'))
+    await seen.settle()
+    expect(seen.lastPayload().env?.claude_md_count).toBe(2)
+    expect(seen.lastPayload().env?.rules_count).toBe(1)
+    expect(seen.lastPayload().env?.memory_count).toBe(1)
+
+    seen.moveRoot('/elsewhere')
+    await $.tool.call(call('after'))
+    await seen.settle()
+
+    // The session's own `~/.claude/CLAUDE.md` is nobody's project and stays.
+    // The old root's two files go, and the memories go whole: every memory is
+    // keyed by its project, and they live under HOME where a prefix test on
+    // the root cannot see them.
+    const env = seen.lastPayload().env
+    expect(env?.claude_md_count).toBe(1)
+    // Zero is sent as no field, so the binary's own scan of the new root
+    // stands until the engine names its files.
+    expect(env?.rules_count).toBeUndefined()
+    expect(env?.memory_count).toBeUndefined()
+  })
+
   test('a Windows path is classified like any other', async ($, on) => {
     const seen = bottom(on)
     const load = (file_path: string) =>

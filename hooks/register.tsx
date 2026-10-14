@@ -291,6 +291,12 @@ type State = {
   /** Which refresh is newest; only that one may publish. See `refresh`. */
   runSeq: number
   /**
+   * The project root `syncRoot` last read, so a move can be told from the
+   * first read of a session. A closure field on purpose: a reload is not a
+   * move, and this starting over is what says so.
+   */
+  rootRead: string | null
+  /**
    * The manifest's `userConfig` values, as `register`'s second parameter
    * handed them over. Fixed for this activation: a change to them reloads
    * the module, so a closure is the right place for them.
@@ -711,6 +717,13 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
   return choice
 }
 
+/** Whether a path sits inside a directory, native separators included. */
+function under(dir: string, path: string): boolean {
+  if (dir.length === 0) return false
+  const slashed = (text: string) => text.replace(/\\/g, '/').replace(/\/+$/, '')
+  return `${slashed(path)}/`.startsWith(`${slashed(dir)}/`)
+}
+
 /**
  * Puts the session's own project root in the atom, and forgets a binary that
  * was found under the old one.
@@ -726,14 +739,46 @@ async function resolveBinary(engine: EngineInterface, state: State): Promise<Bin
  * the dev rung is `<root>/target/release/cc-pulseline`, so a choice made
  * under the old root points into the old checkout.
  */
-async function syncRoot(engine: EngineInterface): Promise<void> {
+async function syncRoot(engine: EngineInterface, state: State): Promise<void> {
   const root = await engine.session.root()
   const facts = await read(engine, sessionFacts)
-  if (facts.cwd === root) return
-  await update(engine, sessionFacts, held => ({ ...held, cwd: root }))
-  // Dropped rather than re-walked here: the ladder does that once, on the
-  // root just written.
-  await update(engine, binaryChoice, () => null)
+  if (facts.cwd !== root) {
+    await update(engine, sessionFacts, held => ({ ...held, cwd: root }))
+    // Dropped rather than re-walked here: the ladder does that once, on the
+    // root just written.
+    await update(engine, binaryChoice, () => null)
+  }
+
+  // Only a root this function read before and now finds changed is a move.
+  // The first read is not one: `cwd` is empty until then, or holds
+  // `session.start`'s `e.cwd`, which is where the session began rather than
+  // where its root is — and the instructions loaded before this point were
+  // loaded for the root either way. Nor is a reload a move, which is why this
+  // sits in the closure: it starts over with the module, as it should.
+  const left = state.rootRead
+  state.rootRead = root
+  if (left === null || left === root) return
+  // The instruction counts are the other thing the root owns. Left standing,
+  // the ENV row reported the project the person had left — and then kept
+  // adding the new one's files to it, so the counts were two projects deep
+  // for the rest of the session. Reading the root live without this made that
+  // worse than leaving both stale: the path was right and the counts were not.
+  await update(engine, instructions, loaded => ({
+    // Kept: the files that are nobody's project — `~/.claude/CLAUDE.md`,
+    // `~/.claude/rules/`. Those were loaded for the session, not for the root.
+    claudeMd: loaded.claudeMd.filter(path => !under(left, path)),
+    agentsMd: loaded.agentsMd.filter(path => !under(left, path)),
+    rules: loaded.rules.filter(path => !under(left, path)),
+    // Cleared outright, where the others are filtered: every memory file is
+    // keyed by the project it belongs to — the binary reads them from
+    // `~/.claude/projects/<encoded-root>/memory/` — so none of the old root's
+    // are the new root's. The prefix test cannot see that, because they live
+    // under HOME rather than under the root.
+    memories: [],
+  }))
+  // A count of zero is sent as no field at all, so until the engine names the
+  // new root's files the binary's own scan stands. That is the right way to
+  // be wrong here: the scan reads the directory the session is actually in.
 }
 
 /**
@@ -762,7 +807,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 
   // Before the ladder, because the dev rung is built from the root.
   try {
-    await syncRoot(engine)
+    await syncRoot(engine, state)
   } catch {
     // Not worth blanking the band for: the root already held is the one the
     // session started in, and `collect` below reports an engine refusing
@@ -975,6 +1020,7 @@ export const register: Register = (on, options) => {
     mcpServers: new Set(),
     lastCollected: null,
     runSeq: 0,
+    rootRead: null,
     options,
   }
 
