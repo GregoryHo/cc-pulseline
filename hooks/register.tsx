@@ -1095,7 +1095,17 @@ export const register: Register = (on, options) => {
     // walk, and this is the value it falls back to if that read is refused.
     const cwd = e.cwd
     await update($, sessionFacts, facts => ({ ...facts, cwd }))
-    $.ui.status('alive')
+    // Scaffolding. `$.ui.status` pins an entry beside the prompt and
+    // `$.ui.log` writes a transcript line, and a plugin a person installs
+    // should say neither: what the band cannot draw, the band itself says.
+    //
+    // Cleared rather than merely not set. A status entry belongs to the
+    // session, not to the load that pinned it, so a version that used to pin
+    // one leaves it beside the prompt for the rest of that session — through
+    // every reload, because the module that would have replaced it no longer
+    // says anything. `undefined` is what takes it down.
+    if (DEBUG) $.ui.status('alive')
+    else $.ui.status(undefined)
     await probeVersion($)
     try {
       await $.command.register({
@@ -1107,7 +1117,7 @@ export const register: Register = (on, options) => {
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
     }
     await refresh($, state)
-    $.ui.log((await read($, drawnOutput)).runNote)
+    if (DEBUG) $.ui.log((await read($, drawnOutput)).runNote)
     return result
   })
 
@@ -1229,7 +1239,7 @@ export const register: Register = (on, options) => {
           // two of the probing cases say so in exact numbers.
           if (drawing !== null) await drawing
           await refresh($, state)
-          $.ui.status((await read($, drawnOutput)).runNote)
+          if (DEBUG) $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {
           const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
           // Guarded like the start site's, because this write *is* the place
@@ -1238,7 +1248,9 @@ export const register: Register = (on, options) => {
           await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(
             () => undefined,
           )
-          $.ui.status(note)
+          // Not a status entry: the write above puts it where the band reads
+          // it, and the band draws its note whenever it has no rows.
+          if (DEBUG) $.ui.status(note)
         }
         // Nothing above is awaited by the hook any more, so a throw here would
         // be a rejection with no handler. The band is observational and the
@@ -1448,16 +1460,29 @@ export const register: Register = (on, options) => {
     // the band again by itself, with nobody calling `$.ui.invalidate`.
     const held = await read($, drawnOutput)
 
+    // Measured before anything returns, so a terminal resized while nothing
+    // is running is still the width the next refresh spawns against. A
+    // closure field, not an atom, because `$.state.set` is refused while a
+    // render hook draws.
+    state.bandRows = e.props.maxRows
+    // Two cells go to the band's own collapse marker at the right edge.
+    state.bandCols = Math.max(20, e.props.bodyColumns - 2)
+
     // With no rows, still draw the note: a band that silently disappears
-    // tells us nothing about why.
+    // tells us nothing about why. Drawn whether or not a turn is running,
+    // because this is the only place a missing or too-old binary can say so
+    // and an install line nobody sees fixes nothing.
     if (held.rows.length === 0 && !DEBUG) {
       const { Text } = $.ui.resolve(e)
       return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
-    state.bandRows = e.props.maxRows
-    // Two cells go to the band's own collapse marker at the right edge.
-    state.bandCols = Math.max(20, e.props.bodyColumns - 2)
+    // The band is the activity canvas, so it belongs to the turn that is
+    // running. Idle, the statusline already draws the steady state on its own
+    // row — and the band renders whatever layout the person configured, which
+    // is that same row again. Two copies of it stacked is exactly what the
+    // division of labour exists to avoid.
+    if (!e.props.isWorking) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const notes = DEBUG ? [<Text>{held.runNote}</Text>] : []

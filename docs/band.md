@@ -179,14 +179,67 @@ return. Read it before adding a test.
 
 ## What it draws
 
-| Site | Rows | Layout |
-| --- | --- | --- |
-| `AbovePrompt` band | up to `maxRows`, which is small outside fullscreen | whatever the effective config selects |
-| `Pane` | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
+| Site | When | Rows | Layout |
+| --- | --- | --- | --- |
+| `AbovePrompt` band | while a turn is running (`e.props.isWorking`) | up to `maxRows`, which is small outside fullscreen | whatever the effective config selects |
+| `Pane` | while it is open | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
 
 Both sites run the binary themselves, because one row count cannot serve a
 small band and a twelve-row pane. The pane run only happens while the pane
 is open.
+
+**The band yields when nothing is running**, with one exception. It renders
+the layout the person configured, and that is the row the statusline is
+already drawing on its own line — idle, the two are the same thing stacked
+twice, which is the opposite of the division of labour they exist for. The
+exception is a band with no rows at all: a missing or too-old binary can only
+say so there, and an install line nobody sees fixes nothing, so that note is
+drawn whether or not a turn is running.
+
+**This is a stopgap, and a small one.** The plan had the band drawing
+*activity only* — tools, agents, todo — against the statusline's steady-state
+summary. Nothing enforces that: the band's argv carries `--rows` and
+`--columns` and no `--layout`, and every layout the binary has leads with
+identity and budget, so there is no activity-only rendering to ask for.
+
+Yielding when idle therefore does **not** remove the duplication. While a
+turn runs the band still draws the identity and budget rows the statusline is
+drawing at the same moment, and still says nothing about the tool in flight —
+which is the one thing it exists for. What the gate removes is the *permanent*
+copy: the band no longer holds a second statusline on screen when nothing is
+happening. The duplication now blinks in and out instead of sitting there.
+
+The fix is a rendering mode that emits the activity rows alone, which the band
+would ask for by name. That touches `src/render/`, which this work has not
+gone near, and is tracked as its own piece.
+
+## What it does not say
+
+Nothing. A plugin a person installs pins no status entry beside their prompt
+and writes no line into their transcript, so `$.ui.status` and `$.ui.log` are
+behind the module's `DEBUG` constant and off. A failure has one channel — the
+band's own note, drawn in place of the rows it could not get.
+
+`session.start` also clears the entry rather than merely declining to set
+one. A status entry belongs to the session, not to the load that pinned it:
+a version that used to pin one would otherwise leave it beside the prompt for
+the rest of that session, through every reload, because the module that would
+have replaced it no longer says anything.
+
+## When the note says "binary: not run yet"
+
+That string is the output atom's initial value, so it means no refresh has
+published yet in this session — not that the ladder failed, which says
+`cc-pulseline not found` or names the version it found. A refresh runs on
+`session.start`, on both ends of every tool call, on a subagent starting or
+stopping, at the end of a turn, on a settings change, and whenever the person
+opens the pane or presses a layout key. The first of those is immediate: a
+version probe and a render both measure about 10ms here, so the band is drawn
+from real rows within a moment of the session opening.
+
+So a band still showing it has not had `session.start` complete — most often
+a module that was loaded but whose `session.start` has not run yet, or a
+reload mid-turn. `claude --debug` carries the per-hook lines that say which.
 
 The band's ANSI is parsed into `Text` props by `spansOf` rather than passed
 through, because the band refuses a whole tree if any text child holds a

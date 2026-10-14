@@ -63,6 +63,14 @@ export type Recorder = {
   settle: () => Promise<void>
   /** Moves the session's project root, as `/cd` or a worktree move would. */
   moveRoot: (to: string) => void
+  /**
+   * Every `$.ui.status` and `$.ui.log` the mod made, in order.
+   *
+   * A plugin a person installs should make none: a status entry sits beside
+   * their prompt and a log line lands in their transcript, and what the band
+   * cannot draw the band itself says.
+   */
+  notices: string[]
 }
 
 /**
@@ -198,6 +206,7 @@ export type BottomOptions = {
 export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const spawns: Spawn[] = []
   const probes: string[] = []
+  const notices: string[] = []
   const clock = mock.clock(on, { now: options.startMs ?? STAMP })
 
   // The Task API's two calls are answered the way the engine answers them,
@@ -309,8 +318,14 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('env.get', (_engine, e) => ({
     value: e.name === 'HOME' ? (options.home ?? '/home/under-test') : undefined,
   }))
-  on('ui.status', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.status', (_engine, e) => {
+    notices.push(`status: ${String(e.text ?? '')}`)
+    return { value: undefined }
+  })
+  on('ui.log', (_engine, e) => {
+    notices.push(`log: ${String(e.text ?? '')}`)
+    return { value: undefined }
+  })
   // The pane. Without a `ui.open` beneath, the mod's `command.run` hook
   // throws, is skipped, and the dispatch falls through to a `command.run`
   // nothing answers — which reads as the wrong failure entirely.
@@ -361,23 +376,35 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     moveRoot: to => {
       root = to
     },
+    notices,
     settle: () => clock.settle(),
   }
 }
 
 /** The `AbovePrompt` band's props, with room for four rows. */
+/**
+ * The band while a turn is running, which is the only time it draws its rows:
+ * idle it yields, because the statusline is already drawing the steady state
+ * on its own row and the band would draw that same row again.
+ */
 export const BAND = {
   plugin: 'pulseline',
   surface: 'terminal',
   component: 'AbovePrompt',
   props: {
     hasSurvey: false,
-    isWorking: false,
+    isWorking: true,
     maxRows: 4,
     bodyColumns: 120,
     scroll: { offset: 0, bodyRows: 4 },
     view: {},
   },
+} as const
+
+/** The same band with nothing running. */
+export const IDLE_BAND = {
+  ...BAND,
+  props: { ...BAND.props, isWorking: false },
 } as const
 
 /** The pane's props, at the twelve rows `$.ui.open` asks for. */

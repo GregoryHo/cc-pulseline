@@ -183,6 +183,44 @@ describe('tool calls', () => {
   })
 })
 
+describe('what the person is told', () => {
+  test('the mod pins no status and writes no log line', async ($, on) => {
+    const seen = bottom(on)
+    // A whole session's worth of the events that used to say something.
+    await $.tool.call(call('one'))
+    await $.classic.Stop({ stop_hook_active: false })
+    await $.turn.complete({
+      reason: 'answer',
+      answer: '',
+      durationMs: 1,
+      isAborted: false,
+      turnId: 't1',
+    })
+    await seen.settle()
+
+    // `$.ui.status` pins an entry beside the prompt and `$.ui.log` lands a
+    // line in the transcript. A plugin a person installs should say neither:
+    // `pulseline: 1r band 3x120 · 0 running · 0 done · pane: not run yet` is
+    // scaffolding, and what the band cannot draw the band itself says.
+    //
+    // This reaches the two on the tool path. The two in `session.start` —
+    // `status('alive')` and the opening `log` — are behind the same `DEBUG`
+    // and cannot be reached from here: a test cannot raise `session.start`,
+    // `NounEventOf.session` having no `start`.
+    expect(seen.notices).toEqual([])
+  })
+
+  test('a failure reaches the band rather than the status line', async ($, on) => {
+    const seen = bottom(on, { binaryVersion: null })
+    await $.tool.call(call('one'))
+    await seen.settle()
+
+    expect(seen.notices).toEqual([])
+    // The note the band draws when it has no rows — the only channel left.
+    expect(seen.payloads().length).toBe(0)
+  })
+})
+
 describe('what counts as tool activity', () => {
   test('the todo row\'s own calls and Agent are not tools', async ($, on) => {
     const seen = bottom(on)
