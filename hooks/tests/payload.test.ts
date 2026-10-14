@@ -141,17 +141,26 @@ describe('buildPayload', () => {
     ])
   })
 
-  test('completed counts keep insertion order', () => {
+  test('completed counts carry the stamp the binary ranks them by', () => {
     const payload = built({
-      counts: { Read: { count: 12, failed: 0 }, Bash: { count: 8, failed: 2 } },
-      completedTotal: 20,
+      counts: {
+        Read: { count: 12, failed: 0, lastAt: 1_700_000_000_000 },
+        Bash: { count: 8, failed: 2, lastAt: 1_700_000_001_000 },
+        // A kind the host wrote before the field existed: no stamp goes out,
+        // and the binary scores it on its count alone.
+        Edit: { count: 3, failed: 0, lastAt: 0 },
+      },
+      completedTotal: 23,
       failedTotal: 2,
     })
+    // Serialised in insertion order; which four survive is the binary's
+    // choice, made from the counts and these stamps.
     expect(payload.activity?.completed_counts).toEqual([
-      { name: 'Read', count: 12, failed: 0 },
-      { name: 'Bash', count: 8, failed: 2 },
+      { name: 'Read', count: 12, failed: 0, last_completed_at: 1_700_000_000_000 },
+      { name: 'Bash', count: 8, failed: 2, last_completed_at: 1_700_000_001_000 },
+      { name: 'Edit', count: 3, failed: 0 },
     ])
-    expect(payload.activity?.completed_total).toBe(20)
+    expect(payload.activity?.completed_total).toBe(23)
     expect(payload.activity?.failed_total).toBe(2)
   })
 

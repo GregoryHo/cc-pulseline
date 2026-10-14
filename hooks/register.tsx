@@ -1164,12 +1164,17 @@ export const register: Register = (on, options) => {
           // overrun inside `update` must not cost this tool its place in the
           // session totals.
           if (!NOT_TOOL_ACTIVITY.has(name)) {
+            // Read before the write, because `update` retries and the stamp
+            // must be when the tool finished rather than when the transaction
+            // happened to win.
+            const finishedAt = await $.clock.now()
             await update($, toolTotals, totals => ({
               counts: {
                 ...totals.counts,
                 [name]: {
                   count: (totals.counts[name]?.count ?? 0) + 1,
                   failed: (totals.counts[name]?.failed ?? 0) + (failed ? 1 : 0),
+                  lastAt: finishedAt,
                 },
               },
               completedTotal: totals.completedTotal + 1,

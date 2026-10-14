@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { BAND, PANE, USER_COMMAND, bottom } from './harness'
+import { BAND, PANE, STAMP, USER_COMMAND, bottom } from './harness'
 
 /**
  * A3: the session's values live in `$.state`, so they outlive a hot reload.
@@ -26,8 +26,8 @@ test('an atom-backed count adds up over the session', async ($, on) => {
   const payload = seen.lastPayload()
   expect(payload.activity?.completed_total).toBe(3)
   expect(payload.activity?.completed_counts).toEqual([
-    { name: 'Read', count: 2, failed: 0 },
-    { name: 'Bash', count: 1, failed: 0 },
+    { name: 'Read', count: 2, failed: 0, last_completed_at: STAMP },
+    { name: 'Bash', count: 1, failed: 0, last_completed_at: STAMP },
   ])
 })
 

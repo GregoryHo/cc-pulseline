@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { bottom } from './harness'
+import { bottom, STAMP } from './harness'
 
 /**
  * The hooks' side: what each event accumulates, read off the payload the mod
@@ -32,7 +32,7 @@ describe('tool calls', () => {
 
     const payload = seen.lastPayload()
     expect(payload.activity?.tools).toEqual([])
-    expect(payload.activity?.completed_counts).toEqual([{ name: 'Read', count: 1, failed: 0 }])
+    expect(payload.activity?.completed_counts).toEqual([{ name: 'Read', count: 1, failed: 0, last_completed_at: STAMP }])
     expect(payload.activity?.completed_total).toBe(1)
     expect(payload.activity?.failed_total).toBe(0)
   })
@@ -99,8 +99,24 @@ describe('tool calls', () => {
     await seen.settle()
 
     const payload = seen.lastPayload()
-    expect(payload.activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1 }])
+    expect(payload.activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1, last_completed_at: STAMP }])
     expect(payload.activity?.failed_total).toBe(1)
+  })
+
+  test('each tool kind carries when it last finished, not when it first did', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call(call('first'))
+    await seen.settle()
+    await seen.advance(90_000)
+    await $.tool.call(call('second'))
+    await seen.settle()
+
+    // The binary ranks the kinds by count plus how recently each last
+    // finished, and keeps four. A stamp stuck at the first completion would
+    // make a tool in constant use look stale within two minutes.
+    expect(seen.lastPayload().activity?.completed_counts).toEqual([
+      { name: 'Read', count: 2, failed: 0, last_completed_at: STAMP + 90_000 },
+    ])
   })
 
   test('a denied call is counted as failed, not as done', async ($, on) => {
@@ -112,7 +128,7 @@ describe('tool calls', () => {
     await seen.settle()
 
     const activity = seen.lastPayload().activity
-    expect(activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1 }])
+    expect(activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1, last_completed_at: STAMP }])
     expect(activity?.failed_total).toBe(1)
   })
 
@@ -127,8 +143,8 @@ describe('tool calls', () => {
     const payload = seen.lastPayload()
     expect(payload.activity?.completed_total).toBe(4)
     expect(payload.activity?.completed_counts).toEqual([
-      { name: 'Read', count: 3, failed: 0 },
-      { name: 'Bash', count: 1, failed: 0 },
+      { name: 'Read', count: 3, failed: 0, last_completed_at: STAMP },
+      { name: 'Bash', count: 1, failed: 0, last_completed_at: STAMP },
     ])
   })
 })
@@ -157,7 +173,7 @@ describe('what counts as tool activity', () => {
     // before its tool tracking, so the band's totals have to do the same or
     // they count the mod's own bookkeeping.
     const payload = seen.lastPayload()
-    expect(payload.activity?.completed_counts).toEqual([{ name: 'Read', count: 1, failed: 0 }])
+    expect(payload.activity?.completed_counts).toEqual([{ name: 'Read', count: 1, failed: 0, last_completed_at: STAMP }])
     expect(payload.activity?.completed_total).toBe(1)
     // And an Agent call is never also drawn as a running tool.
     for (const seenPayload of seen.payloads()) {

@@ -47,7 +47,15 @@ export type Tokens = {
 }
 
 /** Session totals per tool name, as the completed-counts row shows them. */
-export type ToolCount = { count: number; failed: number }
+/**
+ * One tool kind's tally.
+ *
+ * `lastAt` is when it last finished, in epoch milliseconds. The binary ranks
+ * the kinds by count plus a recency bonus and keeps only
+ * `max_completed_tools` of them — four by default — so without a stamp the
+ * four a session opened with would outrank the ones it actually leans on.
+ */
+export type ToolCount = { count: number; failed: number; lastAt: number }
 
 /** The todo list as the last TodoWrite call left it. */
 export type Todo = {

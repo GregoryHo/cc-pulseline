@@ -154,6 +154,10 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
         name,
         count: count.count,
         failed: count.failed,
+        // What the binary ranks on, beside the count. Left out when a kind
+        // has no stamp — a session whose atom the host wrote before this
+        // field existed — where the binary then scores it on its count alone.
+        last_completed_at: count.lastAt > 0 ? count.lastAt : undefined,
       })),
       completed_total: snapshot.completedTotal,
       failed_total: snapshot.failedTotal,

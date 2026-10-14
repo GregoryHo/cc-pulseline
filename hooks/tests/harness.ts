@@ -30,6 +30,12 @@ import { mock } from 'claude-code/testing'
  * `SpanStyle` is spelled out there rather than taken from `TextProps`.)
  */
 
+/**
+ * Where `bottom`'s clock sits, and so the `last_completed_at` every tool
+ * count carries: the clock stands still unless a case moves it.
+ */
+export const STAMP = 1_700_000_000_000
+
 /** What the bottom's own band draws, so a test can tell the mod yielded. */
 export const BENEATH = 'drawn-beneath-the-mod'
 
@@ -186,7 +192,7 @@ export type BottomOptions = {
 export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const spawns: Spawn[] = []
   const probes: string[] = []
-  const clock = mock.clock(on, { now: options.startMs ?? 1_700_000_000_000 })
+  const clock = mock.clock(on, { now: options.startMs ?? STAMP })
 
   // The Task API's two calls are answered the way the engine answers them,
   // because the mod reads the created task's id out of the *result* rather
