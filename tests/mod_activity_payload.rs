@@ -363,3 +363,124 @@ fn a_running_tool_without_name_still_renders() {
         lines.join("\n")
     );
 }
+
+// --- The same contract for the remaining `String` fields. ----------------
+//
+// These had neither `Option` nor a default, so a missing key rejected the
+// whole payload exactly as the scalars above did. They are now covered by
+// struct-level `#[serde(default)]`, which states the contract once per struct
+// rather than once per field.
+
+#[test]
+fn an_agent_without_id_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "agents": [
+            {"description": "Investigate logic"},
+            {"id": "a2", "description": "Check config"}
+        ]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing agent `id` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Check config"),
+        "the well-formed sibling proves the agents were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn an_agent_without_description_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "agents": [
+            {"id": "a1"},
+            {"id": "a2", "description": "Check config"}
+        ]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing agent `description` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Check config"),
+        "the well-formed sibling proves the agents were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_completed_count_without_name_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "completed_counts": [{"count": 3}, {"name": "Bash", "count": 5}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing `name` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Bash"),
+        "the well-formed sibling proves the counts were parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_without_text_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {"pending": 1, "completed": 0, "total": 1},
+        "completed_counts": [{"name": "Read", "count": 4}]
+    });
+
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config())
+        .expect("a missing todo `text` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Read"),
+        "the rest of the activity proves the payload was parsed: {}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_todo_item_without_text_still_renders() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let mut payload = base_payload(&workspace);
+    payload["activity"] = json!({
+        "todo": {
+            "text": "Fixing auth bug",
+            "pending": 1,
+            "completed": 0,
+            "total": 2,
+            // Per-item rows need the task API plus room for more than one.
+            "is_task_api": true,
+            "in_progress_items": [{"started_at": 1}, {"text": "Second item"}]
+        }
+    });
+
+    let config = RenderConfig {
+        max_todo_lines: 4,
+        ..config()
+    };
+    let lines = PulseLineRunner::default()
+        .run_from_str(&payload.to_string(), config)
+        .expect("a missing todo item `text` must not reject the payload");
+
+    assert!(
+        lines.join("\n").contains("Second item"),
+        "the well-formed sibling item proves the todo was parsed: {}",
+        lines.join("\n")
+    );
+}

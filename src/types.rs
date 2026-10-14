@@ -349,10 +349,15 @@ impl Line3Metrics {
     }
 }
 
-/// A tool currently in flight. The scalars carry `#[serde(default)]` because
-/// a mod assembles this in TypeScript, where one absent key would otherwise
-/// reject the whole payload and blank every statusline row.
+/// A tool currently in flight.
+///
+/// `#[serde(default)]` at the struct level is the payload contract stated once:
+/// a missing key falls back, never rejects. A mod assembles this in
+/// TypeScript, and serde rejects the *whole* payload on one unreadable field,
+/// so an omitted key here would blank every statusline row rather than its own
+/// cell.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ToolSummary {
     #[serde(default)]
     pub id: String,
@@ -361,10 +366,12 @@ pub struct ToolSummary {
     pub target: Option<String>,
 }
 
+/// Session tally for one tool name. See `ToolSummary` for the struct-level
+/// `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompletedToolCount {
     pub name: String,
-    /// Defaulted so a mod omitting the key costs this cell, not the payload.
     #[serde(default)]
     pub count: u32,
     #[serde(default)]
@@ -399,7 +406,10 @@ pub struct TaskItem {
     pub started_at: Option<u64>,
 }
 
+/// One sub-agent, active or recently completed. See `ToolSummary` for the
+/// struct-level `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AgentSummary {
     pub id: String,
     pub description: String,
@@ -483,18 +493,22 @@ impl QuotaMetrics {
     }
 }
 
+/// One in-progress todo item. See `ToolSummary` for the struct-level
+/// `default` contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TodoInProgressItem {
     pub text: String,
     #[serde(default, deserialize_with = "lenient_u64")]
     pub started_at: Option<u64>,
 }
 
+/// The todo roll-up. See `ToolSummary` for the struct-level `default`
+/// contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TodoSummary {
     pub text: String,
-    /// The three counts default for the same reason as `ToolSummary`'s
-    /// scalars: a missing key must cost one cell, never the whole payload.
     #[serde(default)]
     pub pending: usize,
     #[serde(default)]
