@@ -137,12 +137,37 @@ So check the artifacts rather than the job colours:
 
 ```bash
 gh release view v<X.Y.Z> --json assets --jq '.assets | length'   # expect 7
-npm view @cc-pulseline/cc-pulseline version                      # expect X.Y.Z
-cargo search cc-pulseline --limit 1
+curl -sL https://registry.npmjs.org/@cc-pulseline%2Fcc-pulseline \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['dist-tags']['latest'])"
+for p in darwin-arm64 darwin-x64 linux-x64 linux-x64-musl \
+         linux-arm64 linux-arm64-musl win32-x64; do
+  curl -sL "https://registry.npmjs.org/@cc-pulseline%2F$p" \
+    | python3 -c "import json,sys; print('$p', json.load(sys.stdin)['dist-tags']['latest'])"
+done
+curl -sL -H 'User-Agent: release-check' https://crates.io/api/v1/crates/cc-pulseline \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['crate']['max_version'])"
 ```
 
 Seven assets, one archive per platform: `.tar.gz` for the six unix targets
 and `.zip` for windows.
+
+Three things that will mislead you here, all of them met while shipping 1.5.0:
+
+- **`npm view <pkg> version` reads a local cache** and happily reports the
+  *previous* version minutes after a successful publish. It said `1.4.0` for
+  the main package and for one platform while the registry already had
+  `1.5.0`. Ask the registry directly, as above, or pass `--prefer-online`.
+- **The platform packages are `@cc-pulseline/<platform>`**, not
+  `@cc-pulseline/cc-pulseline-<platform>`. The wrong name answers `E404`,
+  which reads exactly like a failed publish.
+- **Propagation takes a few minutes.** npm's own notice says so. The
+  authoritative "it published" signal is the `+ <pkg>@<version>` line in the
+  job log; the registry catches up after.
+
+`npm/main/package.json` pins its platform packages at `0.0.0`
+(`optionalDependencies`) and CI rewrites those from the tag too — so an
+install resolves the exact matching platform build, and a platform package
+that failed to publish breaks installs on that platform alone.
 
 ## 6. What cannot be undone
 
