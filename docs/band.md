@@ -179,14 +179,37 @@ return. Read it before adding a test.
 
 ## What it draws
 
-| Site | Rows | Layout |
-| --- | --- | --- |
-| `AbovePrompt` band | up to `maxRows`, which is small outside fullscreen | whatever the effective config selects |
-| `Pane` | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
+| Site | When | Rows | Layout |
+| --- | --- | --- | --- |
+| `AbovePrompt` band | while a turn is running (`e.props.isWorking`) | up to `maxRows`, which is small outside fullscreen | whatever the effective config selects |
+| `Pane` | while it is open | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
 
 Both sites run the binary themselves, because one row count cannot serve a
 small band and a twelve-row pane. The pane run only happens while the pane
 is open.
+
+**The band yields when nothing is running**, with one exception. It renders
+the layout the person configured, and that is the row the statusline is
+already drawing on its own line — idle, the two are the same thing stacked
+twice, which is the opposite of the division of labour they exist for. The
+exception is a band with no rows at all: a missing or too-old binary can only
+say so there, and an install line nobody sees fixes nothing, so that note is
+drawn whether or not a turn is running.
+
+This is a smaller promise than the design intended. The plan had the band
+drawing *activity only* — tools, agents, todo — against the statusline's
+steady-state summary. Nothing enforces that: the band's argv carries
+`--rows` and `--columns` and no `--layout`, and every layout the binary has
+leads with identity and budget, so there is no activity-only rendering to
+ask for. Until one exists, yielding when idle is what keeps the two canvases
+from being the same canvas.
+
+## What it does not say
+
+Nothing. A plugin a person installs pins no status entry beside their prompt
+and writes no line into their transcript, so `$.ui.status` and `$.ui.log` are
+behind the module's `DEBUG` constant and off. A failure has one channel — the
+band's own note, drawn in place of the rows it could not get.
 
 The band's ANSI is parsed into `Text` props by `spansOf` rather than passed
 through, because the band refuses a whole tree if any text child holds a

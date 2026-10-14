@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { BAND, BENEATH, COLOURED_ROWS, PANE, USER_COMMAND, bottom } from './harness'
+import { BAND, BENEATH, COLOURED_ROWS, IDLE_BAND, PANE, USER_COMMAND, bottom } from './harness'
 
 /**
  * What the band and the pane actually draw.
@@ -152,6 +152,37 @@ describe('the band', () => {
 
     const text = await ui.find({ type: 'Text' })
     expect(text?.text).toContain('pulseline:')
+
+    await ui.unmount()
+  })
+
+  test('idle, the band yields rather than drawing the statusline twice', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS })
+    await warm($)
+
+    // The band renders whatever layout the person configured, which is the
+    // row the statusline is already drawing on its own line. Stacked, the two
+    // are the same thing twice — which is what the division of labour between
+    // them exists to avoid.
+    const ui = await $.ui.mount(IDLE_BAND)
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain(BENEATH)
+    expect(seen.spawns.length).toBeGreaterThan(0)
+    await ui.unmount()
+  })
+
+  test('idle with nothing to run, the band still says why', async ($, on) => {
+    const seen = bottom(on, { binaryVersion: null })
+    // A refresh first, so the ladder has run out and the note is the real
+    // one rather than "not run yet".
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
+    const ui = await $.ui.mount(IDLE_BAND)
+
+    // The one thing that outranks yielding: an install line nobody sees fixes
+    // nothing, and this is the only place a missing binary can say so.
+    const text = await ui.find({ type: 'Text' })
+    expect(text?.text).toContain('cc-pulseline not found')
 
     await ui.unmount()
   })
