@@ -110,6 +110,13 @@ Two ways to get it:
    next to it. That is quoted from the header, not something this repo has
    watched happen — every contract here so far has been laid by hand, so
    if it does not appear, use option 2 and say so.
+
+   Two ways that look like they should work and **do not**, both tested on
+   2.1.299 with the contract moved aside: `claude plugin test mod` loads the
+   mod through the engine's own host and still writes nothing, and
+   `claude -p --plugin-dir mod` loads it (the mod answers) and also writes
+   nothing. So an interactive session is the only candidate left, and a
+   headless run will not get you the types however many times you try it.
 2. **Copy it by hand**, which is enough for `tsc` and no more. The bundled
    `plugin-authoring` skill writes the same API contract for the running
    build at `<skill>/types/claude-code.d.ts`; copy that one file to
