@@ -762,6 +762,15 @@ export const register: Register = (on, options) => {
         })
       }
       state.active.set(id, { id, name, target: targetOf(seen) })
+      // The band's reason to exist is the tool running *now*, and the rows it
+      // draws are the binary's stdout — so a running tool reaches the band
+      // only if a refresh happens while its entry is still in `state.active`.
+      // Without this the list could only ever be filled by an overlapping
+      // call, and a lone `cargo test` showed nothing for its whole run.
+      //
+      // Gated, because this one is on the way in: the spawn delays the tool
+      // itself, and a burst of fast calls must not pay for it once each.
+      await maybeRefresh($, state, 400)
     } catch (error) {
       const note = `mark failed: ${String(error).slice(0, 120)}`
       await update($, drawnOutput, out => ({ ...out, runNote: note }))
@@ -792,7 +801,12 @@ export const register: Register = (on, options) => {
           completedTotal: totals.completedTotal + 1,
           failedTotal: totals.failedTotal + (failed ? 1 : 0),
         }))
-        await maybeRefresh($, state, 400)
+        // Unconditional, where the way in is gated. A gated completion would
+        // leave the band drawing a tool that has already finished until some
+        // later event reopened the window — and between two bursts inside one
+        // turn that is seconds of a phantom running tool. One spawn per
+        // completion is the price, and the spawn floor is under 3ms.
+        await refresh($, state)
         $.ui.status((await read($, drawnOutput)).runNote)
       } catch (error) {
         const note = `refresh failed: ${String(error).slice(0, 120)}`

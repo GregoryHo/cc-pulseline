@@ -9,6 +9,10 @@
  * Seven sites can trigger a refresh and the mod sits in the tool-call
  * chain, so a spawn on the way in delays the tool itself; this bounds how
  * often that happens while a burst goes through.
+ *
+ * It bounds the way in only. A tool call's completion refreshes
+ * unconditionally, because a gated completion leaves the band drawing a tool
+ * that has already finished.
  */
 export function shouldRefresh(lastRunMs: number, nowMs: number, gapMs: number): boolean {
   // `>=`, so a gap of 0 always refreshes — a test that wants every call to

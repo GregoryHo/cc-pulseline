@@ -30,20 +30,23 @@ describe('tool calls', () => {
     expect(payload.activity?.failed_total).toBe(0)
   })
 
-  test('a tool that is still running is not yet counted', async ($, on) => {
+  test('a running tool reaches the band while it runs, and is gone once it returns', async ($, on) => {
     const seen = bottom(on)
-    // A tool is in `active` only between the mark and the `finally`, and no
-    // payload was ever observed being built while one was in flight — two
-    // calls raised together did not overlap either. So the row's own shape
-    // is payload.test.ts's and the argument it shows is parse.test.ts's.
-    // What is assertable here is that the running list is empty by the time
-    // a call has returned, which is
-    // the other half of the old case.
     await $.tool.call(call('solo'))
 
-    for (const payload of seen.payloads()) {
-      expect(payload.activity?.tools).toEqual([])
-    }
+    // This case used to assert the opposite — that no payload ever carried a
+    // running tool — which was true and was the bug: the rows the band draws
+    // are the binary's stdout, so the entry in `state.active` only reaches it
+    // through a spawn made while the call is still in flight. One refresh on
+    // the way in is what puts it there.
+    const whileRunning = seen.payloads().filter(p => (p.activity?.tools?.length ?? 0) > 0)
+    expect(whileRunning.length).toBe(1)
+    expect(whileRunning[0]?.activity?.tools).toEqual([
+      { id: 'solo', name: 'Read', target: '/n/solo' },
+    ])
+
+    // And the other half of the old case: nothing lingers once it returns.
+    expect(seen.lastPayload().activity?.tools).toEqual([])
   })
 
   test('a failed tool call is counted as failed', async ($, on) => {

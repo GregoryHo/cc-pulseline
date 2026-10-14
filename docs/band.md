@@ -200,7 +200,7 @@ field, which the hooks module does not use.
 
 | Row | Source |
 | --- | --- |
-| Running tools, per-tool counts, failures | `tool.call`: marked before `next(e)`, counted after, `result.isError` is the failure flag |
+| Running tools, per-tool counts, failures | `tool.call`: marked before `next(e)` and refreshed there, so the running tool is in the band while it runs; counted after, `result.isError` is the failure flag. The way in is gated at 400ms, the completion is not — a gated completion would leave a finished tool drawn as running |
 | Tool argument (`cargo test`, a file path) | the tool's own arguments on `e` — a lookup, not a guess |
 | Todo | the `TodoWrite` call's `todos` array, or the Task API's `TaskCreate` / `TaskUpdate` calls accumulated in the `tasks` atom |
 | Agents | `$.agent.list()` |
