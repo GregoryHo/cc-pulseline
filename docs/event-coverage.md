@@ -9,8 +9,9 @@ A function-hooks mod is handed those facts as events. This file checks that
 claim function by function, so the question "could the transcript parser go
 away?" has an answer built on the real event contract rather than on hope.
 
-Verified against `mods/types/claude-code.d.ts` (Claude Code 2.1.277) and a
-running spike, `mod/hooks/register.ts`.
+Verified against the `claude-code.d.ts` the engine itself writes for plugin
+authors (Claude Code 2.1.296) — `/plugin-types` writes that contract into
+`.claude/types/` — and a running spike, `mod/hooks/register.ts`.
 
 ## Covered: the event carries the fact outright
 
@@ -32,20 +33,25 @@ running spike, `mod/hooks/register.ts`.
 
 | What the parser does | Lines | On the event path |
 | --- | --- | --- |
-| Token counts per API call, deduped by `message.id` | 486–516 | `turn.complete` gives the four counts per **turn**, so tok/s becomes a turn average and the cache trend samples once per turn |
+| Token counts per API call, deduped by `message.id` | 486–516 | `turn.complete` gives the four counts per **turn**, so the cache trend samples once per turn — and tok/s drops out altogether: `update_output_speed` in `src/state/mod.rs` only computes a rate when two samples land `delta_ms <= 2000` apart, while per-turn counts arrive minutes apart and non-monotonic, so it always returns `None`. Restoring it needs per-step token events, which is deferred |
+| API error badge | 446–469 | `turn.complete` carries `reason: 'error'` (`TurnCompleteReason` is `'answer' \| 'aborted' \| 'refusal' \| 'error'`), so a turn-level error signal does exist — but at turn granularity. The per-message `isApiErrorMessage` lines the transcript carries have no event equivalent; the contract does not mention the flag |
 | Agent completion time | 926–970 | `classic.SubagentStart` / `classic.SubagentStop` give real timings; `$.agent.list()` still supplies the list |
 | `aggregate_todo` — fold several sub-agents' todo lists into one row | 1007–1054 | each `TodoWrite` is seen, but the fold has to be rewritten in the mod; not done yet |
 
 ## Not covered by any event
 
-| Fact | Where it comes from today |
-| --- | --- |
-| Output style | the statusline payload only; no call on `$` exposes it |
-| API error badge | `isApiErrorMessage` lines in the transcript; `turn.complete`'s `reason: 'error'` is close but not the same signal |
+Nothing, as of 2.1.296. Both facts this section used to hold moved up:
+output style is carried outright, and the API error badge arrives at turn
+granularity.
 
-Two facts that first looked uncovered are not: **effort** rides on every
-classic hook input (`BaseHookInput.effort`), and the **compaction count**
-is `classic.PreCompact`. The exception is `classic.PreToolUse`, whose
+## What first looked uncovered
+
+Three facts that first looked uncovered are not: **effort** rides on every
+classic hook input (`BaseHookInput.effort`), the **compaction count** is
+`classic.PreCompact`, and the **output style** rides on `prompt.compose`'s
+input, which the engine resolves as
+`outputStyle: { name, isKeepingCodingInstructions } | null` at the moment it
+renders a system prompt. The exception is `classic.PreToolUse`, whose
 argument `ClassicEventOf` special-cases to the tool call envelope, so the
 effort is read from `classic.PostToolUse` instead.
 
@@ -58,12 +64,21 @@ six spellings of "done". The machinery for reading a file that was never an
 event stream — offsets, truncation, windowing, the metadata pre-filter, the
 replay guard — has nothing to do on this path.
 
-What does **not** survive the move is the output style, the API error
-badge, and per-tick token resolution — three items, against roughly 1,300
-lines of reconstruction.
+What does **not** survive the move is per-tick token resolution — one item,
+against roughly 1,300 lines of reconstruction.
 
-So the honest reading is: the transcript parser is not obsolete, it is
-*unnecessary on one path*. Deleting it stays a decision for the day the
-classic statusline is retired — and that day depends on
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` shipping on by default, which is not
-this author's call.
+That was never the deciding question, though. A mod cannot draw where the
+statusline draws: `ui.render`'s `RenderComponent` enumerates fifteen places
+a mod may draw — `AbovePrompt` and `Pane` among them — and the statusline's
+row is not one of them. So the two paths divide the work instead of
+replacing each other. The **statusline** keeps drawing the steady-state
+summary, which is why it keeps parsing the transcript — it is the only way
+to put anything at that position. The **band** (`AbovePrompt`, assembled
+from engine events) draws the activity detail, where per-event resolution is
+the point. Their output is not required to match, and neither is a degraded
+copy of the other.
+
+So `src/providers/transcript.rs` stays, by division of labour rather than as
+a decision deferred. Nor is anything waiting on a flag any more:
+`claude plugin validate mod` passes on 2.1.296 with no
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` set.
