@@ -74,6 +74,15 @@ export type SessionFacts = {
   effort: string | null
   tokens: Tokens | null
   compactCount: number
+  /** What the person chose in place of the default way of answering. */
+  outputStyle: string | null
+  /**
+   * When the last turn ended in an API error, in epoch milliseconds.
+   *
+   * Never cleared: the binary already drops a reading older than 30s, so a
+   * stale one cannot light the badge.
+   */
+  lastApiErrorMs: number | null
 }
 
 /** What the tool-call hook has counted this session. */

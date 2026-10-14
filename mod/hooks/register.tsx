@@ -23,6 +23,21 @@ import type { Span, SpanStyle, Todo } from '../types'
  *
  * Every `$` call is written literally: the loader statically scans this
  * source for them, so aliasing one would make it invisible to the scan.
+ *
+ * Every gating hook carries `.catch(($, e, next) => next(e))`. This mod
+ * only observes — it never denies and never rewrites what it is handed — so
+ * the right answer when one of its hooks throws or outruns its budget is
+ * whatever the chain beneath says. `next` is replay-safe inside a handler:
+ * where the hook had already called it, `next(e)` resolves to what that call
+ * settled to and nothing beneath runs twice, so a `tool.call` that failed
+ * after the tool ran still answers with the tool's real result and never a
+ * fabricated one.
+ *
+ * The budget those handlers guard is the hook's own code: 10s
+ * (`HookBudget.ms`), with waits on `next` and on `$` not counted. So the
+ * binary's `timeoutMs: 5000` sits outside it — it is a `$.process.run` wait
+ * — and only the work around the spawn, chiefly `spansOf` over a few
+ * hundred bytes, is ever on the clock.
  */
 
 const PANE_ID = 'pulseline'
@@ -57,6 +72,8 @@ const sessionFacts = atom({ plugin: 'pulseline-mod', key: 'session' } as const, 
   effort: null,
   tokens: null,
   compactCount: 0,
+  outputStyle: null,
+  lastApiErrorMs: null,
 })
 
 const toolTotals = atom({ plugin: 'pulseline-mod', key: 'tools' } as const, {
@@ -368,6 +385,8 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     cwd: facts.cwd,
     version: facts.version,
     effort: facts.effort,
+    outputStyle: facts.outputStyle,
+    lastApiErrorMs: facts.lastApiErrorMs,
     tokens: facts.tokens,
     mcpCount: state.mcpServers.size,
     claudeMdCount: loaded.claudeMd.length,
@@ -555,7 +574,7 @@ export const register: Register = (on, options) => {
         $.ui.status(note)
       }
     }
-  })
+  }).catch(($, e, next) => next(e))
 
   // Classic hook inputs carry `effort` on every tool-use-context event, so
   // one cheap hook closes the gap a streaming `turn.step` hook would have.
@@ -565,7 +584,7 @@ export const register: Register = (on, options) => {
     const level = e.effort?.level
     if (level) await update($, sessionFacts, facts => ({ ...facts, effort: level }))
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   // What actually reached the model's context, as against what exists on
   // disk: the engine names each instruction file as it loads it.
@@ -591,7 +610,7 @@ export const register: Register = (on, options) => {
       return loaded
     })
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   // A settings file changed: re-read rather than wait out the binary's
   // ten-second environment cache. Throttled, unlike the other refresh
@@ -601,7 +620,7 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     await maybeRefresh($, state, 400)
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   // Real agent timings, instead of inferring a stop from a list status.
   on('classic.SubagentStart', async ($, e, next) => {
@@ -618,7 +637,7 @@ export const register: Register = (on, options) => {
       }
     })
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('classic.SubagentStop', async ($, e, next) => {
     const now = await $.clock.now()
@@ -629,7 +648,7 @@ export const register: Register = (on, options) => {
     }))
     await maybeRefresh($, state, 400)
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   // The compaction badge: the transcript parser counts `compact_boundary`
   // events; here the engine says so directly.
@@ -639,20 +658,40 @@ export const register: Register = (on, options) => {
       compactCount: facts.compactCount + 1,
     }))
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
+
+  // What the person chose in place of the default way of answering. Only
+  // `prompt.compose` carries it, and this hook reads and passes on: the
+  // sections it is really about are returned untouched.
+  on('prompt.compose', async ($, e, next) => {
+    const name = e.outputStyle?.name ?? null
+    // Composed on every system-prompt render, so write only on a change.
+    const facts = await read($, sessionFacts)
+    if (facts.outputStyle !== name) {
+      await update($, sessionFacts, held => ({ ...held, outputStyle: name }))
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     const usage = e.usage
-    if (usage) {
+    // `TurnCompleteReason` includes 'error', which is the one place the mod
+    // can see an API error; the binary drops a reading older than 30s, so
+    // this is never cleared.
+    const erroredAt = e.reason === 'error' ? await $.clock.now() : null
+    if (usage || erroredAt !== null) {
       await update($, sessionFacts, facts => ({
         ...facts,
-        tokens: {
-          input_tokens: usage.input_tokens,
-          output_tokens: usage.output_tokens,
-          cache_read_input_tokens: usage.cache_read_input_tokens,
-          cache_creation_input_tokens: usage.cache_creation_input_tokens,
-        },
+        tokens: usage
+          ? {
+              input_tokens: usage.input_tokens,
+              output_tokens: usage.output_tokens,
+              cache_read_input_tokens: usage.cache_read_input_tokens,
+              cache_creation_input_tokens: usage.cache_creation_input_tokens,
+            }
+          : facts.tokens,
+        lastApiErrorMs: erroredAt ?? facts.lastApiErrorMs,
       }))
     }
     await refresh($, state)
@@ -777,5 +816,5 @@ export const register: Register = (on, options) => {
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     await update($, paneWanted, pane => ({ ...pane, open: false }))
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 }

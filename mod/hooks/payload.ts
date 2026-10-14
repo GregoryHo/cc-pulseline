@@ -37,10 +37,18 @@ export type PayloadSnapshot = {
   agents: readonly AgentInfo[]
   now: number
 
-  /** Session facts the hooks resolved once. */
+  /**
+   * Session facts the hooks resolved once.
+   *
+   * `outputStyle` and `lastApiErrorMs` may arrive `undefined` rather than
+   * `null` from a session whose `session` atom the host wrote before these
+   * two existed, so both are read defensively below.
+   */
   cwd: string
   version: string | null
   effort: string | null
+  outputStyle: string | null
+  lastApiErrorMs: number | null
   tokens: Tokens | null
 
   /**
@@ -107,6 +115,7 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
   return JSON.stringify({
     session_id: snapshot.sessionId,
     model: { display_name: modelName(snapshot.modelId) },
+    output_style: snapshot.outputStyle ? { name: snapshot.outputStyle } : undefined,
     version: snapshot.version ?? undefined,
     effort: snapshot.effort ? { level: snapshot.effort } : undefined,
     cwd: snapshot.cwd,
@@ -150,6 +159,7 @@ export function buildPayload(snapshot: PayloadSnapshot): string {
           snapshot.finishedAt[agent.id] ?? (agent.status === 'running' ? null : now),
       })),
       compact_count: snapshot.compactCount,
+      last_api_error_ms: snapshot.lastApiErrorMs ?? undefined,
       todo: snapshot.todo,
     },
   })
