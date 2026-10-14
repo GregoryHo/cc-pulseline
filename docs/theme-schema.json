@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/GregoryHo/cc-pulseline/theme-schema.json",
   "title": "cc-pulseline Theme Definition",
-  "description": "Schema for designing new cc-pulseline color themes. Use this to define a palette, then translate palette_mapping values into a Rust PresetColors struct in src/render/color.rs.",
+  "description": "Schema for designing new cc-pulseline color themes. A theme is a JSON file: built-ins live in src/themes/ (embedded via include_str!), custom ones drop into ~/.claude/pulseline/themes/ and are loaded at runtime. The palette_mapping object is deserialized into the PresetColors struct in src/render/color.rs.",
 
   "type": "object",
   "required": ["theme", "description", "colors", "palette_mapping"],
@@ -66,7 +66,7 @@
 
     "palette_mapping": {
       "type": "object",
-      "description": "Direct 1:1 mapping to Rust PresetColors struct fields. These 26 values are what get compiled into the binary. Multiple fields CAN share the same color code (e.g., mono-accent themes).",
+      "description": "Direct 1:1 mapping to Rust PresetColors struct fields \u2014 the values that get compiled into the binary. The `ThemePalette` struct in src/render/color.rs is the source of truth for the field set; src/themes/pulseline-aurora.json is a complete worked example to copy from. Multiple fields CAN share the same color code (e.g., mono-accent themes). The fields listed under `required` are the ones PresetColors has no fallback for; the rest are optional and fall back in `build_palette`.",
       "properties": {
         "emphasis_primary":    { "$ref": "#/$defs/ansi256" },
         "emphasis_secondary":  { "$ref": "#/$defs/ansi256" },
@@ -99,7 +99,18 @@
         "cost_base":           { "$ref": "#/$defs/ansi256", "description": "Total cost display" },
         "cost_low_rate":       { "$ref": "#/$defs/ansi256", "description": "Burn rate <$10/h" },
         "cost_med_rate":       { "$ref": "#/$defs/ansi256", "description": "Burn rate $10-50/h" },
-        "cost_high_rate":      { "$ref": "#/$defs/ansi256", "description": "Burn rate >$50/h" }
+        "cost_high_rate":      { "$ref": "#/$defs/ansi256", "description": "Burn rate >$50/h" },
+
+        "strata_state":        { "$ref": "#/$defs/ansi256", "description": "Optional. Separator tint on state rows (Identity/Config/Budget/Quota). Falls back to emphasis_separator." },
+        "strata_activity":     { "$ref": "#/$defs/ansi256", "description": "Optional. Separator tint on activity rows (Tools/Agents/Todos). Falls back to emphasis_structural." },
+
+        "aurora_low":          { "$ref": "#/$defs/ansi256", "description": "Optional. Aurora gradient stop 1 (calm) for the sparkline widget. Falls back to completed_check." },
+        "aurora_mid":          { "$ref": "#/$defs/ansi256", "description": "Optional. Aurora gradient stop 2 (active). Falls back to active_cyan." },
+        "aurora_high":         { "$ref": "#/$defs/ansi256", "description": "Optional. Aurora gradient stop 3 (hot). Falls back to active_coral." },
+
+        "tag_label":           { "$ref": "#/$defs/ansi256", "description": "Optional. Ledger TAG column. Falls back to emphasis_secondary." },
+        "head_agent":          { "$ref": "#/$defs/ansi256", "description": "Optional. L1 AG: pill. Falls back to active_purple." },
+        "head_thinking":       { "$ref": "#/$defs/ansi256", "description": "Optional. L1 [T] thinking pill. Falls back to active_amber." }
       },
       "required": [
         "emphasis_primary", "emphasis_secondary", "emphasis_structural", "emphasis_separator",

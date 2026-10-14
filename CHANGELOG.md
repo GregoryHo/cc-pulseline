@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-15
+
+Patch on the plugin half, found by running 1.5.0 in a terminal rather
+than by a test: every hook case asserts on the payload the module
+hands the binary, and both of these are about what comes back and
+when. `src/` and `tests/` are untouched — the statusline draws exactly
+what 1.5.0 drew — and the plugin's binary gate is unchanged at 1.5.0,
+so the binary already on the machine still satisfies it. The hook
+suite grew from 126 to 130 tests across the same seven files.
+
+### Fixed
+
+- **The plugin was talking.** Scaffolding shipped in 1.5.0:
+  `$.ui.status` pinned `pulseline: alive` beside the prompt at session
+  start and re-pinned it with the run note on every refresh —
+  `pulseline: 1r band 3x120 · 0 running · 0 done · pane: not run yet`
+  — and `$.ui.log` wrote that note once into the transcript. A plugin
+  a person installs should say neither, so both channels are behind
+  the module's `DEBUG` constant and off. `session.start` now *clears*
+  the status entry rather than merely declining to set one — a status
+  entry belongs to the session, not to the load that pinned it, so
+  upgrading mid-session from a version that pinned one would otherwise
+  leave that entry beside the prompt for the rest of that session,
+  through every reload, because the module that would have replaced it
+  no longer says anything. A failure keeps the one channel it should
+  have: the band's own note, drawn in place of the rows it could not
+  get.
+- **The band drew a second statusline while nothing was running.** It
+  renders whatever layout the effective config selects, and every
+  layout leads with identity and budget — the row the statusline is
+  already drawing on its own line. `e.props.isWorking` was on the
+  band's props all along and the module never read it, so that copy sat
+  there permanently. The band now yields when no turn is running, with
+  one exception: a band with no rows at all still draws its note,
+  because a missing or too-old binary can say so nowhere else and an
+  install line nobody sees fixes nothing. Width and row count are
+  measured before that return, so a terminal resized while idle is
+  still the box the next refresh spawns against. **This only half
+  fixes it** — while a turn runs the band still draws identity and
+  budget at the moment the statusline is drawing them, and still says
+  nothing about the tool in flight, which is the one thing it exists
+  for. What the gate removes is the *permanent* copy. The real fix is a
+  rendering mode that emits the activity rows alone; it touches
+  `src/render/`, which this work has not gone near, and is tracked as
+  its own piece.
+
+### Internal
+
+- **`release-ship` skill** — the half `release-bump` stops before:
+  gates, the docs that belong to shipping, merge, tag, the checks that
+  prove the tag shipped, and what cannot be undone. Everything in it
+  was verified while shipping 1.5.0 rather than read off the workflow
+  file — a green npm job is not proof npm published (every
+  `npm publish` there ends in a `|| echo` warning, while `cargo publish`
+  has no such guard), `npm view` reads a local cache and can serve the
+  previous version minutes after a successful publish, and `tsc -p .`
+  needs a `types/` directory no command produces. It also corrects the
+  version-site table in `.claude/workflows/release-bump.js`: four
+  sites, not five — `tests/cli_flags.rs` asserts against
+  `env!("CARGO_PKG_VERSION")` and holds no literal version.
+- `docs/band.md` now records *when* each surface draws rather than only
+  what: the idle gate and its one exception, the stopgap and the real
+  fix it defers to, a "what it does not say" section, and what a band
+  stuck on `binary: not run yet` actually means — the output atom's
+  initial value, so no refresh has published in this session yet, not a
+  ladder that failed.
+
 ## [1.5.0] - 2026-10-14
 
 Release on the *surfaces* axis: cc-pulseline gains a second canvas.
@@ -969,6 +1036,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.5.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.2.1...v1.3.0

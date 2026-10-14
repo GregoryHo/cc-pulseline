@@ -48,7 +48,7 @@ When `terminal_width` is set and content exceeds it:
 ## Adding a New Segment
 
 1. Add data field to the appropriate `LineNMetrics` struct in `types.rs`
-2. Add `show_*` toggle following the Config Layer Pattern (7 places)
+2. Add `show_*` toggle following the Config Layer Pattern (see `.claude/rules/patterns.md`)
 3. Write format function in `render/layout.rs` taking `&ThemePalette` + `color_enabled`
 4. Wire into the appropriate line's format function in `layout.rs`
 5. Test with `color_enabled: true` AND `color_enabled: false`
@@ -71,14 +71,15 @@ When adding a new widget *variant* for the context or quota segment, wire it thr
 > (`tools_visual`: counts/targets/ticker, `todo_visual`: text/bar),
 > parsed inline in `activity/builder.rs` (`ToolsVisualSpec` /
 > `TodoVisualSpec`, same precedent as `AgentVisualSpec`). Reviving
-> `cost_visual` requires both the hub and the config field (Config
-> Layer Pattern, 7 places); `quota_visual` is the worked example.
+> `cost_visual` requires both the hub and the config field (see the
+> Config Layer Pattern in `.claude/rules/patterns.md`); `quota_visual`
+> is the worked example.
 
 ## Adding a New Widget-Bearing Segment
 
 If introducing a brand-new segment with widget composition:
 
-1. Add the `*_visual: String` field per the Config Layer Pattern (7 places).
+1. Add the `*_visual: String` field per the Config Layer Pattern (see `.claude/rules/patterns.md`).
 2. Add the per-layout default in `SegmentVisualDefaults` and `default_visuals_for` in `frames/mod.rs`.
 3. Add an `effective_*_visual()` helper on `RenderConfig` mirroring `effective_context_visual()`.
 4. Add a new dispatch hub `render_<segment>_visual` in `frames/shared.rs`.
