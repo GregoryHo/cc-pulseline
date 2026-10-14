@@ -35,7 +35,9 @@ live in the workflow script — maintain them THERE, not here.
 
 - **Never auto-commit, push, or tag** — the workflow doesn't, and neither do
   you. Tag pushes trigger irreversible CI publish. The user owns commit
-  message split, push/merge sequencing, and `v<X.Y.Z>` tagging.
+  message split, push/merge sequencing, and `v<X.Y.Z>` tagging. Landing a
+  prepared release is the **`release-ship`** skill, and it needs the user to
+  say go in that turn.
 - If the workflow reports stray version sites or new doc-rot patterns, update
   the prompts in `.claude/workflows/release-bump.js` before ending the
   routine — an outdated checklist is worse than no checklist.
