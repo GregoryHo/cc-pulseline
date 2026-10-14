@@ -100,7 +100,7 @@ export type PayloadShape = {
       pending?: number
       completed?: number
       total?: number
-      in_progress_items?: { text: string }[]
+      in_progress_items?: { text: string; started_at?: number }[]
       all_done?: boolean
       is_task_api?: boolean
     } | null

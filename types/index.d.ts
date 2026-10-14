@@ -55,9 +55,35 @@ export type Todo = {
   pending: number
   completed: number
   total: number
-  in_progress_items: { text: string }[]
+  in_progress_items: { text: string; started_at?: number }[]
   all_done: boolean
   is_task_api: boolean
+}
+
+/**
+ * One Task API item: `TaskCreate` opens it, `TaskUpdate` moves its status.
+ *
+ * The transcript path keeps the same four fields (`state/mod.rs`'s `TaskItem`)
+ * because the todo row is rebuilt from the whole set on every change — a
+ * status arrives with an id and nothing else, so the rest has to be held.
+ */
+export type TaskItem = {
+  subject: string
+  status: string
+  activeForm?: string
+  startedAt?: number
+}
+
+/**
+ * The Task API's items and the counter that names them.
+ *
+ * `TaskCreate` carries no id; the id is the engine-side creation order, which
+ * `TaskUpdate` then names. So the counter has to survive a reload with the
+ * items, or an update after one would address an item that is no longer there.
+ */
+export type Tasks = {
+  items: Record<string, TaskItem>
+  counter: number
 }
 
 /**
@@ -159,6 +185,7 @@ declare module 'claude-code' {
       agents: AgentTimings
       instructions: Instructions
       todo: Todo | null
+      tasks: Tasks
       pane: PaneWanted
       output: DrawnOutput
       binary: BinaryChoice | null

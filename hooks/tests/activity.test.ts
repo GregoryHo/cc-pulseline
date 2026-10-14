@@ -111,6 +111,123 @@ describe('TodoWrite', () => {
   })
 })
 
+describe('the Task API', () => {
+  test('TaskCreate opens a pending item that reaches the payload', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'Wire the ladder',
+      description: 'Five rungs, probed by --version',
+    })
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k2',
+      subject: 'Write its tests',
+      description: 'One per rung',
+    })
+
+    const todo = seen.lastPayload().activity?.todo
+    expect(todo?.total).toBe(2)
+    expect(todo?.pending).toBe(2)
+    expect(todo?.completed).toBe(0)
+    expect(todo?.in_progress_items).toEqual([])
+    expect(todo?.is_task_api).toBe(true)
+  })
+
+  test('TaskUpdate names the running task by its active form', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'Wire the ladder',
+      description: 'Five rungs, probed by --version',
+      activeForm: 'Wiring the ladder',
+    })
+    // The id is the creation order, which is what the engine's TaskUpdate names.
+    await $.tool.call({
+      tool: 'TaskUpdate',
+      tool_use_id: 'k2',
+      taskId: '1',
+      status: 'in_progress',
+    })
+
+    const todo = seen.lastPayload().activity?.todo
+    expect(todo?.in_progress_items?.[0]?.text).toBe('Wiring the ladder')
+    expect(typeof todo?.in_progress_items?.[0]?.started_at).toBe('number')
+    // Everything not completed is pending, the running item included — the
+    // transcript path's arithmetic, mirrored.
+    expect(todo?.pending).toBe(1)
+  })
+
+  test('a completed task is counted, and the last one marks the row done', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'One',
+      description: 'The first',
+    })
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k2',
+      subject: 'Two',
+      description: 'The second',
+    })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '1', status: 'completed' })
+
+    let todo = seen.lastPayload().activity?.todo
+    expect(todo?.completed).toBe(1)
+    expect(todo?.all_done).toBe(false)
+
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k4', taskId: '2', status: 'completed' })
+    todo = seen.lastPayload().activity?.todo
+    expect(todo?.completed).toBe(2)
+    expect(todo?.all_done).toBe(true)
+  })
+
+  test('a deleted task leaves the row', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'One',
+      description: 'The first',
+    })
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k2',
+      subject: 'Two',
+      description: 'The second',
+    })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '2', status: 'deleted' })
+
+    const todo = seen.lastPayload().activity?.todo
+    expect(todo?.total).toBe(1)
+  })
+
+  test('the start is stamped once, so the elapsed time does not restart', async ($, on) => {
+    const seen = bottom(on)
+    await $.tool.call({
+      tool: 'TaskCreate',
+      tool_use_id: 'k1',
+      subject: 'One',
+      description: 'The only one',
+    })
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: '1', status: 'in_progress' })
+    const first = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
+    // Asserted on its own, or the comparison below would pass on two
+    // undefineds and say nothing about the stamp.
+    expect(typeof first).toBe('number')
+
+    // The clock has moved between the two, so a re-stamp would show.
+    await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: '1', status: 'in_progress' })
+    const again = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
+
+    expect(again).toBe(first)
+  })
+})
+
 describe('classic events', () => {
   test('effort rides in on a classic hook input', async ($, on) => {
     const seen = bottom(on)

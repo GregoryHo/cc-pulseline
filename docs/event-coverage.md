@@ -25,6 +25,7 @@ from a folder the author owns. Also against the running hooks module,
 | `extract_target` — a per-tool table of which input key to show | 875–925 | the tool's own arguments ride on `e` (`e.command`, `e.file_path`) |
 | `is_terminal_status` — accept six spellings of "finished" | 971–985 | `result.isError` is a boolean |
 | `dispatch_todo_write` / `extract_todo_summary` / `find_todos_array` — three todo schemas, probed by shape | 795–800, 1196–1241 | `tool.call` where `e.tool === 'TodoWrite'`: the array as the tool received it |
+| `dispatch_task_create` / `dispatch_task_update` / `build_todo_from_tasks` — the Task API's items, folded into the same row | 620–629, 59–93 | `tool.call` where `e.tool === 'TaskCreate'` or `'TaskUpdate'`, held in the `tasks` atom because an update carries only an id. `todoFromTasks` mirrors the fold, summary wording and sort included |
 | `handle_agent_progress` — infer agent state from progress events | 680–766 | `$.agent.list()` returns id, description, type, status, parent |
 | `sub_agent_transcript_path` + `tail_sub_agent_transcripts` + `apply_sub_agent_event` — open and tail each sub-agent's own JSONL | 1055–1195 | `tool.call` carries `agentId`; a sub-agent's calls arrive in the same stream |
 | `accumulate_usage` + the replay/dedupe guards | 486–516 | `turn.complete` raises `e.usage` once per turn |

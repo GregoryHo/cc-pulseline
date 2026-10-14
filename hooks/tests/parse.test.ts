@@ -76,6 +76,16 @@ describe('spansOf', () => {
     ])
   })
 
+  test('SGR 49 hands the background back without touching the foreground', () => {
+    // The rail and anchor seams write 49 at a cluster's pointed outer edge.
+    // Carried over, the background would paint the point as a rectangle.
+    const spans = spansOf(`${sgr('48;5;39')}${sgr('38;5;196')}seg${sgr('49')}\u25b6`)
+    expect(spans).toEqual([
+      { backgroundColor: '#00afff', color: '#ff0000', children: 'seg' },
+      { color: '#ff0000', children: '\u25b6' },
+    ])
+  })
+
   test('several codes in one escape are all applied', () => {
     expect(spansOf(`${sgr('1;2;38;5;244')}x`)).toEqual([
       { bold: true, dimColor: true, color: '#808080', children: 'x' },

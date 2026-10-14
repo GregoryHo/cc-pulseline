@@ -202,7 +202,7 @@ field, which the hooks module does not use.
 | --- | --- |
 | Running tools, per-tool counts, failures | `tool.call`: marked before `next(e)`, counted after, `result.isError` is the failure flag |
 | Tool argument (`cargo test`, a file path) | the tool's own arguments on `e` — a lookup, not a guess |
-| Todo | the `TodoWrite` call's `todos` array |
+| Todo | the `TodoWrite` call's `todos` array, or the Task API's `TaskCreate` / `TaskUpdate` calls accumulated in the `tasks` atom |
 | Agents | `$.agent.list()` |
 | Context, cost, rate limits | `$.session.usage()` |
 | Token breakdown | `turn.complete`'s `e.usage` (per turn, not per tick) |
@@ -251,6 +251,7 @@ hook draws.
 | --- | --- |
 | tok/s, and the cache trend's *sparkline* | the token breakdown arrives once per turn, not per API call, so there is nothing to plot a per-call hit rate from — the dedup by `message.id` that the transcript path does needs the transcript. The CACHE row's cumulative total is **not** missing: the mod sums it per turn and sends `activity.cache_read_total` |
 | Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
+| `--rows` in the pane, where the layout is `ledger` | the pane tells the binary the box it got, but the ledger returns before the height ladder — `--layout ledger --rows 4` still emits eleven rows (`src/render/layout.rs`'s comment says so: the ledger owns its pipeline and `ledger_dense` is its height lever). The pane's body is a window over the tree, so nothing is lost — it scrolls — but the switcher sits under the rows and goes below the fold in a short dock. Closing it properly means either the ledger honouring the cap or wiring `ledger_dense`, both inside `src/render/`, which the band does not touch |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
 
 `classic.*` events close what the engine's own events do not: effort rides

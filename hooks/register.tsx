@@ -14,7 +14,7 @@ import type { Version } from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
-import type { BinaryChoice, Span, SpanStyle, Todo } from '../types'
+import type { BinaryChoice, Span, SpanStyle, TaskItem, Tasks, Todo } from '../types'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -106,6 +106,18 @@ const instructions = atom({ plugin: 'pulseline', key: 'instructions' } as const,
 
 const todoList = atom({ plugin: 'pulseline', key: 'todo' } as const, null)
 
+/**
+ * The Task API's items, which the todo row is rebuilt from.
+ *
+ * An atom rather than a closure field for the same reason as the rest: an
+ * edit to this module reloads it, and a `TaskUpdate` naming an item created
+ * before the reload has to find it.
+ */
+const taskItems = atom({ plugin: 'pulseline', key: 'tasks' } as const, {
+  items: {} as Record<string, TaskItem>,
+  counter: 0,
+})
+
 /** The person's own pane choices: a reload must not close it or reset it. */
 const paneWanted = atom({ plugin: 'pulseline', key: 'pane' } as const, {
   open: false,
@@ -192,7 +204,17 @@ export function spansOf(line: string): Span[] {
       else if (code === 1) style = { ...style, bold: true }
       else if (code === 2) style = { ...style, dimColor: true }
       else if (code === 7) style = { ...style, inverse: true }
-      else if ((code === 38 || code === 48) && codes[at + 1] === '5') {
+      else if (code === 49) {
+        // The one reset code the renderer emits besides 0: `powerline.rs`'s
+        // DEFAULT_BG, written at the pointed outer edge of a rail or anchor
+        // cluster to hand the terminal's own background back. Dropping the
+        // property is the whole fix — carried over, the previous segment's
+        // background stays on the seam span and the point paints as a filled
+        // rectangle. 39 is not handled because nothing emits it.
+        const cleared = { ...style }
+        delete cleared.backgroundColor
+        style = cleared
+      } else if ((code === 38 || code === 48) && codes[at + 1] === '5') {
         const hex = ansi256Hex(Number(codes[at + 2]))
         style = code === 38 ? { ...style, color: hex } : { ...style, backgroundColor: hex }
         at += 2
@@ -258,6 +280,51 @@ export function targetOf(event: Record<string, unknown>): string | undefined {
     if (typeof value === 'string' && value.length > 0) return value.slice(0, 120)
   }
   return undefined
+}
+
+/**
+ * Folds the Task API's items into the todo row's shape.
+ *
+ * A mirror of `state/mod.rs`'s `build_todo_from_tasks`, down to the summary
+ * wording and the sort, so the band draws the same row whichever path fed it.
+ * Note `pending` is everything not completed, the in-progress items included —
+ * that is the transcript path's arithmetic, not an oversight.
+ */
+export function todoFromTasks(items: Record<string, TaskItem>): Todo | null {
+  const all = Object.values(items)
+  if (all.length === 0) return null
+
+  const total = all.length
+  const completed = all.filter(item => item.status === 'completed').length
+  const pending = total - completed
+  const running = all
+    .filter(item => item.status === 'in_progress')
+    .map(item => ({ text: item.activeForm ?? item.subject, started_at: item.startedAt }))
+    .sort((a, b) => (a.started_at ?? Infinity) - (b.started_at ?? Infinity))
+
+  return {
+    text: `${completed}/${total} done, ${pending} pending`,
+    pending,
+    completed,
+    total,
+    in_progress_items: running,
+    all_done: pending === 0 && completed > 0,
+    is_task_api: true,
+  }
+}
+
+/**
+ * Applies one change to the task items and rewrites the todo row from the
+ * result.
+ *
+ * Two writes rather than one because the row is a fold over every item while
+ * an update names a single id — and they are two atoms because `todo` is the
+ * payload's own shape, which the items are not. Task events are a handful per
+ * turn, so the second round trip is not on any hot path.
+ */
+async function rebuildTodo($: EngineInterface, change: (held: Tasks) => Tasks): Promise<void> {
+  const next = await update($, taskItems, change)
+  await update($, todoList, () => todoFromTasks(next.items))
 }
 
 /** Folds one TodoWrite call's arguments into the todo row's shape. */
@@ -656,6 +723,43 @@ export const register: Register = (on, options) => {
       if (name === 'TodoWrite' && Array.isArray(seen.todos)) {
         const todo = todoOf(seen.todos as { content?: string; status?: string }[])
         await update($, todoList, () => todo)
+      }
+      // TaskCreate and TaskUpdate are the Task API; TodoWrite above is the
+      // older one. The transcript path dispatches all three
+      // (`providers/transcript.rs`), so the band would show no task progress
+      // at all on the current API without these two.
+      if (name === 'TaskCreate' && typeof seen.subject === 'string') {
+        const item: TaskItem = {
+          subject: seen.subject,
+          status: 'pending',
+          ...(typeof seen.activeForm === 'string' ? { activeForm: seen.activeForm } : {}),
+        }
+        await rebuildTodo($, held => {
+          const counter = held.counter + 1
+          return { counter, items: { ...held.items, [String(counter)]: item } }
+        })
+      }
+      if (name === 'TaskUpdate' && typeof seen.taskId === 'string') {
+        const taskId = seen.taskId
+        const status = typeof seen.status === 'string' ? seen.status : 'pending'
+        const at = await $.clock.now()
+        await rebuildTodo($, held => {
+          if (status === 'deleted') {
+            const items = { ...held.items }
+            delete items[taskId]
+            return { ...held, items }
+          }
+          const was = held.items[taskId]
+          if (was === undefined) return held
+          // The start is stamped on the way in, once, so the row's elapsed
+          // time does not restart every time the same task is touched again.
+          const startedAt =
+            status === 'in_progress' && was.status !== 'in_progress' ? at : was.startedAt
+          return {
+            ...held,
+            items: { ...held.items, [taskId]: { ...was, status, startedAt } },
+          }
+        })
       }
       state.active.set(id, { id, name, target: targetOf(seen) })
     } catch (error) {
