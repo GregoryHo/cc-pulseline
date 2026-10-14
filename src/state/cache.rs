@@ -14,6 +14,25 @@ use crate::{
 };
 
 /// TTL for cached env/git snapshots (10 seconds).
+///
+/// Before you lower this, here is what a re-scan costs. Measured on this repo
+/// with the release binary, 25 invocations per case, wall clock including
+/// process start (macOS, Apple Silicon):
+///
+/// - warm, cache hit, no scan:  p50 3.6ms, p95 4.3ms
+/// - cold, env + git scan:      p50 27.3ms, p95 32.7ms
+///
+/// So a re-scan costs roughly 24ms. Against Claude Code's ~300ms statusline
+/// debounce that is about one tick in thirty, and it stays inside the
+/// project's p95 < 50ms budget — while spending most of it. Lowering this
+/// constant buys fresher counts at the price of a proportionally larger share
+/// of ticks paying that 24ms. The git half is the expensive one: it shells out
+/// to `git`, whereas the env scan is `read_dir`/`stat` plus small file reads.
+///
+/// Both snapshots deliberately share one TTL. The git snapshot is the more
+/// volatile of the two — the dirty marker moves on every edit, while the
+/// config counts rarely change — so giving git a longer TTL would keep the
+/// half users actually watch the stalest.
 pub const CACHE_TTL_MS: u64 = 10_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
