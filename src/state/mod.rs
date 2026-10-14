@@ -195,8 +195,13 @@ pub struct SessionState {
     // Todo tracking: TaskCreate/TaskUpdate stateful accumulation
     pub task_items: HashMap<String, TaskItem>,
     pub task_counter: u32,
-    pub cached_env: Option<(String, EnvSnapshot)>,
-    pub cached_git: Option<(String, GitSnapshot)>,
+    /// Last env scan, stamped at scan time. `CacheEntry` (the on-disk type)
+    /// rather than a `(path, snapshot)` tuple so the timestamp survives a
+    /// save/load round trip instead of being re-invented on every save —
+    /// otherwise every tick renews the lease and the TTL never expires.
+    pub cached_env: Option<CacheEntry<EnvSnapshot>>,
+    /// Last repository scan, stamped at scan time. See `cached_env`.
+    pub cached_git: Option<CacheEntry<GitSnapshot>>,
     pub cached_line3: Option<Line3Metrics>,
     // Token speed tracking (output only)
     pub last_output_tokens: Option<u64>,
@@ -317,32 +322,51 @@ impl SessionState {
         result
     }
 
+    /// The cached env scan, if it is for this path and still inside the TTL.
+    ///
+    /// The TTL check lives here, not only in `load_from_cache`: a long-lived
+    /// host keeps the `SessionState` in `PulseLineRunner`'s map, so the load
+    /// path never re-runs and this is the only gate that fires.
     pub fn cached_env_for(&self, cwd: &str) -> Option<EnvSnapshot> {
-        self.cached_env.as_ref().and_then(|(path, snapshot)| {
-            if path == cwd {
-                Some(snapshot.clone())
+        let now = cache::now_epoch_ms();
+        self.cached_env.as_ref().and_then(|entry| {
+            if entry.path == cwd && now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
+                Some(entry.snapshot.clone())
             } else {
                 None
             }
         })
     }
 
+    /// Stamps the scan time once, here, where the scan actually happened.
     pub fn set_cached_env(&mut self, cwd: String, snapshot: EnvSnapshot) {
-        self.cached_env = Some((cwd, snapshot));
+        self.cached_env = Some(CacheEntry {
+            path: cwd,
+            snapshot,
+            cached_at_ms: cache::now_epoch_ms(),
+        });
     }
 
+    /// The cached repository scan, if it is for this path and still inside the
+    /// TTL. See `cached_env_for`.
     pub fn cached_git_for(&self, cwd: &str) -> Option<GitSnapshot> {
-        self.cached_git.as_ref().and_then(|(path, snapshot)| {
-            if path == cwd {
-                Some(snapshot.clone())
+        let now = cache::now_epoch_ms();
+        self.cached_git.as_ref().and_then(|entry| {
+            if entry.path == cwd && now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
+                Some(entry.snapshot.clone())
             } else {
                 None
             }
         })
     }
 
+    /// Stamps the scan time once, here, where the scan actually happened.
     pub fn set_cached_git(&mut self, cwd: String, snapshot: GitSnapshot) {
-        self.cached_git = Some((cwd, snapshot));
+        self.cached_git = Some(CacheEntry {
+            path: cwd,
+            snapshot,
+            cached_at_ms: cache::now_epoch_ms(),
+        });
     }
 
     pub fn upsert_tool(&mut self, id: String, name: String, target: Option<String>) {
@@ -713,19 +737,18 @@ impl SessionState {
         // Env/Git only if within TTL
         if let Some(entry) = cache.env {
             if now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
-                self.cached_env = Some((entry.path, entry.snapshot));
+                self.cached_env = Some(entry);
             }
         }
         if let Some(entry) = cache.git {
             if now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS {
-                self.cached_git = Some((entry.path, entry.snapshot));
+                self.cached_git = Some(entry);
             }
         }
     }
 
     /// Export current state to a cache struct for disk persistence.
     pub fn to_cache(&self) -> SessionCache {
-        let now = cache::now_epoch_ms();
         SessionCache {
             transcript_offset: self.last_transcript_offset,
             transcript_path: self.last_transcript_path.clone(),
@@ -752,16 +775,11 @@ impl SessionState {
             sub_agents: self.sub_agents.clone(),
             compact_count: self.compact_count,
             last_api_error_ms: self.last_api_error_ms,
-            env: self.cached_env.as_ref().map(|(path, snapshot)| CacheEntry {
-                path: path.clone(),
-                snapshot: snapshot.clone(),
-                cached_at_ms: now,
-            }),
-            git: self.cached_git.as_ref().map(|(path, snapshot)| CacheEntry {
-                path: path.clone(),
-                snapshot: snapshot.clone(),
-                cached_at_ms: now,
-            }),
+            // The stored stamp passes through: re-stamping here would
+            // renew the lease on every tick, so the TTL would only expire
+            // after the user stopped working altogether.
+            env: self.cached_env.clone(),
+            git: self.cached_git.clone(),
         }
     }
 }
@@ -769,6 +787,102 @@ impl SessionState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- The env/repo scan TTL has to measure time since the *scan*. ------
+    //
+    // `save_cache` runs on every invocation, so a `to_cache` that re-stamped
+    // `cached_at_ms` renewed the lease each tick: the entry only expired after
+    // the user stopped working, and a CLAUDE.md added mid-session never
+    // reached the config row. The timestamp now lives on the in-memory entry
+    // and passes through untouched.
+    //
+    // These back-date the stamp rather than waiting on the clock: a real
+    // round trip completes well inside one millisecond, so a re-stamp would
+    // otherwise be indistinguishable from the original.
+
+    #[test]
+    fn to_cache_keeps_the_original_scan_stamp_across_round_trips() {
+        let mut state = SessionState::default();
+        state.set_cached_env("/project".to_string(), EnvSnapshot::default());
+
+        // A scan 5s ago: still inside the TTL, but far enough from `now` that
+        // a renewed stamp is unmistakable.
+        let first_stamp = cache::now_epoch_ms().saturating_sub(5_000);
+        state
+            .cached_env
+            .as_mut()
+            .expect("env was just cached")
+            .cached_at_ms = first_stamp;
+
+        for _ in 0..3 {
+            let round_trip = state.to_cache();
+            state = SessionState::default();
+            state.load_from_cache(round_trip);
+        }
+
+        assert_eq!(
+            state.cached_env.as_ref().map(|entry| entry.cached_at_ms),
+            Some(first_stamp),
+            "three saves must not renew the lease on the scan"
+        );
+    }
+
+    #[test]
+    fn load_from_cache_drops_an_env_scan_older_than_the_ttl() {
+        let stale = cache::now_epoch_ms().saturating_sub(CACHE_TTL_MS + 1_000);
+        let disk = SessionCache {
+            env: Some(CacheEntry {
+                path: "/project".to_string(),
+                snapshot: EnvSnapshot::default(),
+                cached_at_ms: stale,
+            }),
+            ..SessionCache::default()
+        };
+
+        let mut state = SessionState::default();
+        state.load_from_cache(disk);
+
+        assert!(
+            state.cached_env.is_none(),
+            "an expired scan must be re-run, not restored"
+        );
+    }
+
+    #[test]
+    fn cached_env_for_stops_serving_once_the_ttl_lapses() {
+        let mut state = SessionState::default();
+        state.set_cached_env("/project".to_string(), EnvSnapshot::default());
+        assert!(
+            state.cached_env_for("/project").is_some(),
+            "a fresh scan is served from memory"
+        );
+
+        let entry = state.cached_env.as_mut().expect("env was just cached");
+        entry.cached_at_ms = entry.cached_at_ms.saturating_sub(CACHE_TTL_MS + 1_000);
+
+        assert!(
+            state.cached_env_for("/project").is_none(),
+            "a long-lived host keeps the SessionState, so this is the only TTL gate"
+        );
+    }
+
+    #[test]
+    fn cached_git_for_stops_serving_once_the_ttl_lapses() {
+        let mut state = SessionState::default();
+        state.set_cached_git("/project".to_string(), GitSnapshot::default());
+        assert!(
+            state.cached_git_for("/project").is_some(),
+            "a fresh scan is served from memory"
+        );
+
+        let entry = state.cached_git.as_mut().expect("repo was just cached");
+        entry.cached_at_ms = entry.cached_at_ms.saturating_sub(CACHE_TTL_MS + 1_000);
+
+        assert!(
+            state.cached_git_for("/project").is_none(),
+            "the repository scan expires on the same gate as the env scan"
+        );
+    }
 
     #[test]
     fn update_output_speed_first_call_returns_none() {
