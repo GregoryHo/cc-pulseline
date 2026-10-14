@@ -1,4 +1,5 @@
 import type { AgentInfo, On, PromptOrigin, ToolInfo } from 'claude-code'
+import { mock } from 'claude-code/testing'
 
 /**
  * Shared scaffolding for the mod's tests, and the three things about the
@@ -51,7 +52,9 @@ export type Recorder = {
    */
   probes: string[]
   /** Moves the fake clock on, so the 400ms refresh gate opens. */
-  advance: (ms: number) => void
+  advance: (ms: number) => Promise<void>
+  /** Lets work the mod started unawaited run to its end, the clock where it is. */
+  settle: () => Promise<void>
 }
 
 /**
@@ -130,8 +133,6 @@ export type BottomOptions = {
   usage?: UsageOptions
   model?: string
   sessionId?: string
-  /** Milliseconds the clock moves on each read; 1000 opens the 400ms gate. */
-  tick?: number
   /** Where the clock starts. */
   startMs?: number
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
@@ -175,8 +176,7 @@ export type BottomOptions = {
 export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const spawns: Spawn[] = []
   const probes: string[] = []
-  const tick = options.tick ?? 1_000
-  let nowMs = options.startMs ?? 1_700_000_000_000
+  const clock = mock.clock(on, { now: options.startMs ?? 1_700_000_000_000 })
 
   // The Task API's two calls are answered the way the engine answers them,
   // because the mod reads the created task's id out of the *result* rather
@@ -198,7 +198,6 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     }
     return { result: 'ok', isReadOnly: true }
   })
-  on('clock.now', () => ({ value: (nowMs += tick) }))
   // The classic events the mod observes need a bottom of their own; each
   // answers with an empty classic result, which is "nothing to add".
   on('classic.PostToolUse', () => ({}))
@@ -315,9 +314,8 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
           .at(-1),
         'for the pane',
       ),
-    advance: ms => {
-      nowMs += ms
-    },
+    advance: ms => clock.advance(ms),
+    settle: () => clock.settle(),
   }
 }
 

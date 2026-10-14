@@ -21,6 +21,7 @@ test('an atom-backed count adds up over the session', async ($, on) => {
   await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/nowhere/one' })
   await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/nowhere/two' })
   await $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command: 'true' })
+  await seen.settle()
 
   const payload = seen.lastPayload()
   expect(payload.activity?.completed_total).toBe(3)
@@ -31,7 +32,7 @@ test('an atom-backed count adds up over the session', async ($, on) => {
 })
 
 test('writing the output atom draws the band again', async ($, on) => {
-  bottom(on)
+  const seen = bottom(on)
   const ui = await $.ui.mount(BAND)
 
   // Nothing run yet, so the band draws its note rather than disappearing.
@@ -42,6 +43,7 @@ test('writing the output atom draws the band again', async ($, on) => {
   // the only thing that can redraw the band: every `$.ui.invalidate` call
   // was removed in A3.
   await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/nowhere/three' })
+  await seen.settle()
 
   const second = await ui.find({ type: 'Text' })
   expect(second?.text).not.toContain('binary: not run yet')
@@ -53,6 +55,7 @@ test('the person’s pane choice is state, not a closure field', async ($, on) =
   const seen = bottom(on)
 
   await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+  await seen.settle()
   const ui = await $.ui.mount(PANE)
   await ui.press({ key: 'layout:rail' })
   await ui.unmount()

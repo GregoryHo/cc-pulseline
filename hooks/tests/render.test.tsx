@@ -115,6 +115,7 @@ describe('the band', () => {
     // Narrow the band, then drive another refresh so the new width is used.
     await ui.redraw({ ...BAND.props, bodyColumns: 60 })
     await $.tool.call({ tool: 'Read', tool_use_id: 'narrow', file_path: '/n/narrow' })
+    await seen.settle()
 
     const argv = seen.spawns.filter(run => run.argv[1] !== '--version').at(-1)?.argv ?? []
     // Two cells go to the band's own collapse marker.

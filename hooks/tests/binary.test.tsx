@@ -113,6 +113,7 @@ describe('probing', () => {
     async ($, on) => {
       const seen = bottom(on)
       await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+      await seen.settle()
 
       // Exactly one candidate probed, and it was the configured one. The
       // other four rungs are never run.
@@ -130,6 +131,7 @@ describe('probing', () => {
       binaryAt: ['/home/me/.claude/pulseline/cc-pulseline'],
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     // The bundled rung was tried first and missed; the installed one answered;
     // PATH and the dev rung were never reached.
@@ -153,6 +155,7 @@ describe('probing', () => {
       },
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     // The old rung was probed and passed over; the newer one is what draws.
     expect(seen.probes).toContain('/home/me/.claude/pulseline/cc-pulseline')
@@ -163,9 +166,11 @@ describe('probing', () => {
   test('the ladder is walked once a session, not once a refresh', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
     const afterFirst = seen.probes.length
     await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/n/two' })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/n/three' })
+    await seen.settle()
 
     expect(seen.probes.length).toBe(afterFirst)
   })
@@ -173,9 +178,14 @@ describe('probing', () => {
   test('a settings change makes it look again', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
     const afterFirst = seen.probes.length
 
+    // Past the 400ms gate: `classic.ConfigChange` is the one refresh still
+    // throttled, and the clock does not move on its own.
+    await seen.advance(500)
     await $.classic.ConfigChange({ source: 'user_settings' })
+    await seen.settle()
 
     // The resolution was forgotten, so the ladder was walked again — which
     // is how a binary installed mid-session gets picked up.
@@ -187,6 +197,7 @@ describe('what the band says when it cannot draw', () => {
   test('a binary that is too old is refused, and the band says so', async ($, on) => {
     const seen = bottom(on, { binaryVersion: '1.4.0' })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     // Every rung with a path was tried, and every one refused. Three, not
     // five: `binaryPath` is unset here, and the dev rung is built from the
@@ -211,7 +222,7 @@ describe('what the band says when it cannot draw', () => {
   test('the too-old note names the newest copy found, not the first', async ($, on) => {
     // Two old rungs. Naming the first would send the person updating to a
     // version they are already past.
-    bottom(on, {
+    const seen = bottom(on, {
       home: '/home/me',
       binaryVersions: {
         '/home/me/.claude/pulseline/cc-pulseline': '1.3.0',
@@ -219,6 +230,7 @@ describe('what the band says when it cannot draw', () => {
       },
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     const ui = await $.ui.mount(BAND)
     const text = (await ui.find({ type: 'Text' }))?.text ?? ''
@@ -228,7 +240,7 @@ describe('what the band says when it cannot draw', () => {
   })
 
   test('a failed walk is retried, so an install inside the session is found', async ($, on) => {
-    const options: BottomOptions = { binaryVersion: null, tick: 100 }
+    const options: BottomOptions = { binaryVersion: null }
     const seen = bottom(on, options)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
     const renders = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
@@ -238,8 +250,9 @@ describe('what the band says when it cannot draw', () => {
     // event at all, so a cached failure that never expired would outlive the
     // fix it asked for and the band could not recover inside the session.
     options.binaryVersion = '1.5.0'
-    seen.advance(11_000)
+    await seen.advance(11_000)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/n/two' })
+    await seen.settle()
 
     expect(renders()).toBeGreaterThan(0)
   })
@@ -247,6 +260,7 @@ describe('what the band says when it cannot draw', () => {
   test('nothing found at all names the install command in the band', async ($, on) => {
     const seen = bottom(on, { binaryVersion: null })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     expect(seen.probes.length).toBe(3)
     expect(seen.spawns.filter(run => run.argv[1] !== '--version')).toEqual([])
@@ -264,6 +278,7 @@ describe('what the band says when it cannot draw', () => {
     // Something is on PATH under that name, but it is not this binary.
     const seen = bottom(on, { binaryVersion: 'not-a-version' })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
 
     expect(seen.spawns.filter(run => run.argv[1] !== '--version')).toEqual([])
     const ui = await $.ui.mount(BAND)

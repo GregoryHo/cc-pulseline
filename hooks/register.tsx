@@ -874,9 +874,10 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 /**
  * Refreshes only if the last run is older than `gapMs`.
  *
- * The mod sits in the tool-call chain, so a spawn on the way in delays the
- * tool itself; this bounds how often that happens while a burst of calls
- * goes through.
+ * One caller is left: `classic.ConfigChange`, which a single settings write
+ * can raise several times over. Every other site refreshes unconditionally,
+ * because a gated refresh is not a draw made late — it is a draw not made at
+ * all, and the band's rows are only ever the binary's last stdout.
  */
 async function maybeRefresh(
   engine: EngineInterface,
@@ -931,8 +932,8 @@ export const register: Register = (on, options) => {
     const name = String(seen.tool ?? 'tool')
     const id = String(seen.tool_use_id ?? name)
 
-    // The draw of this tool as running, started below and settled in the
-    // `finally`. Never null once the mark succeeded.
+    // The draw of this tool as running, started below and chained onto by the
+    // `finally`'s floated draw. Never null once the mark succeeded.
     let drawing: Promise<void> | null = null
 
     // Bookkeeping must never throw into the tool chain: a bad event shape
@@ -951,13 +952,12 @@ export const register: Register = (on, options) => {
       // completion — by which time its entry is gone. A tool that ran for
       // minutes was therefore never shown.
       //
-      // Started here and awaited in the `finally`, so it runs *beside* the
-      // tool rather than in front of it. An observational mod must not put
-      // its own spawn — five seconds of timeout, twice over with the pane
-      // open — between the model and every tool call. Settling it before the
-      // completion's own refresh also keeps the two from racing: awaited
-      // back to back they would both walk the binary ladder, and the
-      // sequence guard would drop whichever lost.
+      // Started here and never awaited, so it runs *beside* the tool rather
+      // than in front of it. An observational mod must not put its own spawn
+      // — five seconds of timeout, twice over with the pane open — between
+      // the model and every tool call. The `finally`'s draw chains onto this
+      // promise rather than racing it: run together they would both walk the
+      // binary ladder, and the sequence guard would drop whichever lost.
       drawing = refresh($, state).catch(async error => {
         const note = `refresh failed: ${String(error).slice(0, 120)}`
         await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(() => undefined)
@@ -985,39 +985,58 @@ export const register: Register = (on, options) => {
       failed = true
       throw error
     } finally {
-      try {
-        // The start's own draw, settled before anything here changes what the
-        // next one would say.
-        if (drawing !== null) await drawing
-        state.active.delete(id)
-        // The count lands before the refresh, and in its own write: an
-        // overrun inside `maybeRefresh` must not cost this tool its place
-        // in the session totals.
-        if (!NOT_TOOL_ACTIVITY.has(name)) {
-          await update($, toolTotals, totals => ({
-            counts: {
-              ...totals.counts,
-              [name]: {
-                count: (totals.counts[name]?.count ?? 0) + 1,
-                failed: (totals.counts[name]?.failed ?? 0) + (failed ? 1 : 0),
+      // Floated, and so never between the settled tool result and the model.
+      // Awaited here it was: `timeoutMs: 5000`, twice over with the pane open,
+      // is how long an observational mod could hold up the model's next step
+      // for a drawing nobody is waiting on. The engine's own contract floats
+      // work out of a hook exactly this way — `$.process.spawn`'s second
+      // example runs its loop `void (async () => …)()` from `session.start`,
+      // and says what kills the child: the loop ending, the stream, the
+      // signal, the module unloading, and "nothing else does, a hook's
+      // return included". So a captured `$` outlives the hook that took it.
+      //
+      // The order the awaits used to buy is bought by the chain instead. The
+      // start's draw settles first, so `state.active` still holds this tool
+      // while that draw reads it and no longer does when this one does; and
+      // the ladder is still walked once a session, because the start's
+      // refresh has written `binaryChoice` before this one reads it.
+      void (async () => {
+        try {
+          if (drawing !== null) await drawing
+          state.active.delete(id)
+          // The count lands before the refresh, and in its own write: an
+          // overrun inside `update` must not cost this tool its place in the
+          // session totals.
+          if (!NOT_TOOL_ACTIVITY.has(name)) {
+            await update($, toolTotals, totals => ({
+              counts: {
+                ...totals.counts,
+                [name]: {
+                  count: (totals.counts[name]?.count ?? 0) + 1,
+                  failed: (totals.counts[name]?.failed ?? 0) + (failed ? 1 : 0),
+                },
               },
-            },
-            completedTotal: totals.completedTotal + 1,
-            failedTotal: totals.failedTotal + (failed ? 1 : 0),
-          }))
+              completedTotal: totals.completedTotal + 1,
+              failedTotal: totals.failedTotal + (failed ? 1 : 0),
+            }))
+          }
+          // Unconditional, where the way in is gated. A gated completion would
+          // leave the band drawing a tool that has already finished until some
+          // later event reopened the window — and between two bursts inside one
+          // turn that is seconds of a phantom running tool. One spawn per
+          // completion is the price, and the spawn floor is under 3ms.
+          await refresh($, state)
+          $.ui.status((await read($, drawnOutput)).runNote)
+        } catch (error) {
+          const note = `refresh failed: ${String(error).slice(0, 120)}`
+          await update($, drawnOutput, out => ({ ...out, runNote: note }))
+          $.ui.status(note)
         }
-        // Unconditional, where the way in is gated. A gated completion would
-        // leave the band drawing a tool that has already finished until some
-        // later event reopened the window — and between two bursts inside one
-        // turn that is seconds of a phantom running tool. One spawn per
-        // completion is the price, and the spawn floor is under 3ms.
-        await refresh($, state)
-        $.ui.status((await read($, drawnOutput)).runNote)
-      } catch (error) {
-        const note = `refresh failed: ${String(error).slice(0, 120)}`
-        await update($, drawnOutput, out => ({ ...out, runNote: note }))
-        $.ui.status(note)
-      }
+        // Nothing above is awaited by the hook any more, so a throw here would
+        // be a rejection with no handler. The note is best effort and the band
+        // is observational: there is nowhere left to report a failure to
+        // report a failure.
+      })().catch(() => undefined)
     }
   }).catch(($, e, next) => next(e))
 

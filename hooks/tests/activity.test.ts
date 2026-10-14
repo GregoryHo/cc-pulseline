@@ -12,8 +12,13 @@ import { bottom } from './harness'
  * Every case ends by driving a refresh — a `tool.call` where the event under
  * test does not refresh by itself — because the payload is only built when
  * the mod spawns the binary. Most events refresh unconditionally now; only
- * `classic.ConfigChange` is still gated, and `bottom`'s clock moves 1000ms
- * per read, which keeps that gate open.
+ * `classic.ConfigChange` is still gated, so a case driving that one moves
+ * `seen.advance` past the gap first.
+ *
+ * The clock stands still unless a case moves it, and the mod draws the
+ * completed tool *after* its hook has returned — so a case that reads the
+ * payload of a completion calls `await seen.settle()` first. Without it the
+ * read lands before the draw and sees the run before.
  */
 
 /** A tool call with no arguments worth showing. */
@@ -23,6 +28,7 @@ describe('tool calls', () => {
   test('a tool is running while it runs, and counted once it is done', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call({ tool: 'Read', tool_use_id: 't1', file_path: '/work/src/main.rs' })
+    await seen.settle()
 
     const payload = seen.lastPayload()
     expect(payload.activity?.tools).toEqual([])
@@ -34,6 +40,7 @@ describe('tool calls', () => {
   test('a running tool reaches the band while it runs, and is gone once it returns', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call(call('solo'))
+    await seen.settle()
 
     // This case used to assert the opposite — that no payload ever carried a
     // running tool — which was true and was the bug: the rows the band draws
@@ -50,13 +57,29 @@ describe('tool calls', () => {
     expect(seen.lastPayload().activity?.tools).toEqual([])
   })
 
+  test('the tool result is the model’s before the band has drawn it', async ($, on) => {
+    const seen = bottom(on)
+    const draws = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
+    await $.tool.call(call('solo'))
+
+    // The hook has returned, so the model already has its result — and the
+    // draw of the completion has not happened yet. An observational mod must
+    // not sit between the two: `timeoutMs: 5000`, twice over with the pane
+    // open, is how long awaiting it could cost the model's next step.
+    const atReturn = draws()
+    await seen.settle()
+    expect(draws()).toBeGreaterThan(atReturn)
+  })
+
   test('a tool that starts inside the refresh gate is still drawn', async ($, on) => {
-    // A frozen clock is what closes the 400ms window: the previous tool's own
-    // completion refresh stamped it at this very instant, which is exactly
-    // what happens between two serial calls in a real turn.
-    const seen = bottom(on, { tick: 0 })
+    // The clock stands still unless a case moves it, and that is what closes
+    // the 400ms window: the previous tool's own completion refresh stamped it
+    // at this very instant, which is exactly what happens between two serial
+    // calls in a real turn.
+    const seen = bottom(on)
     await $.tool.call(call('first'))
     await $.tool.call(call('second'))
+    await seen.settle()
 
     const everRunning = seen
       .payloads()
@@ -73,6 +96,7 @@ describe('tool calls', () => {
   test('a failed tool call is counted as failed', async ($, on) => {
     const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
     await $.tool.call({ tool: 'Bash', tool_use_id: 't2', command: 'false' })
+    await seen.settle()
 
     const payload = seen.lastPayload()
     expect(payload.activity?.completed_counts).toEqual([{ name: 'Bash', count: 1, failed: 1 }])
@@ -85,6 +109,7 @@ describe('tool calls', () => {
     await $.tool.call(call('r2'))
     await $.tool.call(call('r3'))
     await $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command: 'true' })
+    await seen.settle()
 
     const payload = seen.lastPayload()
     expect(payload.activity?.completed_total).toBe(4)
@@ -113,6 +138,7 @@ describe('what counts as tool activity', () => {
     await $.tool.call({ tool: 'Agent', tool_use_id: 'b4', description: 'Look around', prompt: 'go' })
     await $.tool.call({ tool: 'ToolSearch', tool_use_id: 'b5', query: 'select:Read', max_results: 1 })
     await $.tool.call(call('real'))
+    await seen.settle()
 
     // The transcript path dispatches each of these somewhere else and returns
     // before its tool tracking, so the band's totals have to do the same or
@@ -141,6 +167,7 @@ describe('TodoWrite', () => {
         { content: 'Read the types', activeForm: 'Reading the types', status: 'completed' },
       ],
     })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.text).toBe('Writing the harness')
@@ -162,6 +189,7 @@ describe('TodoWrite', () => {
       tool_use_id: 't6',
       todos: [{ content: 'Never happened', activeForm: 'Never happening', status: 'in_progress' }],
     })
+    await seen.settle()
 
     expect(seen.lastPayload().activity?.todo).toBeNull()
   })
@@ -173,6 +201,7 @@ describe('TodoWrite', () => {
       tool_use_id: 't5',
       todos: [{ content: 'Only', activeForm: 'Doing only', status: 'in_progress' }],
     })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     // The ledger reads `done = completed.max(total - pending)`, so a running
@@ -192,6 +221,7 @@ describe('TodoWrite', () => {
         { content: 'Two', activeForm: 'Doing two', status: 'completed' },
       ],
     })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.all_done).toBe(true)
@@ -214,6 +244,7 @@ describe('the Task API', () => {
       subject: 'Write its tests',
       description: 'One per rung',
     })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.total).toBe(2)
@@ -240,6 +271,7 @@ describe('the Task API', () => {
       taskId: 'task-1',
       status: 'in_progress',
     })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.in_progress_items?.[0]?.text).toBe('Wiring the ladder')
@@ -264,12 +296,14 @@ describe('the Task API', () => {
       description: 'The second',
     })
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', status: 'completed' })
+    await seen.settle()
 
     let todo = seen.lastPayload().activity?.todo
     expect(todo?.completed).toBe(1)
     expect(todo?.all_done).toBe(false)
 
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k4', taskId: 'task-2', status: 'completed' })
+    await seen.settle()
     todo = seen.lastPayload().activity?.todo
     expect(todo?.completed).toBe(2)
     expect(todo?.all_done).toBe(true)
@@ -283,6 +317,7 @@ describe('the Task API', () => {
       subject: 'One',
       description: 'The first',
     })
+    await seen.settle()
 
     // Written before the call was answered, this would be a phantom item —
     // and, when the id was a local count rather than the engine's, every
@@ -301,6 +336,7 @@ describe('the Task API', () => {
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: 'task-1', status: 'completed' })
     // `status` is optional: this call only renames the task.
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', subject: 'One, renamed' })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.completed).toBe(1)
@@ -322,6 +358,7 @@ describe('the Task API', () => {
       description: 'The second',
     })
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-2', status: 'deleted' })
+    await seen.settle()
 
     const todo = seen.lastPayload().activity?.todo
     expect(todo?.total).toBe(1)
@@ -336,13 +373,16 @@ describe('the Task API', () => {
       description: 'The only one',
     })
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k2', taskId: 'task-1', status: 'in_progress' })
+    await seen.settle()
     const first = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
     // Asserted on its own, or the comparison below would pass on two
     // undefineds and say nothing about the stamp.
     expect(typeof first).toBe('number')
 
-    // The clock has moved between the two, so a re-stamp would show.
+    // The clock is moved between the two, so a re-stamp would show.
+    await seen.advance(5_000)
     await $.tool.call({ tool: 'TaskUpdate', tool_use_id: 'k3', taskId: 'task-1', status: 'in_progress' })
+    await seen.settle()
     const again = seen.lastPayload().activity?.todo?.in_progress_items?.[0]?.started_at
 
     expect(again).toBe(first)
@@ -360,6 +400,7 @@ describe('classic events', () => {
       effort: { level: 'xhigh' },
     })
     await $.tool.call(call('after-effort'))
+    await seen.settle()
 
     expect(seen.lastPayload().effort).toEqual({ level: 'xhigh' })
   })
@@ -369,6 +410,7 @@ describe('classic events', () => {
     await $.classic.PreCompact({ trigger: 'auto', custom_instructions: null })
     await $.classic.PreCompact({ trigger: 'manual', custom_instructions: null })
     await $.tool.call(call('after-compact'))
+    await seen.settle()
 
     expect(seen.lastPayload().activity?.compact_count).toBe(2)
   })
@@ -384,6 +426,7 @@ describe('classic events', () => {
     // The same file twice must not count twice.
     await load('/work/CLAUDE.md', 'compact')
     await $.tool.call(call('after-instructions'))
+    await seen.settle()
 
     const env = seen.lastPayload().env
     expect(env?.claude_md_count).toBe(2)
@@ -399,6 +442,7 @@ describe('classic events', () => {
     await load('C:\\repo\\.claude\\rules\\testing.md')
     await load('C:\\Users\\me\\.claude\\projects\\p\\memory\\MEMORY.md')
     await $.tool.call(call('one'))
+    await seen.settle()
 
     // Matched on `/rules/` alone, these fell out of the counts and the band
     // went back to the filesystem scan it exists to correct.
@@ -414,6 +458,7 @@ describe('classic events', () => {
     await load('/work/CLAUDE.md')
     await load('/work/AGENTS.md')
     await $.tool.call(call('one'))
+    await seen.settle()
 
     const env = seen.lastPayload().env
     // The binary scans and draws the two separately (`env.rs`'s
@@ -424,16 +469,16 @@ describe('classic events', () => {
   })
 
   test('a subagent is drawn while it runs, not only once it has stopped', async ($, on) => {
-    // A frozen clock, because the gate is what used to swallow this: the
-    // `Agent` call's own refresh ran a moment earlier, before the agent
-    // existed for `agent.list()`.
+    // The still clock matters here, because the gate is what used to swallow
+    // this: the `Agent` call's own refresh ran a moment earlier, before the
+    // agent existed for `agent.list()`.
     const seen = bottom(on, {
-      tick: 0,
       agents: [
         { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' },
       ],
     })
     await $.classic.SubagentStart({ agent_id: 'a1', agent_type: 'Explore' })
+    await seen.settle()
 
     const drawn = seen.payloads().flatMap(payload => payload.activity?.agents ?? [])
     expect(drawn.some(agent => agent.id === 'a1' && agent.completed_at === null)).toBe(true)
@@ -448,8 +493,9 @@ describe('classic events', () => {
       ],
     })
     await $.tool.call(call('one'))
-    seen.advance(5_000)
+    await seen.advance(5_000)
     await $.tool.call(call('two'))
+    await seen.settle()
 
     const stamps = seen
       .payloads()
@@ -468,12 +514,16 @@ describe('classic events', () => {
       agents: [{ id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' }],
     })
     await $.classic.SubagentStart({ agent_id: 'a1', agent_type: 'Explore' })
+    // The clock only moves when a case moves it, and a stop stamped at the
+    // start's own instant would make the assertion below vacuous.
+    await seen.advance(1_000)
     await $.classic.SubagentStop({
       agent_id: 'a1',
       agent_type: 'Explore',
       agent_transcript_path: '/tmp/a1.jsonl',
       stop_hook_active: false,
     })
+    await seen.settle()
 
     const agent = seen.lastPayload().activity?.agents?.[0]
     expect(agent?.id).toBe('a1')
@@ -519,6 +569,7 @@ describe('classic events', () => {
       isAborted: true,
       turnId: 't-none',
     })
+    await seen.settle()
 
     // Nothing read, so the field is left out and the binary keeps its own
     // figure rather than being told the session read zero.
@@ -529,6 +580,7 @@ describe('classic events', () => {
     const seen = bottom(on)
     const before = seen.spawns.length
     await $.classic.ConfigChange({ source: 'project_settings', file_path: '/work/.claude/settings.json' })
+    await seen.settle()
 
     expect(seen.spawns.length).toBeGreaterThan(before)
     expect(seen.lastPayload().session_id).toBe('session-under-test')
@@ -546,6 +598,7 @@ describe('the engine answers for the environment', () => {
       ],
     })
     await $.tool.call(call('after-tools'))
+    await seen.settle()
 
     // Four MCP tools, two servers.
     expect(seen.lastPayload().env?.mcp_count).toBe(2)
@@ -554,6 +607,7 @@ describe('the engine answers for the environment', () => {
   test('no MCP tools is a count of zero, not a missing field', async ($, on) => {
     const seen = bottom(on, { tools: [{ name: 'Read', description: 'read a file', mcp: false }] })
     await $.tool.call(call('after-none'))
+    await seen.settle()
 
     expect(seen.lastPayload().env?.mcp_count).toBe(0)
   })
@@ -563,6 +617,7 @@ describe('the spawn itself', () => {
   test('the binary is told the box it draws into', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call(call('r1'))
+    await seen.settle()
 
     const argv = seen.spawns.filter(run => run.argv[1] !== '--version').at(-1)?.argv ?? []
     expect(argv).toContain('--rows')
@@ -572,6 +627,7 @@ describe('the spawn itself', () => {
   test('the payload is valid JSON carrying the session', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call(call('r1'))
+    await seen.settle()
 
     const payload = seen.lastPayload()
     expect(payload.session_id).toBe('session-under-test')
