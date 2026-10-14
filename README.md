@@ -71,6 +71,27 @@ Start a Claude Code session — the statusline appears automatically.
 | **cargo install**  | `cargo install cc-pulseline`          | Rust devs (from source) |
 | **install.sh**     | `./scripts/install.sh`                | Local clone             |
 
+## Activity Band (Claude Code plugin)
+
+The same binary also draws **above the prompt**, fed by Claude Code's
+function hooks rather than the statusline hook. It is the other half of this
+repository's plugin, so one install gets both it and the setup commands:
+
+```
+/plugin install pulseline --marketplace GregoryHo/cc-pulseline
+```
+
+The band appears while a turn is working — running tools, subagents, todo
+progress, token and cost movement — and `/pulseline` opens a pane with the
+full ledger. The two surfaces are a division of labour rather than a
+replacement: keep your `statusLine` setting, which stays the steady-state
+summary.
+
+Requires cc-pulseline **1.5.0 or newer** on the machine. The plugin finds the
+binary on its own — a path you configure, `~/.claude/pulseline/`, `PATH`, or
+a local build — and says what is missing when none of them answers. See
+[the activity band](docs/band.md) for the full picture.
+
 ## Configuration
 
 cc-pulseline uses TOML configuration with two scopes:
@@ -255,6 +276,7 @@ Run `cc-pulseline --check` to validate your config files and `cc-pulseline --pri
 | [Layouts](docs/layouts.md)                     | Layout catalog and per-segment visual (gauge/sparkline/plot/text) reference             |
 | [Metrics Reference](docs/metrics-reference.md) | Per-metric data sources, parsing methods, cache strategies, and output examples        |
 | [Theme & Palette](docs/theme-palette.md)       | 256-color system specification, emphasis tiers, and color-annotated rendering examples |
+| [Activity Band](docs/band.md)                  | The above-the-prompt band and pane: what they draw, the binary ladder, the test kit    |
 | [Benchmarks](docs/benchmarks.md)               | Performance methodology and Criterion benchmark results                                |
 | [Changelog](CHANGELOG.md)                      | Release history and version notes                                                      |
 

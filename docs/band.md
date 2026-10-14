@@ -1,20 +1,26 @@
-# pulseline-mod
+# The activity band
 
-A Claude Code **mod** — a plugin whose behaviour lives in a hooks module —
-that draws cc-pulseline from engine events instead of the statusline hook.
+The half of the `pulseline` plugin that draws from engine events instead of
+the statusline hook — a **mod**, in the engine's sense: behaviour that lives
+in a hooks module. It paints a band above the prompt while a turn is working,
+and a pane on `/pulseline`.
+
+It ships inside the same plugin as the statusline's commands, so there is one
+thing to install and one version to track. The statusline path is untouched
+and stays the default: the two are different canvases with different jobs,
+and installing the plugin does not ask you to drop your `statusLine` setting.
 
 It passes `claude plugin validate`, has 90 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
 **EARLY ACCESS: this surface may change between releases without notice**,
-in those words, so expect to follow it. The classic statusline path is
-untouched and stays the default.
+in those words, so expect to follow it.
 
 ## Run it
 
 ```bash
-claude --plugin-dir mod
+claude --plugin-dir .
 ```
 
 An interactive session: the render hooks yield on any surface but the
@@ -24,10 +30,17 @@ the band in. `/pulseline` opens a pane, `/pulseline` again closes it.
 It finds the binary itself — see **Finding the binary** below. Nothing else
 is needed on a machine that has cc-pulseline 1.5.0 or newer installed.
 
-`--plugin-dir` is the only way to run it today, and deliberately so. There
-is no `/plugin install … --marketplace` line yet — `claude plugin validate`
-will advise adding one — because the marketplace listing waits on the
-v1.5.0 release that the version floor above depends on.
+`--plugin-dir .` is the development loop. For everyone else the plugin
+installs in one step:
+
+```
+/plugin install pulseline --marketplace GregoryHo/cc-pulseline
+```
+
+That line lands with the v1.5.0 release and not before, because the band's
+version floor is 1.5.0 — see **Finding the binary**. Installing the plugin
+against an older binary is the one case the ladder has to explain rather
+than fix.
 
 ## Finding the binary
 
@@ -85,26 +98,26 @@ without a restart.
 
 ## Type-checking needs a step that a clone does not have
 
-`tsc -p mod` type-checks against `mod/.claude-plugin/types/`, which **the
+`tsc -p .` type-checks against `.claude-plugin/types/`, which **the
 engine writes** — there is no command that generates it — and which is
 gitignored, because it is ~21,000 lines that go stale with every release.
 So in a fresh clone it is absent and type-checking does not work at all:
 
 ```
-$ tsc -p mod
-mod/hooks/payload.ts(1,46): error TS2307: Cannot find module 'claude-code' …
+$ tsc -p .
+hooks/payload.ts(1,46): error TS2307: Cannot find module 'claude-code' …
 … 220 errors
 ```
 
-`claude plugin validate mod` and `claude plugin test mod` are **unaffected**
+`claude plugin validate .` and `claude plugin test .` are **unaffected**
 — both pass with no contract present, because only `tsc` reads the `.d.ts`.
 
 Two ways to get it:
 
-1. **Run the mod once** — the better option, if it works. `claude
-   --plugin-dir mod` in an interactive session; the contract's own header
+1. **Load the plugin once** — the better option, if it works. `claude
+   --plugin-dir .` in an interactive session; the contract's own header
    says the engine lays
-   `mod/.claude-plugin/types/claude-code/index.d.ts` beside the mod each
+   `.claude-plugin/types/claude-code/index.d.ts` beside the plugin each
    time it loads it from a folder you own, with the built-in tools
    (`claude-code-tools/`) and the connected MCP tools (`claude-code-mcp/`)
    next to it. That is quoted from the header, not something this repo has
@@ -112,18 +125,18 @@ Two ways to get it:
    if it does not appear, use option 2 and say so.
 
    Two ways that look like they should work and **do not**, both tested on
-   2.1.299 with the contract moved aside: `claude plugin test mod` loads the
+   2.1.299 with the contract moved aside: `claude plugin test .` loads the
    mod through the engine's own host and still writes nothing, and
-   `claude -p --plugin-dir mod` loads it (the mod answers) and also writes
+   `claude -p --plugin-dir .` loads it (the hooks answer) and also writes
    nothing. So an interactive session is the only candidate left, and a
    headless run will not get you the types however many times you try it.
 2. **Copy it by hand**, which is enough for `tsc` and no more. The bundled
    `plugin-authoring` skill writes the same API contract for the running
    build at `<skill>/types/claude-code.d.ts`; copy that one file to
-   `mod/.claude-plugin/types/claude-code/index.d.ts` — that exact path,
+   `.claude-plugin/types/claude-code/index.d.ts` — that exact path,
    which is where a real load overwrites it. It gets you the API but not
    the tool contracts, so `e.tool === "Bash"` will not narrow. Its first
-   line names the version that wrote it; this mod was last checked against
+   line names the version that wrote it; the band was last checked against
    `// Written by Claude Code 2.1.296.`
 
 This is a deliberate trade: the alternative is committing a generated file
@@ -137,13 +150,13 @@ cargo test
 
 # the loader's own static scan: hooks, `$` calls, `$.state` keys, env reads,
 # and whether every gating hook has a `.catch`
-claude plugin validate mod
+claude plugin validate .
 
-# the mod's own tests, run against the engine itself
-command claude plugin test mod
+# the plugin's own tests, run against the engine itself
+command claude plugin test .
 
 # types — needs the contract above
-tsc -p mod
+tsc -p .
 ```
 
 `command claude` is not a typo. Where the shell's `claude` is a function
@@ -159,7 +172,7 @@ accumulates (`activity`), the binary ladder and version gate (`binary`),
 draw (`render`) — colours, row clipping against `maxRows`, the width
 reaching the binary, and the pane's switcher.
 
-`mod/tests/harness.ts` is the shared bottom. Its header documents the
+`hooks/tests/harness.ts` is the shared bottom. Its header documents the
 non-obvious things about the test kit — among them that `$.state` cannot be
 read from a test at all, and the differing result shapes a bottom hook must
 return. Read it before adding a test.
@@ -181,7 +194,7 @@ control character. What it does **not** restrict is which characters you
 may draw: `TextProps` carries no code-point rule, so braille gauges, box
 drawing and plane-15 Nerd Font glyphs all land (there is a test). The
 width-1 BMP restriction in the contract belongs to the cell-grid's `cells`
-field, which this mod does not use.
+field, which the hooks module does not use.
 
 ## How it gets its data
 
@@ -238,7 +251,7 @@ hook draws.
 | --- | --- |
 | tok/s, and the cache trend's *sparkline* | the token breakdown arrives once per turn, not per API call, so there is nothing to plot a per-call hit rate from — the dedup by `message.id` that the transcript path does needs the transcript. The CACHE row's cumulative total is **not** missing: the mod sums it per turn and sends `activity.cache_read_total` |
 | Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
-| The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which this mod does not touch; it is tracked as separate work |
+| The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
 
 `classic.*` events close what the engine's own events do not: effort rides
 on every classic hook input (except `classic.PreToolUse`, whose argument is
@@ -255,21 +268,26 @@ unaffected.
 
 ## Files
 
+The plugin root is the repository root, so these sit beside the Rust crate:
+
 ```
-mod/
-├── .claude-plugin/plugin.json   manifest, `types`, and the binaryPath field
-├── hooks/hooks.json             names the module
-├── hooks/register.tsx           the hooks, the atoms, and the resolver
-├── hooks/payload.ts             the binary's stdin contract, pure
-├── hooks/binary.ts              the ladder and the version gate, pure
-├── hooks/throttle.ts            the refresh gate, pure
-├── types/index.d.ts             the `$.state` contract
-├── tests/harness.ts             shared bottom, and the kit's sharp edges
-├── tests/*.test.ts(x)           90 tests
-└── tsconfig.json
+.claude-plugin/plugin.json   manifest, `types`, and the binaryPath field
+hooks/hooks.json             names the module
+hooks/register.tsx           the hooks, the atoms, and the resolver
+hooks/payload.ts             the binary's stdin contract, pure
+hooks/binary.ts              the ladder and the version gate, pure
+hooks/throttle.ts            the refresh gate, pure
+hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
+hooks/tests/*.test.ts(x)     90 tests
+types/index.d.ts             the `$.state` contract
+tsconfig.json
 ```
 
-`types/index.d.ts` is the mod's own `$.state` contract, named in
+`Cargo.toml`'s `exclude` keeps all of it out of the crates.io tarball, and
+`cargo` ignores `hooks/tests/*.test.ts` the way it ignores any non-`.rs`
+file, so the TypeScript tests and the Rust ones never see each other.
+
+`types/index.d.ts` is the plugin's `$.state` contract, named in
 `plugin.json`; `validate` holds every key the module touches to it. It is
 deliberately self-contained — a contract that imports is refused, which is
 why the span styles are spelled out there rather than taken from

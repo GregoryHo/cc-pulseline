@@ -11,10 +11,10 @@ away?" has an answer built on the real event contract rather than on hope.
 
 Verified against the `claude-code.d.ts` the engine itself writes for plugin
 authors (written by Claude Code 2.1.296, checked on 2.1.299). There is no
-command to run: the engine writes it beside the mod, at
-`mod/.claude-plugin/types/claude-code/index.d.ts`, each time it loads the mod
-from a folder the author owns. Also against a running spike,
-`mod/hooks/register.ts`.
+command to run: the engine writes it beside the plugin, at
+`.claude-plugin/types/claude-code/index.d.ts`, each time it loads the plugin
+from a folder the author owns. Also against the running hooks module,
+`hooks/register.tsx`.
 
 ## Covered: the event carries the fact outright
 
@@ -88,5 +88,5 @@ copy of the other.
 
 So `src/providers/transcript.rs` stays, by division of labour rather than as
 a decision deferred. Nor is anything waiting on a flag any more:
-`claude plugin validate mod` passes on 2.1.299 with no
+`claude plugin validate .` passes on 2.1.299 with no
 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` set.

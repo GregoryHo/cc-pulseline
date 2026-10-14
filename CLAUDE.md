@@ -18,6 +18,15 @@ cargo fmt --check             # Format check (CI-enforced)
 cargo bench          # Run benchmarks (benches/render_pipeline.rs)
 ```
 
+The repository is also a Claude Code plugin, rooted at the repository root
+(`.claude-plugin/plugin.json`). Its TypeScript half lives in `hooks/`:
+
+```bash
+claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
+command claude plugin test .    # the 90 hook tests, run against the engine (needs `command`)
+tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
+```
+
 The project uses Rust 2021 edition (MSRV 1.85) with `serde`, `serde_json`, `toml` as dependencies, and `tempfile`, `criterion` as dev-dependencies.
 
 ### CLI Flags
@@ -75,6 +84,8 @@ stdin JSON → StdinPayload (deserialize)
   - `color.rs` — `ThemePalette` struct (34 color fields), built-in theme loading (JSON via `include_str!`), custom theme discovery (`~/.claude/pulseline/themes/`), `resolve_palette()` for theme+variant+overrides resolution, legacy `pub const` color values for test compatibility, and `colorize()`/`strip_ansi()` utilities
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
+
+- **`hooks/`** — The plugin's function-hooks module (TypeScript): `register.tsx` holds the hooks, the `$.state` atoms and the binary resolver; `payload.ts`, `binary.ts` and `throttle.ts` are pure helpers; `tests/` runs against the engine via `claude plugin test .`. It feeds the same binary through `activity` on the stdin payload and draws the result above the prompt (band) and in a pane. See `docs/band.md`.
 
 - **`lib.rs`** — Orchestrates the pipeline: `PulseLineRunner` manages sessions, calls providers, assembles the `RenderFrame`, and delegates to the renderer. Also exposes `run_from_str()` as a stateless convenience.
 
