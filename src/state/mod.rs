@@ -800,6 +800,70 @@ mod tests {
     // round trip completes well inside one millisecond, so a re-stamp would
     // otherwise be indistinguishable from the original.
 
+    /// `tests/adaptive_performance.rs` never reaches the re-scan path: its
+    /// 120 iterations finish in well under a second, so every tick after the
+    /// first is a cache hit. This crosses the TTL on a live runner and checks
+    /// the render that follows — correctness only, no wall-clock assertion.
+    #[test]
+    fn a_render_after_the_ttl_lapses_rescans_and_still_renders() {
+        let workspace = tempfile::TempDir::new().expect("temp workspace");
+        let path = workspace.path().display().to_string();
+        let payload = serde_json::json!({
+            "session_id": "ttl-rescan",
+            "cwd": path,
+            "workspace": {"current_dir": path},
+            "model": {"display_name": "Opus"},
+            "version": "2.1.275"
+        })
+        .to_string();
+        let config = crate::config::RenderConfig {
+            transcript_poll_throttle_ms: 0,
+            color_enabled: false,
+            ..crate::config::RenderConfig::default()
+        };
+
+        let mut runner = crate::PulseLineRunner::default();
+        let first = runner
+            .run_from_str(&payload, config.clone())
+            .expect("the first render scans and succeeds");
+
+        // Age both live snapshots past the TTL. This is the gate that fires in
+        // a long-lived host: the runner keeps the `SessionState` in its map, so
+        // `load_from_cache` never runs a second time.
+        let lapse = CACHE_TTL_MS + 1_000;
+        for state in runner.sessions.values_mut() {
+            if let Some(entry) = state.cached_env.as_mut() {
+                entry.cached_at_ms = entry.cached_at_ms.saturating_sub(lapse);
+            }
+            if let Some(entry) = state.cached_git.as_mut() {
+                entry.cached_at_ms = entry.cached_at_ms.saturating_sub(lapse);
+            }
+        }
+
+        let second = runner
+            .run_from_str(&payload, config)
+            .expect("the re-scan path must still render");
+
+        assert_eq!(
+            first, second,
+            "a re-scan of unchanged surroundings reproduces the same rows"
+        );
+        assert!(
+            second.iter().any(|line| line.contains("Opus")),
+            "the identity row survives the re-scan: {second:?}"
+        );
+
+        // A fresh stamp proves the lapsed scan was re-run rather than served.
+        let now = cache::now_epoch_ms();
+        for state in runner.sessions.values() {
+            let entry = state.cached_env.as_ref().expect("env was re-scanned");
+            assert!(
+                now.saturating_sub(entry.cached_at_ms) < CACHE_TTL_MS,
+                "the env scan was re-run and re-stamped, not served stale"
+            );
+        }
+    }
+
     #[test]
     fn to_cache_keeps_the_original_scan_stamp_across_round_trips() {
         let mut state = SessionState::default();
