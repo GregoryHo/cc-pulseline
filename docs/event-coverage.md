@@ -57,7 +57,7 @@ event equivalent today.
 
 Three facts that first looked uncovered are not: **effort** rides on every
 classic hook input (`BaseHookInput.effort`), the **compaction count** is
-`classic.PreCompact`, and the **output style** rides on `prompt.compose`'s
+`classic.PostCompact`, and the **output style** rides on `prompt.compose`'s
 input, which the engine resolves as
 `outputStyle: { name, isKeepingCodingInstructions } | null` at the moment it
 renders a system prompt. The exception is `classic.PreToolUse`, whose

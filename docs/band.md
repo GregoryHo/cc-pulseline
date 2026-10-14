@@ -210,7 +210,7 @@ field, which the hooks module does not use.
 | Effort level | `classic.PostToolUse`'s `e.effort.level` |
 | Output style | `prompt.compose`'s `e.outputStyle` |
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
-| Compaction count | `classic.PreCompact` |
+| Compaction count | `classic.PostCompact` — the end that means one happened. `PreCompact` can be blocked (`SessionCompactSkipped`: "Core answers it too, when a classic PreCompact hook blocks"), so counting there raised the badge over a compaction that never ran |
 | API error | `turn.complete` where `e.reason` is `'error'` |
 | Cumulative cache reads | summed from `turn.complete`'s usage, once per turn, and sent as a total — the binary cannot total it, since every refresh re-sends the same last-turn usage. Kept across compaction, as the transcript path keeps it |
 | MCP count, instruction counts | `$.tool.list()` and `classic.InstructionsLoaded` — what actually loaded, not what exists on disk |
@@ -258,8 +258,8 @@ hook draws.
 `classic.*` events close what the engine's own events do not: effort rides
 on every classic hook input (except `classic.PreToolUse`, whose argument is
 the tool call envelope), `SubagentStart` / `SubagentStop` give real agent
-timings, and `PreCompact` is the compaction the transcript parser counts by
-watching for `compact_boundary`.
+timings, and `PostCompact` is the compaction the transcript parser counts by
+watching for `compact_boundary` — both fire once one has finished.
 
 None of those hooks run in a plugin a person installs where an organization
 manages Claude Code — there they pass over the plugins you install, and only
