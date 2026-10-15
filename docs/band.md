@@ -143,7 +143,7 @@ Two ways to get it:
    which is where a real load overwrites it. It gets you the API but not
    the tool contracts, so `e.tool === "Bash"` will not narrow. Its first
    line names the version that wrote it; the band was last checked against
-   `// Written by Claude Code 2.1.296.`
+   `// Written by Claude Code 2.1.300.`
 
 This is a deliberate trade: the alternative is committing a generated file
 that is wrong the moment Claude Code updates.

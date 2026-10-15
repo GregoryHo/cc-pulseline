@@ -433,9 +433,10 @@ pub struct BudgetSegmentConfig {
     /// row. The creation-aware C coloring is always on regardless.
     #[serde(default)]
     pub show_cache_trend: bool,
-    /// CTX visual spec — `"+"` separated widget names. Recognized:
-    /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
-    /// (see `frames::default_visuals_for`).
+    /// CTX visual spec — `"+"` separated widget names. Recognized atoms:
+    /// the `WIDGET_*` consts matched in
+    /// `frames::shared::render_context_visual`. Empty string defers to the
+    /// layout default (see `frames::default_visuals_for`).
     /// Examples: `"text+sparkline"` (ledger default), `"text"` (flat
     /// layouts default), `"gauge"` (text-free dashboard).
     #[serde(default)]
@@ -619,7 +620,7 @@ show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 #   effort_visual = "word+ramp"   # level name + ordinal pip ramp ▮▮▮▮▮
 effort_visual = ""
 
-[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
+[segments.config]       # Line 2 — config counts (toggles below)
 # Master toggle. Default OFF: the counts rarely change within a session
 # and the row costs a full line (plus an ENV group in framed layouts).
 enabled = false
@@ -650,10 +651,10 @@ context_visual = ""
 enabled = false             # opt-in: driven by CC's native rate_limits stdin field
 show_five_hour = true
 show_seven_day = false
-# visual: bar gauge or text. Empty (default) defers to the layout —
-# console / ledger default to "gauge" (F-style bar with threshold
-# marks at 50% / 85% positions); flat layouts (none / compact)
-# default to "text". Examples:
+# visual: bar gauge or text. Empty (default) defers to the layout's own
+# default (see `frames::default_visuals_for`, or the "Per-layout defaults"
+# table in docs/layouts.md). The gauge is an F-style bar with threshold
+# marks at the 50% / 85% positions. Examples:
 #   visual = "gauge"            # ▰▰▰▰▰▰▰▰▰───·─ 62% (resets ...)
 #   visual = "text"             # 62% (resets ...) — no bar
 visual = ""

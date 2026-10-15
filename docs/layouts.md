@@ -753,7 +753,7 @@ survive longest). Below `min_width`, all rungs bypass to flat `none`.
 
 The TOML section was renamed `[pane]` → `[layout]` and the Rust enum
 `PaneStyle::V1*/V2*` → `LayoutStyle::*`. Existing TOML strings
-(`"none"`, `"cockpit"`, etc.) are unchanged. Old `[pane]` sections in
+(`"none"`, `"console"`, etc.) are unchanged. Old `[pane]` sections in
 TOML are silently ignored — fall back to defaults.
 
 ### `show_ctx_sparkline` removed

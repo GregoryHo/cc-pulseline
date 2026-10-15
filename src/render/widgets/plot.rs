@@ -91,11 +91,6 @@ pub fn render(
     colorize(&raw, fill_color, color_enabled)
 }
 
-/// Visible cell width of the plot — fixed, for callers budgeting row space.
-pub const fn width() -> usize {
-    PLOT_CELLS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,61 +7,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-16
+
+Minor release that closes the stopgap 1.5.1 named. 1.5.1 could only stop
+the band from holding a *permanent* second statusline above the prompt; the
+duplication itself was unfixable from the plugin half, because every layout
+the binary had led with the identity and budget rows the statusline already
+draws on its own line. `--layout activity` is the missing half, so this
+release touches `src/render/` and `hooks/` together: the band asks for
+activity rows by name, and with no duplication left to prevent it stops
+yielding between turns and holds the turn that just happened instead.
+
+The band's argv now names a layout only this release knows, so the plugin
+needs **1.6.0 or newer** on the machine and its version gate moves with it.
+An older binary would not refuse the flag — it warns on stderr, falls back
+to `none` and exits 0, which above a resident band is the duplicate
+statusline this release exists to remove, recorded as a successful run. The
+gate turns that into the one thing it can be diagnosed from: a note saying
+the binary is too old and the statusline is unaffected.
+The statusline path is unchanged: `activity` is opt-in there, no existing
+layout, config key or output moves, and a session that never installed the
+plugin sees exactly what 1.5.1 drew. 699 Rust tests (was 690) and 134 hook
+tests (was 130).
+
 ### Added
 
-- **`--layout activity`, and the band asks for it by name.** The one layout
-  that draws no identity and no budget row: running tools and their targets,
-  agents and their elapsed time, todo, then the per-tool completed counts —
-  and nothing at all when none of that is happening.
+- **`--layout activity`** — the one layout that draws no identity row and
+  no budget row: running tools with their targets, agents with their
+  elapsed time, todo, then the per-tool completed counts with failure
+  marks — and nothing at all, zero bytes, when none of that is happening.
 
-  This closes the gap 1.5.1 named as a stopgap. The band's argv carried
-  `--rows` and `--columns` and no `--layout`, so it drew whatever layout the
-  person had configured, and every layout the binary had led with identity
-  and budget. The band was a second statusline stacked above the prompt while
-  the statusline drew the same rows below, and it said nothing about the tool
-  in flight. Measured before the change, at the `--rows 2` the band gets
-  outside fullscreen: two rows of statusline, zero rows of activity.
+  Two things make it a layout rather than a configuration of `none`. Zero
+  core rows is not expressible: `[segments.config]` gates L2, but L1 and L3
+  always render and the height ladder's floor keeps one fused core row
+  however hard it is squeezed. And its row order is inverted — the generic
+  ladder's first rung is `DropRunningTools`, so at the two rows a band gets
+  outside fullscreen the configured layout deleted the tool in flight
+  before anything else. Here the running tools are row 0 and the cap
+  truncates from the bottom, so what gives way is the cumulative count:
+  one row keeps the running tools, two adds the agents, three the todo,
+  four and up the completed counts.
 
-  Two things make it a layout rather than a config of `none`. Zero core rows
-  is not expressible — `[segments.config]` gates L2, but L1 and L3 always
-  render and the height ladder's floor keeps one fused core row. And its row
-  order is inverted: the generic ladder's first rung is `DropRunningTools`,
-  so at two rows the default layout deleted the tool in flight before
-  anything else. Here the running tools are row 0 and the cap truncates from
-  the bottom, so what gives way is the cumulative count.
-
-  `--layout activity` is available on the statusline too, where it will show
-  nothing most of the time; it is listed last in `--preview-layouts` and the
-  config template says what it is for. New `tests/activity_layout.rs` (9
-  cases) and `src/render/frames/activity.rs`; `build_activity_rows` keeps its
-  signature, with the order behind a second entry point.
-
-- **The band stays up between turns, holding the state it last drew.** The
-  tools that finished with their counts and failure marks, the agents that
-  ran, the todo — every finished item already marked `✓` by the binary, so a
-  resident band is a record of the turn that just happened rather than a claim
-  about now. `e.props.isWorking` gated the draw for one release, and had to:
-  the band drew the configured layout, so between turns it was the
-  statusline's own rows stacked above the prompt while the statusline drew
-  them below. With `activity` there is no duplication left to prevent. Zero
-  rows still yields, so a session that has run nothing has no band.
-
-### Fixed
-
-- **The band no longer flashes "binary: not run yet" over an idle prompt.**
-  The note was keyed on the band having no rows, which until now could only
-  mean the binary had failed. With `activity` zero rows is the ordinary state
-  between turns, so the note would have become permanent. It is now keyed on
-  how the run ended — `bandRun: 'never' | 'ok' | 'failed'` on the output atom
-  — and only `'failed'` speaks. A missing or too-old binary still says so
-  whether or not a turn is running, which is the whole reason the note exists.
+  It is selectable on the statusline too, where it will show nothing most
+  of the time. `--layout`'s valid list, the unknown-layout warning, the
+  config template and `--preview-layouts` all name it — last in the
+  preview, because an empty cell when idle is the thing worth seeing —
+  and `docs/layouts.md` carries its entry, its `--rows` survival table and
+  its visual defaults.
 
 ### Changed
 
+- **The band draws the `activity` layout rather than the one you
+  configured.** Its spawn carried `--rows` and `--columns` and no
+  `--layout`, so above the prompt it drew whatever the effective config
+  selected: at the `--rows 2` it gets outside fullscreen, two rows of
+  statusline and zero rows of activity; at four rows, the generic ladder
+  deleting the running tool first. The layout is now fixed for that
+  surface, while per-segment `visual` overrides still reach it — a
+  `[segments.tools] visual = "ticker"` in your config still changes the
+  form the band's tool row takes.
+- **The band stays up between turns, holding the state it last drew.**
+  `e.props.isWorking` gated the draw for one release and had to, since
+  what sat there between turns was the statusline's rows stacked above the
+  prompt while the statusline drew them below. What stands there now is
+  the turn that just happened — the tools that finished with their counts
+  and failure marks, the agents that ran, the todo — and nothing reads as
+  in flight that is not: the binary marks a finished item with `✓` and a
+  running one with the tool's own glyph and no tick. It costs the two rows
+  `maxRows` gives the band outside fullscreen, for the rest of the session
+  once something has run. Zero rows still yields, so a session that has
+  run nothing has no band, and `/clear` takes it down until the next tool
+  call.
+- **The plugin's binary floor moves to 1.6.0** (`hooks/binary.ts`
+  `MIN_VERSION`). 1.5.1's note said the gate was unchanged; this one moves
+  it, because the band's argv now names a layout only this release knows and
+  an unknown layout name is not an error to the binary — it warns on stderr,
+  falls back to `none` and exits 0. Left at 1.5.0 the band would have drawn
+  the statusline's own rows, resident, with the run recorded as a success and
+  nothing said. A rung below the floor is still passed over rather than
+  taken, and the too-old message still names the newest copy found and says
+  the statusline is unaffected, which remains true.
 - `main.rs` prints nothing, rather than a bare newline, when a render
-  produces no rows. Previously unreachable; `activity` reaches it every time
-  nothing is running.
-- Test counts: 699 Rust (was 690), 134 hooks (was 130).
+  produces no rows. Previously unreachable; `activity` reaches it every
+  time nothing is running, and a caller that measures rows should get zero
+  bytes rather than one blank one.
+
+### Fixed
+
+- **The band no longer flashes `binary: not run yet` over an idle
+  prompt.** The note was keyed on the band having no rows, which before
+  the first refresh publishes is the output atom's initial value — the
+  binary ladder still walking, not a failure. It is keyed on how the run
+  ended now (`bandRun: 'never' | 'ok' | 'failed'`), and only `'failed'`
+  speaks. The one case the note exists for is untouched: a missing or
+  too-old binary raises no event and can say so nowhere else, so it is
+  still drawn whether or not a turn is running.
+
+### Internal
+
+- `src/render/frames/activity.rs` owns its own height ladder, which
+  tightens the completed counts, then the todo, then the agents, one at a
+  time before truncating — least valuable group first, the opposite of
+  what the generic ladder does. `build_activity_rows` keeps its
+  four-argument signature and its 20 test call sites, with the inverted
+  order behind a second entry point over a shared private body. New
+  `tests/activity_layout.rs` (9 cases), plus a layout row in
+  `tests/display_axes.rs` so the Ascii catch-net covers it.
+- `BandRun` on the plugin's output atom (`types/index.d.ts`) records the
+  health of the last run apart from the count of its rows, so a reload
+  redraws the same verdict instead of inferring one from an empty band.
+  The hook suite's new cases cover the layout reaching the binary and when
+  the band speaks versus yields.
+- README described the band as drawing token and cost movement. It draws
+  no budget row at all now, and the rates were never its to draw — only
+  the transcript path samples often enough to rate them.
+- Removed the unused `pub const fn width()` from `render/widgets/plot.rs`
+  and `render/widgets/sparkline.rs`. Both reported a fixed cell count for
+  callers budgeting row space; no caller ever asked, in `src/`, `tests/` or
+  `benches/`.
+- `docs/band.md` drops the stopgap section 1.5.1 added and records what
+  replaced it: `activity` in the two-site table, the band as always-on
+  once something has run, and what each surface can and cannot show.
 
 ## [1.5.1] - 2026-10-15
 
@@ -1092,6 +1158,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.6.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.3.0...v1.4.0

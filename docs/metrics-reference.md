@@ -25,8 +25,8 @@ Session identity at a glance (see `IdentitySegmentConfig` in `src/config.rs` for
 |-------|--------|-------|
 | Clean | `G:main` | STABLE_GREEN (71) |
 | Dirty | `G:main*` | ALERT_ORANGE (214) on the `*` |
-| Ahead | `G:main up-3` | ACTIVE_CORAL (209) |
-| Behind | `G:main down-2` | ACTIVE_CORAL (209) |
+| Ahead | `G:main ↑3` | ACTIVE_CORAL (209) |
+| Behind | `G:main ↓2` | ACTIVE_CORAL (209) |
 
 ### Git File Stats (Starship-style)
 
@@ -74,6 +74,7 @@ Counts of the project's Claude Code configuration. **The whole row is opt-in** �
 | Metric | Data Source | Parsing Method | Cache | Icon Color |
 |--------|-------------|----------------|-------|------------|
 | CLAUDE.md | 5 filesystem paths | Check existence of `~/.claude/CLAUDE.md`, `{root}/CLAUDE.md`, `{root}/CLAUDE.local.md`, `{root}/.claude/CLAUDE.md`, `{root}/.claude/CLAUDE.local.md` | 10s TTL | INDICATOR_CLAUDE_MD (109) |
+| AGENTS.md | repo-root `AGENTS.md` | Root-only presence check (`count_agents_md`, non-recursive) — zero-suppressed, shares the `show_claude_md` toggle | 10s TTL | INDICATOR_CLAUDE_MD (109, reused) |
 | Rules | `.md` files in rules dirs | Recursive scan of `{root}/.claude/rules/` + `~/.claude/rules/` | 10s TTL | INDICATOR_RULES (108) |
 | Memories | `.md` files in memory dir | Flat scan of `~/.claude/projects/{encoded-path}/memory/` | 10s TTL | INDICATOR_MEMORY (182) |
 | Hooks | settings.json `hooks` keys | JSON parse of hooks object keys in settings.json (project + local + user) | 10s TTL | INDICATOR_HOOKS (179) |
