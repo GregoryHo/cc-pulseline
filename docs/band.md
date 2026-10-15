@@ -28,7 +28,7 @@ terminal (`e.surface !== 'terminal'`), and a `-p` run draws nothing to put
 the band in. `/pulseline` opens a pane, `/pulseline` again closes it.
 
 It finds the binary itself — see **Finding the binary** below. Nothing else
-is needed on a machine that has cc-pulseline 1.5.0 or newer installed.
+is needed on a machine that has cc-pulseline 1.6.0 or newer installed.
 
 `--plugin-dir .` is the development loop. For everyone else the plugin
 installs in one step:
@@ -37,10 +37,10 @@ installs in one step:
 /plugin install pulseline --marketplace GregoryHo/cc-pulseline
 ```
 
-That line lands with the v1.5.0 release and not before, because the band's
-version floor is 1.5.0 — see **Finding the binary**. Installing the plugin
-against an older binary is the one case the ladder has to explain rather
-than fix.
+The plugin and the binary ship from the same tag, so the floor is the
+release you are installing — see **Finding the binary**. Installing the
+plugin against an older binary is the one case the ladder has to explain
+rather than fix.
 
 ## Finding the binary
 
@@ -73,17 +73,23 @@ same call.
 
 ### The version floor, and why
 
-**The band needs 1.5.0 or newer. An older binary leaves your statusline
-completely unaffected.** 1.4.0 draws the statusline perfectly well; what it
-lacks is `--rows`, `--columns` and the `activity` input. So it does not
-refuse — it draws the classic layout into the band at the wrong width and
-row count, which is much harder to diagnose than an outright no.
+**The band needs 1.6.0 or newer. An older binary leaves your statusline
+completely unaffected.** The floor tracks the release, because each one so
+far has added the CLI the band of that release drives: `--rows`, `--columns`
+and the `activity` input in 1.5.0, `--layout activity` in 1.6.0. None of
+those is an error to an older binary. An unknown layout name in particular
+warns on stderr, falls back to `none` and exits 0 — so a 1.5.x binary would
+answer a band spawn with the identity and budget rows, which is the
+statusline drawn a second time above the prompt and, since the band is now
+resident, drawn there permanently. `bandRun` would read `'ok'` and nothing
+would be said. That is much harder to diagnose than an outright no, which is
+what the floor turns it into.
 
 **A too-old rung is passed over, not accepted and not fatal.** The walk goes
 on, and a later rung may be new enough. This is not hypothetical: on the
-machine this was written on, `cargo install` had left 1.4.0 on `PATH`
-(rung 4) while the dev build was 1.5.0 (rung 5). A ladder that took the
-first thing to answer would have drawn 1.4.0. The too-old message is
+machine this was written on, `cargo install` had left an older copy on
+`PATH` (rung 4) while the dev build was current (rung 5). A ladder that took
+the first thing to answer would have drawn the old one. The too-old message is
 reached only when no rung at all is new enough, and it names the newest
 copy found, so you are not sent updating to a version you already have.
 
@@ -91,7 +97,7 @@ copy found, so you are not sent updating to a version you already have.
 
 A `userConfig` string field, so it is a row in `/config` and is stored in
 settings under `pluginConfigs`. Put an absolute path to a cc-pulseline
-binary of 1.5.0 or newer in it; leave it empty to use the ladder. Changing
+binary of 1.6.0 or newer in it; leave it empty to use the ladder. Changing
 it reloads the module, and a `classic.ConfigChange` also clears the
 remembered resolution, so installing the binary mid-session is picked up
 without a restart.

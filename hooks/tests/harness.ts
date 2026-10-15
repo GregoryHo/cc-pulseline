@@ -212,7 +212,7 @@ export type BottomOptions = {
   /**
    * A version per candidate path, for a ladder whose rungs disagree — which
    * is the real shape of this machine, where `cargo install` left 1.4.0 on
-   * PATH while the dev build is 1.5.0. Given, a path absent from it fails
+   * PATH while the dev build is current. Given, a path absent from it fails
    * as a missing file does.
    */
   binaryVersions?: Readonly<Record<string, string | null>>
@@ -309,7 +309,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
           ? options.binaryVersions[path]
           : 'binaryVersion' in options
             ? options.binaryVersion
-            : '1.5.0'
+            : '1.6.0'
       const present = options.binaryAt === undefined || options.binaryAt.includes(path)
       if (version === null || version === undefined || !present) {
         // As a missing file does: nothing on stdout and a non-zero status.

@@ -88,7 +88,7 @@ division of labour rather than a replacement: the band draws no identity,
 context or cost row, so keep your `statusLine` setting, which stays the
 steady-state summary.
 
-Requires cc-pulseline **1.5.0 or newer** on the machine. The plugin finds the
+Requires cc-pulseline **1.6.0 or newer** on the machine. The plugin finds the
 binary on its own — a path you configure, `~/.claude/pulseline/`, `PATH`, or
 a local build — and says what is missing when none of them answers. See
 [the activity band](docs/band.md) for the full picture.
