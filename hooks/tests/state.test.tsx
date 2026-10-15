@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 
-import { BAND, PANE, STAMP, USER_COMMAND, bottom } from './harness'
+import { BAND, BENEATH, PANE, STAMP, USER_COMMAND, bottom, isPaneSpawn } from './harness'
 
 /**
  * A3: the session's values live in `$.state`, so they outlive a hot reload.
@@ -32,12 +32,13 @@ test('an atom-backed count adds up over the session', async ($, on) => {
 })
 
 test('writing the output atom draws the band again', async ($, on) => {
-  const seen = bottom(on)
+  const seen = bottom(on, { stdout: 'T:Read: .../three' })
   const ui = await $.ui.mount(BAND)
 
-  // Nothing run yet, so the band draws its note rather than disappearing.
-  const first = await ui.find({ type: 'Text' })
-  expect(first?.text).toContain('binary: not run yet')
+  // Nothing run yet, so there are no rows and the band yields: what is drawn
+  // here is the bottom's own.
+  const first = JSON.stringify(await ui.drawn())
+  expect(first).toContain(BENEATH)
 
   // A tool call drives a refresh, whose single write to the output atom is
   // the only thing that can redraw the band: every `$.ui.invalidate` call
@@ -45,8 +46,9 @@ test('writing the output atom draws the band again', async ($, on) => {
   await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/nowhere/three' })
   await seen.settle()
 
-  const second = await ui.find({ type: 'Text' })
-  expect(second?.text).not.toContain('binary: not run yet')
+  const second = JSON.stringify(await ui.drawn())
+  expect(second).toContain('T:Read: .../three')
+  expect(second).not.toContain(BENEATH)
 
   await ui.unmount()
 })
@@ -62,6 +64,6 @@ test('the person’s pane choice is state, not a closure field', async ($, on) =
 
   // The layout the person picked is what the binary is asked for next, and
   // it is held by the host rather than by the module's own variables.
-  const paneArgv = seen.spawns.filter(run => run.argv.includes('--layout')).at(-1)?.argv ?? []
+  const paneArgv = seen.spawns.filter(isPaneSpawn).at(-1)?.argv ?? []
   expect(paneArgv[paneArgv.indexOf('--layout') + 1]).toBe('rail')
 })

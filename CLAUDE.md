@@ -23,7 +23,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 130 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 133 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
@@ -40,7 +40,10 @@ cc-pulseline --preview        # Preview all themes (or --preview theme1 theme2)
 cc-pulseline --preview-layouts # Preview all layouts (optional widths, default 140)
 cc-pulseline --select-theme   # Interactively select and apply a theme
 cc-pulseline --palette-map    # Show palette field → UI element mapping
-cc-pulseline --layout rail    # Render with this layout (none|compact|budgets|console|ledger|rail|anchor)
+cc-pulseline --layout rail    # Render with this layout
+                              # (none|compact|budgets|console|ledger|rail|anchor|activity)
+                              # activity = activity rows only, empty when idle — the
+                              # plugin band's layout, not a statusline one
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
 ```
@@ -103,6 +106,12 @@ CTX widget composition runs through the dispatch hub `render_context_visual` in 
 Full layout × visual reference: `docs/layouts.md`.
 
 ### Output Line Format
+
+> **L1 and L3 always render, except under `--layout activity`** — the one
+> layout that draws no core rows, so its output is activity only and empty
+> when nothing is running. It exists for the plugin's above-the-prompt band
+> (`docs/band.md`), which sits beside the statusline rather than replacing
+> it. Everything below describes the statusline's own rows.
 
 - **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)

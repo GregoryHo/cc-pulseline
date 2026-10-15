@@ -1,6 +1,15 @@
 import { test, expect, describe } from 'claude-code/testing'
 
-import { BAND, BENEATH, COLOURED_ROWS, IDLE_BAND, PANE, USER_COMMAND, bottom } from './harness'
+import {
+  BAND,
+  BENEATH,
+  COLOURED_ROWS,
+  IDLE_BAND,
+  PANE,
+  USER_COMMAND,
+  bottom,
+  isPaneSpawn,
+} from './harness'
 
 /**
  * What the band and the pane actually draw.
@@ -146,12 +155,67 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('with nothing run yet it draws its note rather than disappearing', async ($, on) => {
+  test('with nothing run yet it yields rather than noting that', async ($, on) => {
     bottom(on)
     const ui = await $.ui.mount(BAND)
 
+    // Nothing has gone wrong — the walk simply has not finished. The band
+    // asks for the `activity` layout, whose output is empty whenever nothing
+    // is running, so "no rows" is the ordinary state and a note keyed on it
+    // would sit over the prompt for the session. Only a failed run speaks.
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain(BENEATH)
+    expect(drawn).not.toContain('pulseline:')
+
+    await ui.unmount()
+  })
+
+  test('a run that failed draws its note even with nothing running', async ($, on) => {
+    const seen = bottom(on, { exitCode: 2, stderr: 'boom' })
+    await warm($)
+
+    // The one thing the band says while idle. A binary that is missing or
+    // broken raises no event of its own, so if this draw yielded too there
+    // would be no surface left to say so on.
+    const ui = await $.ui.mount(IDLE_BAND)
     const text = await ui.find({ type: 'Text' })
     expect(text?.text).toContain('pulseline:')
+    expect(text?.text).toContain('exit 2')
+    expect(seen.spawns.length).toBeGreaterThan(0)
+
+    await ui.unmount()
+  })
+
+  test('a band with rows draws them once a turn is running', async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS })
+    await warm($)
+
+    const ui = await $.ui.mount(BAND)
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('T:Read: .../main.rs')
+    expect(drawn).not.toContain(BENEATH)
+
+    await ui.unmount()
+  })
+
+  test('the band asks for the activity layout, not the configured one', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS })
+    // Mounted first, so the spawn is sized from the band's measured box
+    // rather than the pre-measurement default.
+    const ui = await $.ui.mount(BAND)
+    await warm($)
+    await seen.settle()
+
+    const bandArgv = seen.spawns.filter(run => !isPaneSpawn(run)).at(-1)?.argv ?? []
+    // Without this the band drew whatever layout the person had configured —
+    // the statusline's own identity and budget rows, stacked above the prompt
+    // while the statusline drew them below. `activity` is the one layout that
+    // draws neither, which is what makes the band a second canvas rather than
+    // a copy of one.
+    expect(bandArgv[bandArgv.indexOf('--layout') + 1]).toBe('activity')
+    // And still told its own box, not the pane's.
+    expect(bandArgv[bandArgv.indexOf('--rows') + 1]).toBe('4')
+    expect(bandArgv[bandArgv.indexOf('--columns') + 1]).toBe('118')
 
     await ui.unmount()
   })
@@ -247,7 +311,7 @@ describe('the pane', () => {
     const buttons = await ui.findAll({ type: 'Button' })
     expect(buttons.map(button => button.props.dimColor)).toEqual([true, false, true, true])
 
-    const paneArgv = seen.spawns.filter(run => run.argv.includes('--layout')).at(-1)?.argv ?? []
+    const paneArgv = seen.spawns.filter(isPaneSpawn).at(-1)?.argv ?? []
     expect(paneArgv[paneArgv.indexOf('--layout') + 1]).toBe('budgets')
 
     await ui.unmount()
@@ -265,7 +329,7 @@ describe('the pane', () => {
       const undimmed = buttons.findIndex(button => button.props.dimColor === false)
       expect(undimmed, `pressing ${name} should light row ${index}`).toBe(index)
 
-      const paneArgv = seen.spawns.filter(run => run.argv.includes('--layout')).at(-1)?.argv ?? []
+      const paneArgv = seen.spawns.filter(isPaneSpawn).at(-1)?.argv ?? []
       expect(paneArgv[paneArgv.indexOf('--layout') + 1]).toBe(name)
     }
 
@@ -280,7 +344,7 @@ describe('the pane', () => {
     // drive one with the measured box.
     await ui.press({ key: 'layout:ledger' })
 
-    const paneArgv = seen.spawns.filter(run => run.argv.includes('--layout')).at(-1)?.argv ?? []
+    const paneArgv = seen.spawns.filter(isPaneSpawn).at(-1)?.argv ?? []
     // One short of the twelve-row box: the switcher takes the last row, and a
     // layout that fills the box exactly would push it below the fold.
     expect(paneArgv[paneArgv.indexOf('--rows') + 1]).toBe('11')
@@ -302,7 +366,7 @@ describe('the pane', () => {
     // What this case pins is that the second run happens when the pane was
     // placed. The box it carries is the next case's: here nothing has drawn
     // the pane yet, because the kit draws only on `ui.mount`.
-    const paneRuns = seen.spawns.filter(run => run.argv.includes('--layout')).length
+    const paneRuns = seen.spawns.filter(isPaneSpawn).length
     expect(paneRuns).toBe(2)
   })
 
@@ -322,7 +386,7 @@ describe('the pane', () => {
 
   test('the /pulseline toggle stops the pane spawn', async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS })
-    const layoutRuns = () => seen.spawns.filter(run => run.argv.includes('--layout')).length
+    const layoutRuns = () => seen.spawns.filter(isPaneSpawn).length
 
     await $.command.run({ command: 'pulseline', ...USER_COMMAND })
     const whileOpen = layoutRuns()

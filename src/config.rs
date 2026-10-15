@@ -719,6 +719,17 @@ visual = ""
 #                rounded-capsule hero, the rest trail as dim text where colour
 #                marks the live signal; collapses via max_total_lines.
 #
+# Activity-only (the band's layout):
+#   "activity" — running tools and their targets, agents, todo, per-tool
+#                completed counts. The ONE layout that draws no identity and
+#                no budget row, and the one whose output is empty when
+#                nothing is running — so on the statusline it shows nothing
+#                most of the time. It exists for the above-the-prompt band,
+#                which sits beside the statusline rather than replacing it:
+#                the statusline keeps the steady state, this keeps the turn
+#                in flight. Rows lead with the running tools, so max_total_lines
+#                cuts the cumulative counts rather than the live row.
+#
 # Trend-forward is a recipe, not a layout: any layout +
 # context_visual = "plot+text" (+ [segments.quota] visual = "gauge") leads
 # the CONTEXT row with a braille line-plot of the CTX% history and a
@@ -1366,6 +1377,7 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [layout]
 # # Layouts: "none" | "compact" | "budgets" | "console" | "ledger" | "rail" | "anchor"
+# #          | "activity" (activity rows only — for the band, not the statusline)
 # name = "console"
 # min_width = 60
 # max_width = 140
@@ -1776,6 +1788,7 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
         "ledger" => LayoutStyle::Ledger,
         "rail" => LayoutStyle::Rail,
         "anchor" => LayoutStyle::Anchor,
+        "activity" => LayoutStyle::Activity,
         // Velocity was a config preset masquerading as a layout (none + a
         // plot CTX default); removed. The trend-forward view lives on as a
         // recipe any layout can opt into via the `plot` context_visual atom.
@@ -1785,7 +1798,7 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
                  name = \"none\" + [segments.budget] context_visual = \"plot+text\" \
                  + [segments.quota] visual = \"gauge\" \
                  — set those instead. Falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }
@@ -1796,21 +1809,21 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }

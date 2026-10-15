@@ -25,6 +25,19 @@ pub const ROW_SEPARATOR_W: usize = 3;
 /// vs vertical bar) and in-text `+` (e.g. `C++`) almost never carries spaces.
 pub(crate) const GROUP_SUBITEM_SEPARATOR: &str = " + ";
 
+/// Row order for the activity area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActivityOrder {
+    /// Statusline order: completed counts, then running tools, agents, todo.
+    /// The stable counts lead because the rows beneath them are volatile.
+    CountsFirst,
+    /// Band order: the running tools lead. The band's whole reason to exist
+    /// is the turn in flight, and its height cap truncates from the bottom —
+    /// so the row that names the tool in flight has to be row 0 or a cap
+    /// deletes exactly the thing the canvas was added for.
+    RunningFirst,
+}
+
 /// Render the L4+ activity rows for the given frame, ordered as: completed
 /// tool counts, recent/running tools, agent groups, todo. Each row is
 /// independently width-fitted by `pack_with_separator`.
@@ -34,60 +47,103 @@ pub fn build_activity_rows(
     palette: &ThemePalette,
     available_width: usize,
 ) -> Vec<String> {
+    build_ordered_activity_rows(
+        frame,
+        config,
+        palette,
+        available_width,
+        ActivityOrder::CountsFirst,
+    )
+}
+
+/// Same rows as `build_activity_rows`, led by the running-tools row and
+/// ordered running → agents → todo → completed counts. The `activity`
+/// layout's entry point; see `ActivityOrder::RunningFirst`.
+pub fn build_activity_rows_running_first(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+    available_width: usize,
+) -> Vec<String> {
+    build_ordered_activity_rows(
+        frame,
+        config,
+        palette,
+        available_width,
+        ActivityOrder::RunningFirst,
+    )
+}
+
+fn build_ordered_activity_rows(
+    frame: &RenderFrame,
+    config: &RenderConfig,
+    palette: &ThemePalette,
+    available_width: usize,
+    order: ActivityOrder,
+) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
     let color = config.color_enabled;
     let sep = colorize(ROW_SEPARATOR, &palette.separator, color);
 
-    if config.show_tools {
-        let spec = ToolsVisualSpec::parse(config.effective_tools_visual());
-        if spec.ticker {
-            // `ticker` subsumes `counts`/`targets`: grand total + running
-            // tools fused into ONE row.
-            rows.extend(build_tools_ticker_row(
-                frame,
-                config,
-                palette,
-                available_width,
-                &sep,
-            ));
-        } else {
-            if spec.show_counts && !frame.completed_tools.is_empty() {
-                let cells: Vec<Cell> = frame
-                    .completed_tools
-                    .iter()
-                    .take(config.max_completed_tools.max(1))
-                    .map(|c| build_completed_tool_cell(c, config.glyph_mode, palette, color))
-                    .collect();
-                rows.extend(build_completed_tool_rows(
-                    &cells,
-                    available_width,
-                    &sep,
-                    palette,
-                    config,
-                ));
-            }
-
-            // `max_tool_lines == 0` hides the running/recent row entirely —
-            // the `DropRunningTools` height-degradation rung uses this.
-            if spec.show_targets && !frame.tools.is_empty() && config.max_tool_lines > 0 {
-                let cells: Vec<Cell> = frame
-                    .tools
-                    .iter()
-                    .take(config.max_tool_lines)
-                    .map(|t| build_recent_tool_cell(t, config.glyph_mode, palette, color))
-                    .collect();
-                let row =
-                    pack_with_separator(&cells, available_width, &sep, ROW_SEPARATOR_W, color);
-                if !row.is_empty() {
-                    rows.push(row);
-                }
-            }
+    let spec = ToolsVisualSpec::parse(config.effective_tools_visual());
+    // `ticker` subsumes `counts`/`targets`: grand total + running tools fused
+    // into ONE row, so there is nothing to order.
+    let ticker = config.show_tools && spec.ticker;
+    let counts_rows = || -> Vec<String> {
+        if !config.show_tools || ticker || !spec.show_counts || frame.completed_tools.is_empty() {
+            return Vec::new();
         }
-    }
+        let cells: Vec<Cell> = frame
+            .completed_tools
+            .iter()
+            .take(config.max_completed_tools.max(1))
+            .map(|c| build_completed_tool_cell(c, config.glyph_mode, palette, color))
+            .collect();
+        build_completed_tool_rows(&cells, available_width, &sep, palette, config)
+    };
+    let targets_rows = || -> Vec<String> {
+        // `max_tool_lines == 0` hides the running/recent row entirely — the
+        // `DropRunningTools` height-degradation rung uses this.
+        if !config.show_tools
+            || ticker
+            || !spec.show_targets
+            || frame.tools.is_empty()
+            || config.max_tool_lines == 0
+        {
+            return Vec::new();
+        }
+        let cells: Vec<Cell> = frame
+            .tools
+            .iter()
+            .take(config.max_tool_lines)
+            .map(|t| build_recent_tool_cell(t, config.glyph_mode, palette, color))
+            .collect();
+        let row = pack_with_separator(&cells, available_width, &sep, ROW_SEPARATOR_W, color);
+        if row.is_empty() {
+            Vec::new()
+        } else {
+            vec![row]
+        }
+    };
+    let agent_rows = || -> Vec<String> {
+        if !config.show_agents {
+            return Vec::new();
+        }
+        build_agent_rows(&frame.agents, config, palette, available_width, &sep)
+    };
+    let todo_rows = || -> Vec<String> {
+        if !config.show_todo {
+            return Vec::new();
+        }
+        match &frame.todo {
+            Some(todo) => build_todo_rows(todo, config, palette, available_width),
+            None => Vec::new(),
+        }
+    };
 
-    if config.show_agents {
-        rows.extend(build_agent_rows(
-            &frame.agents,
+    if ticker {
+        rows.extend(build_tools_ticker_row(
+            frame,
             config,
             palette,
             available_width,
@@ -95,9 +151,18 @@ pub fn build_activity_rows(
         ));
     }
 
-    if config.show_todo {
-        if let Some(todo) = &frame.todo {
-            rows.extend(build_todo_rows(todo, config, palette, available_width));
+    match order {
+        ActivityOrder::CountsFirst => {
+            rows.extend(counts_rows());
+            rows.extend(targets_rows());
+            rows.extend(agent_rows());
+            rows.extend(todo_rows());
+        }
+        ActivityOrder::RunningFirst => {
+            rows.extend(targets_rows());
+            rows.extend(agent_rows());
+            rows.extend(todo_rows());
+            rows.extend(counts_rows());
         }
     }
 

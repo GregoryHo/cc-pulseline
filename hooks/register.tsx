@@ -14,7 +14,16 @@ import type { Version } from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
-import type { BinaryChoice, DrawnOutput, Span, SpanStyle, TaskItem, Tasks, Todo } from '../types'
+import type {
+  BandRun,
+  BinaryChoice,
+  DrawnOutput,
+  Span,
+  SpanStyle,
+  TaskItem,
+  Tasks,
+  Todo,
+} from '../types'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -172,6 +181,9 @@ const binaryChoice = atom({ plugin: 'pulseline', key: 'binary' } as const, null)
 const drawnOutput = atom({ plugin: 'pulseline', key: 'output' } as const, {
   rows: [],
   paneRows: [],
+  // Not `'failed'`: nothing has gone wrong yet, and the band draws the note
+  // only for `'failed'`. See `BandRun` in `../types`.
+  bandRun: 'never',
   runNote: 'binary: not run yet',
   paneNote: 'pane: not run yet',
 })
@@ -861,7 +873,15 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const binary = await resolveBinary(engine, state)
   if (binary.kind !== 'ok') {
     const note = binary.kind === 'missing' ? missingMessage() : tooOldMessage(binary.version)
-    await publish(out => ({ ...out, rows: [], paneRows: [], runNote: note }))
+    // `'failed'`, not `'never'`: the ladder walked and came back empty-handed,
+    // and this message is the only place an install line can reach the person.
+    await publish(out => ({
+      ...out,
+      rows: [],
+      paneRows: [],
+      bandRun: 'failed',
+      runNote: note,
+    }))
     return
   }
 
@@ -882,6 +902,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         ...out,
         rows: [],
         paneRows: [],
+        bandRun: 'failed',
         runNote: `engine refused — ${noteText(String(error)).slice(0, 160)}`,
       }))
       return
@@ -946,6 +967,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
   let rows: Span[][] = held.rows
+  let bandRun: BandRun = held.bandRun
   let runNote = held.runNote
   let paneRows: Span[][] = held.paneRows
   let paneNote = held.paneNote
@@ -957,17 +979,31 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       String(state.bandRows),
       '--columns',
       String(state.bandCols),
+      // The band is not a second statusline. `activity` is the one layout
+      // that draws no identity and no budget row — those belong to the
+      // statusline, which is always on screen and is the only path that can
+      // sample tokens often enough to rate them. What is left is the turn in
+      // flight, led by the running tools so `--rows 2` outside fullscreen
+      // cuts the cumulative counts rather than the live row. Without this the
+      // band drew whatever layout the person configured: the statusline's own
+      // rows, stacked above the prompt while the statusline drew them below.
+      '--layout',
+      'activity',
     ]
     const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
     rows = run.stdout
       .split('\n')
       .filter(line => line.length > 0)
       .map(spansOf)
+    // Zero rows with a zero exit is the idle band, not a fault — which is why
+    // the health of the run is tracked apart from the count of its rows.
+    bandRun = run.exitCode === 0 ? 'ok' : 'failed'
     runNote =
       run.exitCode === 0
         ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${running.length} running · ${totals.completedTotal} done · ${paneNote}`
         : `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`
   } catch (error) {
+    bandRun = 'failed'
     runNote = `run refused — ${noteText(String(error)).slice(0, 160)}`
     rows = []
   }
@@ -1011,7 +1047,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     }
   }
 
-  await publish(() => ({ rows, runNote, paneRows, paneNote }))
+  await publish(() => ({ rows, bandRun, runNote, paneRows, paneNote }))
 }
 
 /**
@@ -1468,21 +1504,29 @@ export const register: Register = (on, options) => {
     // Two cells go to the band's own collapse marker at the right edge.
     state.bandCols = Math.max(20, e.props.bodyColumns - 2)
 
-    // With no rows, still draw the note: a band that silently disappears
-    // tells us nothing about why. Drawn whether or not a turn is running,
-    // because this is the only place a missing or too-old binary can say so
-    // and an install line nobody sees fixes nothing.
-    if (held.rows.length === 0 && !DEBUG) {
+    // A run that failed still draws, whether or not a turn is running: a band
+    // that silently disappears tells us nothing about why, and this is the
+    // only place a missing or too-old binary can say so. An install line
+    // nobody sees fixes nothing.
+    //
+    // Keyed on how the run ended rather than on how many rows it produced.
+    // The band asks for the `activity` layout, whose output is empty whenever
+    // nothing is running, so zero rows is the ordinary state between turns —
+    // and `rows.length === 0` here would pin this note over an idle prompt
+    // for the whole session.
+    if (held.bandRun === 'failed' && !DEBUG) {
       const { Text } = $.ui.resolve(e)
       return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
     // The band is the activity canvas, so it belongs to the turn that is
     // running. Idle, the statusline already draws the steady state on its own
-    // row — and the band renders whatever layout the person configured, which
-    // is that same row again. Two copies of it stacked is exactly what the
-    // division of labour exists to avoid.
+    // row, and the activity layout has nothing of its own to add.
     if (!e.props.isWorking) return next(e)
+
+    // Ran, or has not run yet, and has nothing in flight to show. Yield the
+    // band rather than draw an empty box.
+    if (held.rows.length === 0 && !DEBUG) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const notes = DEBUG ? [<Text>{held.runNote}</Text>] : []

@@ -15,7 +15,11 @@ use super::pane::{apply_pane, LayoutStyle, LineKind, PaneConfig, PaneGroup};
 /// Borrow `base` or yield an owned variant whose `separator` is overridden with
 /// the row-appropriate strata tier. See `designs/tonal-strata-redesign.md`:
 /// `is_activity = true` → `strata_activity`, otherwise → `strata_state`.
-fn tinted_palette(base: &ThemePalette, is_activity: bool, tonal: bool) -> Cow<'_, ThemePalette> {
+pub(super) fn tinted_palette(
+    base: &ThemePalette,
+    is_activity: bool,
+    tonal: bool,
+) -> Cow<'_, ThemePalette> {
     if !tonal {
         return Cow::Borrowed(base);
     }
@@ -53,6 +57,12 @@ pub fn render_frame(frame: &RenderFrame, config: &RenderConfig) -> Vec<String> {
         // (the seam rhythm doesn't compose via `apply_pane`).
         LayoutStyle::Rail => return frames::rail::render(frame, config, palette),
         LayoutStyle::Anchor => return frames::anchor::render(frame, config, palette),
+        // Activity draws no core rows at all, so there is nothing here for
+        // `apply_pane` to frame and nothing for the generic ladder or the
+        // width-degradation order (drop activity → compress L2 → truncate
+        // core) to act on. It owns its own cap handling, and its rows lead
+        // with the running tools so the cut lands on the right end.
+        LayoutStyle::Activity => return frames::activity::render(frame, config, palette),
         // Every other layout flows through the flat-line pipeline below
         // and is decorated by `apply_pane`.
         LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Console => {}
@@ -280,10 +290,14 @@ fn assemble_flat(
     // flows through this generic path with no chrome.
     let pane_active = !matches!(
         config.pane_style,
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Activity
     );
     let style_overhead = match config.pane_style {
-        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets => 0,
+        // Activity never reaches here (it early-returns above); listed so the
+        // match stays exhaustive without a wildcard.
+        LayoutStyle::None | LayoutStyle::Compact | LayoutStyle::Budgets | LayoutStyle::Activity => {
+            0
+        }
         // Console uses a wall-on-both-sides layout (`│ ` left + internal
         // ` │ ` divider + ` │` right) around a label column whose default
         // group labels (Identity/Config/Budget/Activity) top out at 8

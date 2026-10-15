@@ -14,6 +14,7 @@
 //! widget dispatch hubs (`render_context_visual`, etc.) shared across
 //! frames.
 
+pub mod activity;
 pub mod anchor;
 pub mod console;
 pub mod ledger;
@@ -123,6 +124,21 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
             agents_visual: "name",
             tools_visual: "ticker",
             todo_visual: "text",
+            effort_visual: "word",
+        },
+        // Activity draws no core rows, so the three core specs are
+        // unreachable — filled in only to keep this `const fn` total.
+        // `tools_visual` is deliberately NOT `ticker`: a ticker gives the
+        // grand total alone (`✓ 91 tools`) and the per-tool `Read ×42 |
+        // Bash ×31 ✘2` is half of what this canvas is for. The todo bar
+        // earns its cells here — on a two-row band a 5-cell gauge reads
+        // faster than the count.
+        LayoutStyle::Activity => SegmentVisualDefaults {
+            context_visual: "text",
+            quota_visual: "text",
+            agents_visual: "name+description+model",
+            tools_visual: "counts+targets",
+            todo_visual: "bar+text",
             effort_visual: "word",
         },
     }

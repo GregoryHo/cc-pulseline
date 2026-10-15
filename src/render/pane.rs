@@ -53,6 +53,15 @@ pub enum LayoutStyle {
     /// orthogonal channels: shape = identity, colour = state.
     /// Owns its full pipeline. See `frames/anchor.rs`.
     Anchor,
+    /// Activity only — the one layout that draws no core rows at all. The
+    /// band above the prompt is a second canvas beside the statusline, not a
+    /// copy of it: the statusline owns the steady state (identity, context,
+    /// tokens, cost, quota) and this owns the turn in flight (running tools
+    /// and their targets, agents, todo, completed counts). Rows lead with
+    /// the running tools, so a `max_total_lines` cap truncating from the
+    /// bottom can never reach the one row the band exists for. Idle output
+    /// is empty. Owns its full pipeline. See `frames/activity.rs`.
+    Activity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -103,7 +112,8 @@ pub fn apply_pane(
         | LayoutStyle::Budgets
         | LayoutStyle::Ledger
         | LayoutStyle::Rail
-        | LayoutStyle::Anchor => return lines,
+        | LayoutStyle::Anchor
+        | LayoutStyle::Activity => return lines,
         LayoutStyle::Console => {}
     }
     if lines.is_empty() || cfg.groups.is_empty() {

@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`--layout activity`, and the band asks for it by name.** The one layout
+  that draws no identity and no budget row: running tools and their targets,
+  agents and their elapsed time, todo, then the per-tool completed counts —
+  and nothing at all when none of that is happening.
+
+  This closes the gap 1.5.1 named as a stopgap. The band's argv carried
+  `--rows` and `--columns` and no `--layout`, so it drew whatever layout the
+  person had configured, and every layout the binary had led with identity
+  and budget. The band was a second statusline stacked above the prompt while
+  the statusline drew the same rows below, and it said nothing about the tool
+  in flight. Measured before the change, at the `--rows 2` the band gets
+  outside fullscreen: two rows of statusline, zero rows of activity.
+
+  Two things make it a layout rather than a config of `none`. Zero core rows
+  is not expressible — `[segments.config]` gates L2, but L1 and L3 always
+  render and the height ladder's floor keeps one fused core row. And its row
+  order is inverted: the generic ladder's first rung is `DropRunningTools`,
+  so at two rows the default layout deleted the tool in flight before
+  anything else. Here the running tools are row 0 and the cap truncates from
+  the bottom, so what gives way is the cumulative count.
+
+  `--layout activity` is available on the statusline too, where it will show
+  nothing most of the time; it is listed last in `--preview-layouts` and the
+  config template says what it is for. New `tests/activity_layout.rs` (9
+  cases) and `src/render/frames/activity.rs`; `build_activity_rows` keeps its
+  signature, with the order behind a second entry point.
+
+### Fixed
+
+- **The band no longer flashes "binary: not run yet" over an idle prompt.**
+  The note was keyed on the band having no rows, which until now could only
+  mean the binary had failed. With `activity` zero rows is the ordinary state
+  between turns, so the note would have become permanent. It is now keyed on
+  how the run ended — `bandRun: 'never' | 'ok' | 'failed'` on the output atom
+  — and only `'failed'` speaks. A missing or too-old binary still says so
+  whether or not a turn is running, which is the whole reason the note exists.
+
+### Changed
+
+- `main.rs` prints nothing, rather than a bare newline, when a render
+  produces no rows. Previously unreachable; `activity` reaches it every time
+  nothing is running.
+- Test counts: 699 Rust (was 690), 133 hooks (was 130).
+
 ## [1.5.1] - 2026-10-15
 
 Patch on the plugin half, found by running 1.5.0 in a terminal rather

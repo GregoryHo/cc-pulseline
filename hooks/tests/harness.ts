@@ -42,13 +42,27 @@ export const BENEATH = 'drawn-beneath-the-mod'
 /** One `$.process.run` the mod made: what it asked for, and on what stdin. */
 export type Spawn = { argv: readonly string[]; stdin: string }
 
+/**
+ * Whether a spawn was the pane's rather than the band's.
+ *
+ * Both carry `--layout` now — the band always asks for `activity`, the one
+ * layout that draws no identity and no budget row — so presence alone no
+ * longer tells them apart and the value has to be read. The pane's switcher
+ * offers `LAYOUTS` and `activity` is not among them, which is what keeps this
+ * unambiguous.
+ */
+export const isPaneSpawn = (run: Spawn): boolean => {
+  const at = run.argv.indexOf('--layout')
+  return at >= 0 && run.argv[at + 1] !== 'activity'
+}
+
 /** What `bottom` hands back, for reading the mod's side of the exchange. */
 export type Recorder = {
   /** Every spawn the mod has made, in order. */
   spawns: Spawn[]
   /** The payload of the most recent spawn, parsed. */
   lastPayload: () => PayloadShape
-  /** The payload of the most recent spawn carrying `--layout`, parsed. */
+  /** The payload of the most recent pane spawn, parsed. */
   lastPanePayload: () => PayloadShape
   /** Every band payload, parsed, in order — for asserting across refreshes. */
   payloads: () => PayloadShape[]
@@ -363,15 +377,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     lastPayload: () => parse(binaryRuns().at(-1), 'for the band'),
     payloads: () =>
       binaryRuns()
-        .filter(run => !run.argv.includes('--layout'))
+        .filter(run => !isPaneSpawn(run))
         .map(run => JSON.parse(run.stdin) as PayloadShape),
-    lastPanePayload: () =>
-      parse(
-        binaryRuns()
-          .filter(run => run.argv.includes('--layout'))
-          .at(-1),
-        'for the pane',
-      ),
+    lastPanePayload: () => parse(binaryRuns().filter(isPaneSpawn).at(-1), 'for the pane'),
     advance: ms => clock.advance(ms),
     moveRoot: to => {
       root = to
