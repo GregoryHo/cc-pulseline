@@ -186,7 +186,7 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('a band with rows draws them once a turn is running', async ($, on) => {
+  test('a band with rows draws them while a turn runs', async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS })
     await warm($)
 
@@ -220,17 +220,19 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('idle, the band yields rather than drawing the statusline twice', async ($, on) => {
+  test('idle, the band holds the state it last drew', async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS })
     await warm($)
 
-    // The band renders whatever layout the person configured, which is the
-    // row the statusline is already drawing on its own line. Stacked, the two
-    // are the same thing twice — which is what the division of labour between
-    // them exists to avoid.
+    // `e.props.isWorking` gated this for a release, because the band drew the
+    // layout the person had configured — the identity and budget rows the
+    // statusline draws on its own line, which stacked made the two the same
+    // thing twice. Asking for `activity` ended that: between turns the band
+    // holds the turn that just happened, which the statusline never shows.
     const ui = await $.ui.mount(IDLE_BAND)
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain(BENEATH)
+    expect(drawn).toContain('T:Read: .../main.rs')
+    expect(drawn).not.toContain(BENEATH)
     expect(seen.spawns.length).toBeGreaterThan(0)
     await ui.unmount()
   })

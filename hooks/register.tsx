@@ -1519,13 +1519,23 @@ export const register: Register = (on, options) => {
       return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
-    // The band is the activity canvas, so it belongs to the turn that is
-    // running. Idle, the statusline already draws the steady state on its own
-    // row, and the activity layout has nothing of its own to add.
-    if (!e.props.isWorking) return next(e)
-
-    // Ran, or has not run yet, and has nothing in flight to show. Yield the
-    // band rather than draw an empty box.
+    // Drawn whether or not a turn is running, so the band holds the state it
+    // last drew: the tools that finished, their failures, the agents that
+    // ran and the todo, every one of them marked done by the glyph the
+    // binary already puts there. `e.props.isWorking` used to gate this, and
+    // for a release it had to — the band drew the layout the person had
+    // configured, which is the identity and budget rows the statusline draws
+    // on its own line, so between turns the two were the same thing twice.
+    // Asking for `activity` ended that: what is left between turns is the
+    // turn that just happened, which the statusline never shows.
+    //
+    // Nothing more is needed to keep it there. `turn.complete` refreshes, and
+    // the `read` above subscribes this drawing to the atom that refresh
+    // writes, so the rows settle to the finished state by themselves and then
+    // stand until the next turn moves them.
+    //
+    // Zero rows still yields: before the first tool call there is nothing to
+    // hold, and the activity layout draws nothing when nothing has run.
     if (held.rows.length === 0 && !DEBUG) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)

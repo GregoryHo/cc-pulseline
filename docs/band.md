@@ -165,7 +165,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 133 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 134 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -182,7 +182,7 @@ return. Read it before adding a test.
 
 | Site | When | Rows | Layout |
 | --- | --- | --- | --- |
-| `AbovePrompt` band | while a turn is running (`e.props.isWorking`) | up to `maxRows`, which is small outside fullscreen | `activity` — activity rows only, asked for by name |
+| `AbovePrompt` band | always, once something has run | up to `maxRows`, which is small outside fullscreen | `activity` — activity rows only, asked for by name |
 | `Pane` | while it is open | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
 
 Both sites run the binary themselves, because one row count cannot serve a
@@ -214,11 +214,40 @@ outside fullscreen cuts the cumulative counts rather than the live row. See
 [`docs/layouts.md`](layouts.md#activity--activity-rows-only-the-bands-layout)
 for the row-by-row ladder.
 
-**The band yields when nothing is running**, and so does `activity` itself —
-its output is empty with nothing in flight, which is the ordinary state
-between turns rather than a fault. Two gates, not one, because they answer
-different questions: `isWorking` says the turn is over, empty output says
-there is nothing to show.
+**Between turns the band holds the state it last drew** — the tools that
+finished with their counts and failure marks, the agents that ran, the todo.
+Nothing reads as in flight that is not: the binary marks a finished item with
+`✓` and a running one with the tool's own glyph and no tick, so a resident
+band is a record of the turn that just happened rather than a claim about now.
+
+That costs the rows it occupies: outside fullscreen `maxRows` is 2, and after
+the first tool call those two rows are the band's for the session. The trade
+was the other way for one release — `e.props.isWorking` gated the draw,
+because the band then drew the layout the person had configured, which is the
+identity and budget rows the statusline draws on its own line. Stacked, the
+two were the same thing twice. Asking for `activity` ended that, and with the
+duplication gone the gate had nothing left to prevent.
+
+**Zero rows still yields.** `activity`'s output is empty when nothing has run,
+which is the ordinary state at the start of a session rather than a fault, and
+an empty box above the prompt says less than no box at all.
+
+**`/clear` takes the band down, and that is right.** A `/clear` ends the
+conversation and the process goes on under a new session id (`SessionEndInput`
+on `reason: 'clear'`), and `$.state` is held "for the session" — so every atom
+reads its initial value again, the output atom included, and zero rows yields.
+The counts, the todo and the session's cache-read total all start over with
+the conversation they belonged to. The band comes back on the next tool call:
+`refresh` walks the binary ladder whenever `binaryChoice` is unset, so nothing
+has to re-run `session.start` — which is just as well, because no
+`session.start` fires after a `/clear`.
+
+Keeping it there needs no extra invalidation: `turn.complete` refreshes, and
+the render hook's `read` of the output atom subscribes that drawing, so the
+rows settle to the finished state by themselves and then stand until the next
+turn moves them. A terminal resized while nothing is running redraws from the
+same rows — they were packed for the old box, so the band clips them until
+the next refresh spawns at the width this hook just measured.
 
 **A failed run still draws.** A missing or too-old binary raises no event of
 its own, and an install line nobody sees fixes nothing, so that note is drawn

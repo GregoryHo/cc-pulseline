@@ -188,6 +188,15 @@ export type BottomOptions = {
     | { result?: unknown; isError?: true; isReadOnly?: true }
     | { deny: string }
   /**
+   * Makes the tool beneath reject rather than answer, which is how a call
+   * that never completes ends: the person interrupts and `next.signal`
+   * aborts, and the hook above goes on running for `lingerMs` with its
+   * `next(e)` rejected. The band draws between turns now, so a tool left
+   * behind in the running list would be drawn as running for the rest of
+   * the session — hence a case that proves it is not.
+   */
+  toolThrows?: string
+  /**
    * What a probed candidate answers `--version` with.
    *
    * A version string means every candidate is a working binary of that
@@ -229,6 +238,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // a case can name one without reading it back.
   let createdTasks = 0
   on('tool.call', ($, e) => {
+    if (options.toolThrows !== undefined) throw new Error(options.toolThrows)
     if (options.toolResult !== undefined) return options.toolResult
     if (e.tool === 'TaskCreate') {
       createdTasks += 1

@@ -81,11 +81,12 @@ repository's plugin, so one install gets both it and the setup commands:
 /plugin install pulseline --marketplace GregoryHo/cc-pulseline
 ```
 
-The band appears while a turn is working — running tools, subagents, todo
-progress, token and cost movement — and `/pulseline` opens a pane with the
-full ledger. The two surfaces are a division of labour rather than a
-replacement: keep your `statusLine` setting, which stays the steady-state
-summary.
+The band draws the turn — the tool running now and its target, subagents,
+todo progress, per-tool completed counts — and holds that state between
+turns; `/pulseline` opens a pane with the full ledger. The two surfaces are a
+division of labour rather than a replacement: the band draws no identity,
+context or cost row, so keep your `statusLine` setting, which stays the
+steady-state summary.
 
 Requires cc-pulseline **1.5.0 or newer** on the machine. The plugin finds the
 binary on its own — a path you configure, `~/.claude/pulseline/`, `PATH`, or

@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cases) and `src/render/frames/activity.rs`; `build_activity_rows` keeps its
   signature, with the order behind a second entry point.
 
+- **The band stays up between turns, holding the state it last drew.** The
+  tools that finished with their counts and failure marks, the agents that
+  ran, the todo — every finished item already marked `✓` by the binary, so a
+  resident band is a record of the turn that just happened rather than a claim
+  about now. `e.props.isWorking` gated the draw for one release, and had to:
+  the band drew the configured layout, so between turns it was the
+  statusline's own rows stacked above the prompt while the statusline drew
+  them below. With `activity` there is no duplication left to prevent. Zero
+  rows still yields, so a session that has run nothing has no band.
+
 ### Fixed
 
 - **The band no longer flashes "binary: not run yet" over an idle prompt.**
@@ -51,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `main.rs` prints nothing, rather than a bare newline, when a render
   produces no rows. Previously unreachable; `activity` reaches it every time
   nothing is running.
-- Test counts: 699 Rust (was 690), 133 hooks (was 130).
+- Test counts: 699 Rust (was 690), 134 hooks (was 130).
 
 ## [1.5.1] - 2026-10-15
 
