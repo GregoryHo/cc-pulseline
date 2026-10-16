@@ -868,8 +868,8 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // calls through `stale`.
   }
 
-  // Nothing to run means nothing to draw but the reason. The band shows
-  // `runNote` whenever there are no rows, so this is what reaches it.
+  // Nothing to run means nothing to draw but the reason. The band draws
+  // `runNote` when `bandRun` is `'failed'`, so this is what reaches it.
   const binary = await resolveBinary(engine, state)
   if (binary.kind !== 'ok') {
     const note = binary.kind === 'missing' ? missingMessage() : tooOldMessage(binary.version)
@@ -1166,7 +1166,16 @@ export const register: Register = (on, options) => {
       })
     } catch (error) {
       const note = `command refused — ${noteText(String(error)).slice(0, 120)}`
-      await update($, drawnOutput, out => ({ ...out, runNote: note }))
+      // `'failed'` with it. A note the band will not draw is a note nobody
+      // reads, and since Phase E the band draws one only for `'failed'`. The
+      // `refresh` on the next line replaces both fields the moment the binary
+      // answers, which is the right lifetime for it: the band works, so it
+      // should go back to drawing activity.
+      await update($, drawnOutput, (out): DrawnOutput => ({
+        ...out,
+        bandRun: 'failed',
+        runNote: note,
+      }))
     }
     await refresh($, state)
     if (DEBUG) $.ui.log((await read($, drawnOutput)).runNote)
@@ -1207,7 +1216,14 @@ export const register: Register = (on, options) => {
       drawing = drawSoon($, state)
     } catch (error) {
       const note = `mark failed: ${noteText(String(error)).slice(0, 120)}`
-      await update($, drawnOutput, out => ({ ...out, runNote: note }))
+      // `'failed'` with it, or this report cannot be read: the band draws a
+      // note only for `'failed'`. The completion refresh in the `finally`
+      // clears it when it succeeds, so what it costs is one draw.
+      await update($, drawnOutput, (out): DrawnOutput => ({
+        ...out,
+        bandRun: 'failed',
+        runNote: note,
+      }))
     }
 
     let failed = false
@@ -1297,11 +1313,13 @@ export const register: Register = (on, options) => {
           // Guarded like the start site's, because this write *is* the place
           // the failure gets reported: unguarded, a throw here would reach the
           // backstop below and the note would be lost without a word.
-          await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(
-            () => undefined,
-          )
+          await update($, drawnOutput, (out): DrawnOutput => ({
+            ...out,
+            bandRun: 'failed',
+            runNote: note,
+          })).catch(() => undefined)
           // Not a status entry: the write above puts it where the band reads
-          // it, and the band draws its note whenever it has no rows.
+          // it, and `'failed'` is what makes the band read it at all.
           if (DEBUG) $.ui.status(note)
         }
         // Nothing above is awaited by the hook any more, so a throw here would
