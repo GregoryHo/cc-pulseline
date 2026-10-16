@@ -967,7 +967,13 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
   let rows: Span[][] = held.rows
-  let bandRun: BandRun = held.bandRun
+  // Normalized, because the annotation is a promise about the contract and
+  // not about what the host is holding: `$.state` outlives a reload,
+  // including the reload that upgrades the plugin, and an object written
+  // before `bandRun` existed has no such field. The atom's initial value
+  // only applies when the key is absent, so without this a run that somehow
+  // reached the write without setting it would persist `undefined`.
+  let bandRun: BandRun = held.bandRun ?? 'never'
   let runNote = held.runNote
   let paneRows: Span[][] = held.paneRows
   let paneNote = held.paneNote
@@ -1082,9 +1088,19 @@ async function rememberEffort(engine: EngineInterface, level: string | undefined
 function drawSoon(engine: EngineInterface, state: State): Promise<void> {
   return refresh(engine, state).catch(async error => {
     const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
-    await update(engine, drawnOutput, out => ({ ...out, runNote: note })).catch(
-      () => undefined,
-    )
+    // `bandRun` as well as the note. The band draws its note only for
+    // `'failed'`, so a rejection that left `'ok'` behind would hold the rows
+    // of the run before it and say nothing about the one that threw. This is
+    // the only handler for a throw that got past `refresh`'s own — an atom
+    // read, or the write at its end — so there is nowhere else to record it.
+    // Annotated because this `update` is not `refresh`'s own `publish`
+    // helper, so nothing here types the literal and `'failed'` widens to
+    // `string`.
+    await update(engine, drawnOutput, (out): DrawnOutput => ({
+      ...out,
+      bandRun: 'failed',
+      runNote: note,
+    })).catch(() => undefined)
   })
 }
 
