@@ -831,6 +831,13 @@ async function syncRoot(engine: EngineInterface, state: State): Promise<void> {
 /**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
+ * **Call it through `drawSoon`, never directly.** It guards its own writes
+ * with `runSeq`, but a throw that gets past its internal handlers — an atom
+ * read, the write at the end — leaves the atom untouched, and the band's note
+ * is keyed on `bandRun` rather than on the row count: a direct caller that
+ * lets the rejection go therefore makes the band go quiet about it. `drawSoon`
+ * is where that rejection is recorded, under this run's own sequence number.
+ *
  * Declared at the top of the file on purpose: the loader only lets `$` be
  * passed to a function declared here, never to a closure inside `register`.
  */
@@ -1186,7 +1193,7 @@ export const register: Register = (on, options) => {
         runNote: note,
       }))
     }
-    await refresh($, state)
+    await drawSoon($, state)
     if (DEBUG) $.ui.log((await read($, drawnOutput)).runNote)
     return result
   })
@@ -1621,7 +1628,7 @@ export const register: Register = (on, options) => {
     // fills a beat later depends on the first draw losing a race with the
     // write, which is not worth running.
     await update($, paneWanted, pane => ({ ...pane, open: true }))
-    await refresh($, state)
+    await drawSoon($, state)
     const opened = await $.ui.open({ id: PANE_ID, title: 'pulseline', rows: 12, closeOnEscape: true })
     // `ui.open` resolves once the pane has been drawn, so by here the render
     // hook has run and the closure holds the box the surface actually gave —
@@ -1632,7 +1639,7 @@ export const register: Register = (on, options) => {
     // drawing is in flight, which is why the geometry lives in the closure in
     // the first place. Nothing is drawn when the pane was not placed, so the
     // second run would have nothing to measure against.
-    if (opened.isPlaced) await refresh($, state)
+    if (opened.isPlaced) await drawSoon($, state)
     else {
       // Nothing was drawn, so there is nothing to keep the flag for: left
       // true, every later refresh would spawn the binary a second time for a
@@ -1694,7 +1701,7 @@ export const register: Register = (on, options) => {
     if (!e.element.startsWith(LAYOUT_KEY)) return next(e)
     const layout = e.element.slice(LAYOUT_KEY.length)
     await update($, paneWanted, pane => ({ ...pane, layout }))
-    await refresh($, state)
+    await drawSoon($, state)
     return next(e)
   })
 
