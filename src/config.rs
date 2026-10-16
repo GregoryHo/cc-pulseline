@@ -433,9 +433,10 @@ pub struct BudgetSegmentConfig {
     /// row. The creation-aware C coloring is always on regardless.
     #[serde(default)]
     pub show_cache_trend: bool,
-    /// CTX visual spec — `"+"` separated widget names. Recognized:
-    /// `gauge`, `sparkline`, `text`. Empty string defers to layout default
-    /// (see `frames::default_visuals_for`).
+    /// CTX visual spec — `"+"` separated widget names. Recognized atoms:
+    /// the `WIDGET_*` consts matched in
+    /// `frames::shared::render_context_visual`. Empty string defers to the
+    /// layout default (see `frames::default_visuals_for`).
     /// Examples: `"text+sparkline"` (ledger default), `"text"` (flat
     /// layouts default), `"gauge"` (text-free dashboard).
     #[serde(default)]
@@ -619,7 +620,7 @@ show_thinking = true    # thinking mode indicator (CC 2.1.119+)
 #   effort_visual = "word+ramp"   # level name + ordinal pip ramp ▮▮▮▮▮
 effort_visual = ""
 
-[segments.config]       # Line 2 — CLAUDE.md, rules, memories, hooks, MCPs, skills, duration
+[segments.config]       # Line 2 — config counts (toggles below)
 # Master toggle. Default OFF: the counts rarely change within a session
 # and the row costs a full line (plus an ENV group in framed layouts).
 enabled = false
@@ -650,10 +651,10 @@ context_visual = ""
 enabled = false             # opt-in: driven by CC's native rate_limits stdin field
 show_five_hour = true
 show_seven_day = false
-# visual: bar gauge or text. Empty (default) defers to the layout —
-# console / ledger default to "gauge" (F-style bar with threshold
-# marks at 50% / 85% positions); flat layouts (none / compact)
-# default to "text". Examples:
+# visual: bar gauge or text. Empty (default) defers to the layout's own
+# default (see `frames::default_visuals_for`, or the "Per-layout defaults"
+# table in docs/layouts.md). The gauge is an F-style bar with threshold
+# marks at the 50% / 85% positions. Examples:
 #   visual = "gauge"            # ▰▰▰▰▰▰▰▰▰───·─ 62% (resets ...)
 #   visual = "text"             # 62% (resets ...) — no bar
 visual = ""
@@ -718,6 +719,17 @@ visual = ""
 #   "anchor"   — three grouped capsule+trail rows; each leads with a banded
 #                rounded-capsule hero, the rest trail as dim text where colour
 #                marks the live signal; collapses via max_total_lines.
+#
+# Activity-only (the band's layout):
+#   "activity" — running tools and their targets, agents, todo, per-tool
+#                completed counts. The ONE layout that draws no identity and
+#                no budget row, and the one whose output is empty when
+#                nothing is running — so on the statusline it shows nothing
+#                most of the time. It exists for the above-the-prompt band,
+#                which sits beside the statusline rather than replacing it:
+#                the statusline keeps the steady state, this keeps the turn
+#                in flight. Rows lead with the running tools, so max_total_lines
+#                cuts the cumulative counts rather than the live row.
 #
 # Trend-forward is a recipe, not a layout: any layout +
 # context_visual = "plot+text" (+ [segments.quota] visual = "gauge") leads
@@ -1366,6 +1378,7 @@ pub fn default_project_config_toml() -> &'static str {
 
 # [layout]
 # # Layouts: "none" | "compact" | "budgets" | "console" | "ledger" | "rail" | "anchor"
+# #          | "activity" (activity rows only — for the band, not the statusline)
 # name = "console"
 # min_width = 60
 # max_width = 140
@@ -1776,6 +1789,7 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
         "ledger" => LayoutStyle::Ledger,
         "rail" => LayoutStyle::Rail,
         "anchor" => LayoutStyle::Anchor,
+        "activity" => LayoutStyle::Activity,
         // Velocity was a config preset masquerading as a layout (none + a
         // plot CTX default); removed. The trend-forward view lives on as a
         // recipe any layout can opt into via the `plot` context_visual atom.
@@ -1785,7 +1799,7 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
                  name = \"none\" + [segments.budget] context_visual = \"plot+text\" \
                  + [segments.quota] visual = \"gauge\" \
                  — set those instead. Falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }
@@ -1796,21 +1810,21 @@ pub fn parse_layout_name(value: &str) -> LayoutStyle {
         "zones" | "grid" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 \"none\" (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }
         "sections" | "cards" | "cockpit" | "flightstrip" | "auto" => {
             eprintln!(
                 "warning: layout.name {value:?} was removed; falling back to \
-                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 \"console\" (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::Console
         }
         unknown => {
             eprintln!(
                 "warning: unknown layout.name {unknown:?}; falling back to \"none\" \
-                 (valid: none | compact | budgets | console | ledger | rail | anchor)"
+                 (valid: none | compact | budgets | console | ledger | rail | anchor | activity)"
             );
             LayoutStyle::None
         }

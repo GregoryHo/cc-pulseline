@@ -1,6 +1,6 @@
 # Event coverage: what the event path carries
 
-`src/providers/transcript.rs` (1,336 lines) exists because the statusline
+`src/providers/transcript.rs` (roughly 1,300 lines) exists because the statusline
 hook hands the binary a payload and a file path, and everything else —
 which tool is running, which agents are alive, where the todo list stands —
 has to be reconstructed by tailing Claude Code's transcript JSONL.

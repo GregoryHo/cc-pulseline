@@ -28,7 +28,7 @@ terminal (`e.surface !== 'terminal'`), and a `-p` run draws nothing to put
 the band in. `/pulseline` opens a pane, `/pulseline` again closes it.
 
 It finds the binary itself — see **Finding the binary** below. Nothing else
-is needed on a machine that has cc-pulseline 1.5.0 or newer installed.
+is needed on a machine that has cc-pulseline 1.6.0 or newer installed.
 
 `--plugin-dir .` is the development loop. For everyone else the plugin
 installs in one step:
@@ -37,10 +37,10 @@ installs in one step:
 /plugin install pulseline --marketplace GregoryHo/cc-pulseline
 ```
 
-That line lands with the v1.5.0 release and not before, because the band's
-version floor is 1.5.0 — see **Finding the binary**. Installing the plugin
-against an older binary is the one case the ladder has to explain rather
-than fix.
+The plugin and the binary ship from the same tag, so the floor is the
+release you are installing — see **Finding the binary**. Installing the
+plugin against an older binary is the one case the ladder has to explain
+rather than fix.
 
 ## Finding the binary
 
@@ -73,17 +73,23 @@ same call.
 
 ### The version floor, and why
 
-**The band needs 1.5.0 or newer. An older binary leaves your statusline
-completely unaffected.** 1.4.0 draws the statusline perfectly well; what it
-lacks is `--rows`, `--columns` and the `activity` input. So it does not
-refuse — it draws the classic layout into the band at the wrong width and
-row count, which is much harder to diagnose than an outright no.
+**The band needs 1.6.0 or newer. An older binary leaves your statusline
+completely unaffected.** The floor tracks the release, because each one so
+far has added the CLI the band of that release drives: `--rows`, `--columns`
+and the `activity` input in 1.5.0, `--layout activity` in 1.6.0. None of
+those is an error to an older binary. An unknown layout name in particular
+warns on stderr, falls back to `none` and exits 0 — so a 1.5.x binary would
+answer a band spawn with the identity and budget rows, which is the
+statusline drawn a second time above the prompt and, since the band is now
+resident, drawn there permanently. `bandRun` would read `'ok'` and nothing
+would be said. That is much harder to diagnose than an outright no, which is
+what the floor turns it into.
 
 **A too-old rung is passed over, not accepted and not fatal.** The walk goes
 on, and a later rung may be new enough. This is not hypothetical: on the
-machine this was written on, `cargo install` had left 1.4.0 on `PATH`
-(rung 4) while the dev build was 1.5.0 (rung 5). A ladder that took the
-first thing to answer would have drawn 1.4.0. The too-old message is
+machine this was written on, `cargo install` had left an older copy on
+`PATH` (rung 4) while the dev build was current (rung 5). A ladder that took
+the first thing to answer would have drawn the old one. The too-old message is
 reached only when no rung at all is new enough, and it names the newest
 copy found, so you are not sent updating to a version you already have.
 
@@ -91,7 +97,7 @@ copy found, so you are not sent updating to a version you already have.
 
 A `userConfig` string field, so it is a row in `/config` and is stored in
 settings under `pluginConfigs`. Put an absolute path to a cc-pulseline
-binary of 1.5.0 or newer in it; leave it empty to use the ladder. Changing
+binary of 1.6.0 or newer in it; leave it empty to use the ladder. Changing
 it reloads the module, and a `classic.ConfigChange` also clears the
 remembered resolution, so installing the binary mid-session is picked up
 without a restart.
@@ -137,7 +143,7 @@ Two ways to get it:
    which is where a real load overwrites it. It gets you the API but not
    the tool contracts, so `e.tool === "Bash"` will not narrow. Its first
    line names the version that wrote it; the band was last checked against
-   `// Written by Claude Code 2.1.296.`
+   `// Written by Claude Code 2.1.300.`
 
 This is a deliberate trade: the alternative is committing a generated file
 that is wrong the moment Claude Code updates.
@@ -165,12 +171,13 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 130 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 134 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
-draw (`render`) — colours, row clipping against `maxRows`, the width
-reaching the binary, and the pane's switcher.
+draw (`render`) — colours, row clipping against `maxRows`, the width and the
+layout reaching the binary, when the band yields and when it speaks, and the
+pane's switcher.
 
 `hooks/tests/harness.ts` is the shared bottom. Its header documents the
 non-obvious things about the test kit — among them that `$.state` cannot be
@@ -181,37 +188,79 @@ return. Read it before adding a test.
 
 | Site | When | Rows | Layout |
 | --- | --- | --- | --- |
-| `AbovePrompt` band | while a turn is running (`e.props.isWorking`) | up to `maxRows`, which is small outside fullscreen | whatever the effective config selects |
+| `AbovePrompt` band | always, once something has run | up to `maxRows`, which is small outside fullscreen | `activity` — activity rows only, asked for by name |
 | `Pane` | while it is open | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
 
 Both sites run the binary themselves, because one row count cannot serve a
 small band and a twelve-row pane. The pane run only happens while the pane
 is open.
 
-**The band yields when nothing is running**, with one exception. It renders
-the layout the person configured, and that is the row the statusline is
-already drawing on its own line — idle, the two are the same thing stacked
-twice, which is the opposite of the division of labour they exist for. The
-exception is a band with no rows at all: a missing or too-old binary can only
-say so there, and an install line nobody sees fixes nothing, so that note is
-drawn whether or not a turn is running.
+**The band's argv names the `activity` layout** (`--layout activity`), the one
+layout that draws no identity and no budget row. That is what makes the two
+sites a division of labour rather than a copy:
 
-**This is a stopgap, and a small one.** The plan had the band drawing
-*activity only* — tools, agents, todo — against the statusline's steady-state
-summary. Nothing enforces that: the band's argv carries `--rows` and
-`--columns` and no `--layout`, and every layout the binary has leads with
-identity and budget, so there is no activity-only rendering to ask for.
+| | statusline | band |
+| --- | --- | --- |
+| identity, context, tokens, TOK/s, cache trend, cost, quota | ✅ | — |
+| running tools and their targets | — | ✅ |
+| per-tool completed counts and failure marks | — | ✅ |
+| agents and their real elapsed time | — | ✅ |
+| todo | — | ✅ |
 
-Yielding when idle therefore does **not** remove the duplication. While a
-turn runs the band still draws the identity and budget rows the statusline is
-drawing at the same moment, and still says nothing about the tool in flight —
-which is the one thing it exists for. What the gate removes is the *permanent*
-copy: the band no longer holds a second statusline on screen when nothing is
-happening. The duplication now blinks in and out instead of sitting there.
+The split is not a preference. TOK/s and the cache hit-rate trend need two
+samples less than two seconds apart (`update_output_speed`), and only the
+transcript path sees usage per API call — the mod sees it once per turn, so
+those two can only live on the statusline. In the other direction the engine
+events carry the tool's own arguments, so the running target and the
+`isError` failure mark are exact on the band where the transcript path has
+to infer them from a 50-line field table.
 
-The fix is a rendering mode that emits the activity rows alone, which the band
-would ask for by name. That touches `src/render/`, which this work has not
-gone near, and is tracked as its own piece.
+`activity` leads with the running tools, so the `--rows 2` the band gets
+outside fullscreen cuts the cumulative counts rather than the live row. See
+[`docs/layouts.md`](layouts.md#activity--activity-rows-only-the-bands-layout)
+for the row-by-row ladder.
+
+**Between turns the band holds the state it last drew** — the tools that
+finished with their counts and failure marks, the agents that ran, the todo.
+Nothing reads as in flight that is not: the binary marks a finished item with
+`✓` and a running one with the tool's own glyph and no tick, so a resident
+band is a record of the turn that just happened rather than a claim about now.
+
+That costs the rows it occupies: outside fullscreen `maxRows` is 2, and after
+the first tool call those two rows are the band's for the session. The trade
+was the other way for one release — `e.props.isWorking` gated the draw,
+because the band then drew the layout the person had configured, which is the
+identity and budget rows the statusline draws on its own line. Stacked, the
+two were the same thing twice. Asking for `activity` ended that, and with the
+duplication gone the gate had nothing left to prevent.
+
+**Zero rows still yields.** `activity`'s output is empty when nothing has run,
+which is the ordinary state at the start of a session rather than a fault, and
+an empty box above the prompt says less than no box at all.
+
+**`/clear` takes the band down, and that is right.** A `/clear` ends the
+conversation and the process goes on under a new session id (`SessionEndInput`
+on `reason: 'clear'`), and `$.state` is held "for the session" — so every atom
+reads its initial value again, the output atom included, and zero rows yields.
+The counts, the todo and the session's cache-read total all start over with
+the conversation they belonged to. The band comes back on the next tool call:
+`refresh` walks the binary ladder whenever `binaryChoice` is unset, so nothing
+has to re-run `session.start` — which is just as well, because no
+`session.start` fires after a `/clear`.
+
+Keeping it there needs no extra invalidation: `turn.complete` refreshes, and
+the render hook's `read` of the output atom subscribes that drawing, so the
+rows settle to the finished state by themselves and then stand until the next
+turn moves them. A terminal resized while nothing is running redraws from the
+same rows — they were packed for the old box, so the band clips them until
+the next refresh spawns at the width this hook just measured.
+
+**A failed run still draws.** A missing or too-old binary raises no event of
+its own, and an install line nobody sees fixes nothing, so that note is drawn
+whether or not a turn is running. It is keyed on how the run ended
+(`bandRun: 'never' | 'ok' | 'failed'` on the output atom), never on the row
+count — with `activity` zero rows is normal, and a note keyed on it would sit
+over an idle prompt for the whole session.
 
 ## What it does not say
 
@@ -228,18 +277,25 @@ have replaced it no longer says anything.
 
 ## When the note says "binary: not run yet"
 
-That string is the output atom's initial value, so it means no refresh has
-published yet in this session — not that the ladder failed, which says
-`cc-pulseline not found` or names the version it found. A refresh runs on
+That string is the output atom's initial value, and the band **does not draw
+it**: the initial `bandRun` is `'never'`, which yields. Nothing has gone
+wrong before the first walk finishes, and a note keyed on the not-run-yet
+state would flash over the prompt every time `session.start` probed. It
+reaches a surface only through `claude --debug` or the module's `DEBUG`
+constant.
+
+What the band does draw is a run that *failed*: `cc-pulseline not found`, the
+version it found and rejected, a non-zero exit with the binary's stderr, or a
+refused spawn. A refresh runs on
 `session.start`, on both ends of every tool call, on a subagent starting or
 stopping, at the end of a turn, on a settings change, and whenever the person
 opens the pane or presses a layout key. The first of those is immediate: a
 version probe and a render both measure about 10ms here, so the band is drawn
 from real rows within a moment of the session opening.
 
-So a band still showing it has not had `session.start` complete — most often
-a module that was loaded but whose `session.start` has not run yet, or a
-reload mid-turn. `claude --debug` carries the per-hook lines that say which.
+So a band drawing nothing at all, with a turn running, has either not had
+`session.start` complete or has nothing in flight to show. `claude --debug`
+carries the per-hook lines that say which.
 
 The band's ANSI is parsed into `Text` props by `spansOf` rather than passed
 through, because the band refuses a whole tree if any text child holds a

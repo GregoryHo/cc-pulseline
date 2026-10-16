@@ -75,6 +75,10 @@ ThinkingInfo       { enabled }                                  // thinking mode
 - ANSI 256-color codes supported (disabled via `NO_COLOR` env or config)
 - Multiple lines output (L1 identity, L2 config, L3 budget, L4+ activity)
 - Empty output on error — Claude Code displays nothing rather than stale data
+- Empty output is also a **valid, non-error** result: `--layout activity`
+  renders the activity area alone, so it emits nothing when nothing is
+  running. `main.rs` prints no trailing newline in that case, so the caller
+  gets zero bytes rather than one blank row
 
 ## Settings Configuration
 

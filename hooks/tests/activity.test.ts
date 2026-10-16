@@ -166,6 +166,24 @@ describe('tool calls', () => {
     expect(activity?.failed_total).toBe(1)
   })
 
+  test('a call that never answers is not left in the running list', async ($, on) => {
+    // How an interrupted call ends: `next.signal` aborts and the hook goes on
+    // running for `lingerMs`, so its own `next(e)` settles — rejecting here,
+    // and the `finally` covers either way. The
+    // `finally` is what has to clear the entry — the band draws between
+    // turns, so one left behind would be drawn as running for the rest of
+    // the session, with no further event able to take it down.
+    const seen = bottom(on, { toolThrows: 'interrupted' })
+    await expect($.tool.call({ tool: 'Bash', tool_use_id: 'x1', command: 'sleep 9' })).rejects.toThrow()
+    await seen.settle()
+
+    const payloads = seen.payloads()
+    // Drawn as running while it was, which is what makes the second
+    // assertion mean something.
+    expect(payloads.flatMap(p => p.activity?.tools ?? []).map(t => t.id)).toContain('x1')
+    expect(payloads.at(-1)?.activity?.tools).toEqual([])
+  })
+
   test('counts add up over many calls, per tool and in total', async ($, on) => {
     const seen = bottom(on)
     await $.tool.call(call('r1'))

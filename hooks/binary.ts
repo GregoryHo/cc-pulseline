@@ -18,12 +18,21 @@
  *
  * A rung that answers but is older is passed over, not accepted and not
  * fatal: the walk goes on and a later rung may be new enough. That is the
- * real shape of the machine this was written on — `cargo install` left
- * 1.4.0 on PATH while the dev build is 1.5.0 — and a ladder that stopped at
- * the first thing to answer would have taken the old one. The too-old
- * message is only reached when no rung at all is new enough.
+ * real shape of the machine this was written on — `cargo install` left an
+ * older copy on PATH while the dev build was current — and a ladder that
+ * stopped at the first thing to answer would have taken the old one. The
+ * too-old message is only reached when no rung at all is new enough.
+ *
+ * It tracks the release, because each release so far has added the CLI the
+ * band of that release drives. 1.6.0 added `--layout activity`, which the
+ * band now always asks for, and an unknown layout name is not an error to
+ * the binary: it warns on stderr, falls back to `none` and exits 0. So a
+ * 1.5.x binary would answer a band spawn with the identity and budget rows
+ * — the statusline, drawn a second time above the prompt and now resident —
+ * and `bandRun` would read `'ok'`. Refusing it outright is the only way that
+ * failure gets said out loud.
  */
-export const MIN_VERSION: Version = [1, 5, 0]
+export const MIN_VERSION: Version = [1, 6, 0]
 
 /** How long one probe may take. Five rungs, so this bounds the whole ladder. */
 export const PROBE_TIMEOUT_MS = 400
@@ -123,11 +132,12 @@ export function missingMessage(): string {
 /**
  * What the band says when a binary answered but is too old.
  *
- * It names the statusline on purpose. 1.4.0 draws the statusline perfectly
- * well; what it lacks is `--rows`, `--columns` and `activity`, so it does
- * not refuse — it draws the classic layout into the band at the wrong width
- * and row count. Someone reading "too old" would otherwise go looking for a
- * broken statusline that is not broken.
+ * It names the statusline on purpose. Every version below the floor draws
+ * the statusline perfectly well; what they lack is a band flag — `--rows`
+ * and `--columns` before 1.5.0, `--layout activity` before 1.6.0 — and none
+ * of them refuses. They draw the classic layout into the band at the wrong
+ * width, row count or both. Someone reading "too old" would otherwise go
+ * looking for a broken statusline that is not broken.
  */
 export function tooOldMessage(version: string): string {
   return (

@@ -15,7 +15,9 @@ use crate::types::{
 
 /// Layouts rendered by `--preview-layouts`, minimal → maximal density.
 /// Must stay in sync with `config::parse_layout_name`'s valid list
-/// (`none | compact | budgets | console | ledger`).
+/// (`none | compact | budgets | console | ledger | rail | anchor | activity`).
+/// `activity` sits last because it is the odd one out: no core rows, and an
+/// empty cell under `idle` — which is what the preview is there to show.
 const PREVIEW_LAYOUTS: &[(LayoutStyle, &str)] = &[
     (LayoutStyle::None, "none"),
     (LayoutStyle::Compact, "compact"),
@@ -24,6 +26,7 @@ const PREVIEW_LAYOUTS: &[(LayoutStyle, &str)] = &[
     (LayoutStyle::Ledger, "ledger"),
     (LayoutStyle::Rail, "rail"),
     (LayoutStyle::Anchor, "anchor"),
+    (LayoutStyle::Activity, "activity"),
 ];
 
 const DEFAULT_WIDTH: usize = 140;

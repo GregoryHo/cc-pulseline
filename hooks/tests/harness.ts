@@ -42,13 +42,27 @@ export const BENEATH = 'drawn-beneath-the-mod'
 /** One `$.process.run` the mod made: what it asked for, and on what stdin. */
 export type Spawn = { argv: readonly string[]; stdin: string }
 
+/**
+ * Whether a spawn was the pane's rather than the band's.
+ *
+ * Both carry `--layout` now — the band always asks for `activity`, the one
+ * layout that draws no identity and no budget row — so presence alone no
+ * longer tells them apart and the value has to be read. The pane's switcher
+ * offers `LAYOUTS` and `activity` is not among them, which is what keeps this
+ * unambiguous.
+ */
+export const isPaneSpawn = (run: Spawn): boolean => {
+  const at = run.argv.indexOf('--layout')
+  return at >= 0 && run.argv[at + 1] !== 'activity'
+}
+
 /** What `bottom` hands back, for reading the mod's side of the exchange. */
 export type Recorder = {
   /** Every spawn the mod has made, in order. */
   spawns: Spawn[]
   /** The payload of the most recent spawn, parsed. */
   lastPayload: () => PayloadShape
-  /** The payload of the most recent spawn carrying `--layout`, parsed. */
+  /** The payload of the most recent pane spawn, parsed. */
   lastPanePayload: () => PayloadShape
   /** Every band payload, parsed, in order — for asserting across refreshes. */
   payloads: () => PayloadShape[]
@@ -174,6 +188,15 @@ export type BottomOptions = {
     | { result?: unknown; isError?: true; isReadOnly?: true }
     | { deny: string }
   /**
+   * Makes the tool beneath reject rather than answer, which is how a call
+   * that never completes ends: the person interrupts and `next.signal`
+   * aborts, and the hook above goes on running for `lingerMs` with its
+   * `next(e)` rejected. The band draws between turns now, so a tool left
+   * behind in the running list would be drawn as running for the rest of
+   * the session — hence a case that proves it is not.
+   */
+  toolThrows?: string
+  /**
    * What a probed candidate answers `--version` with.
    *
    * A version string means every candidate is a working binary of that
@@ -189,7 +212,7 @@ export type BottomOptions = {
   /**
    * A version per candidate path, for a ladder whose rungs disagree — which
    * is the real shape of this machine, where `cargo install` left 1.4.0 on
-   * PATH while the dev build is 1.5.0. Given, a path absent from it fails
+   * PATH while the dev build is current. Given, a path absent from it fails
    * as a missing file does.
    */
   binaryVersions?: Readonly<Record<string, string | null>>
@@ -215,6 +238,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // a case can name one without reading it back.
   let createdTasks = 0
   on('tool.call', ($, e) => {
+    if (options.toolThrows !== undefined) throw new Error(options.toolThrows)
     if (options.toolResult !== undefined) return options.toolResult
     if (e.tool === 'TaskCreate') {
       createdTasks += 1
@@ -285,7 +309,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
           ? options.binaryVersions[path]
           : 'binaryVersion' in options
             ? options.binaryVersion
-            : '1.5.0'
+            : '1.6.0'
       const present = options.binaryAt === undefined || options.binaryAt.includes(path)
       if (version === null || version === undefined || !present) {
         // As a missing file does: nothing on stdout and a non-zero status.
@@ -363,15 +387,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     lastPayload: () => parse(binaryRuns().at(-1), 'for the band'),
     payloads: () =>
       binaryRuns()
-        .filter(run => !run.argv.includes('--layout'))
+        .filter(run => !isPaneSpawn(run))
         .map(run => JSON.parse(run.stdin) as PayloadShape),
-    lastPanePayload: () =>
-      parse(
-        binaryRuns()
-          .filter(run => run.argv.includes('--layout'))
-          .at(-1),
-        'for the pane',
-      ),
+    lastPanePayload: () => parse(binaryRuns().filter(isPaneSpawn).at(-1), 'for the pane'),
     advance: ms => clock.advance(ms),
     moveRoot: to => {
       root = to

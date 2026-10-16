@@ -83,21 +83,26 @@ describe('the version gate', () => {
     expect(parseVersion('cc-pulseline 1.5')).toBeNull()
   })
 
-  test('1.5.0 is the floor', () => {
-    expect(formatVersion(MIN_VERSION)).toBe('1.5.0')
-    expect(isNewEnough([1, 5, 0])).toBe(true)
-    expect(isNewEnough([1, 4, 0])).toBe(false)
-    // 1.4.9 is still short of 1.5.0; a bigger patch does not make up a minor.
-    expect(isNewEnough([1, 4, 9])).toBe(false)
-    expect(isNewEnough([1, 5, 1])).toBe(true)
+  test('1.6.0 is the floor', () => {
+    // The floor tracks the release, because each one so far has added the CLI
+    // the band of that release drives: `--rows`/`--columns` in 1.5.0,
+    // `--layout activity` in 1.6.0. A binary below it does not refuse the
+    // flag — it warns, falls back to `none` and exits 0 — so the gate is the
+    // only thing that can say so.
+    expect(formatVersion(MIN_VERSION)).toBe('1.6.0')
+    expect(isNewEnough([1, 6, 0])).toBe(true)
+    expect(isNewEnough([1, 5, 1])).toBe(false)
+    // 1.5.9 is still short of 1.6.0; a bigger patch does not make up a minor.
+    expect(isNewEnough([1, 5, 9])).toBe(false)
+    expect(isNewEnough([1, 6, 1])).toBe(true)
     expect(isNewEnough([2, 0, 0])).toBe(true)
     expect(isNewEnough([0, 9, 9])).toBe(false)
   })
 
   test('the too-old message says the statusline is fine, because it is', () => {
-    const message = tooOldMessage('1.4.0')
-    expect(message).toContain('1.4.0 is too old')
-    expect(message).toContain('the band needs 1.5.0 or newer; your statusline is unaffected')
+    const message = tooOldMessage('1.5.1')
+    expect(message).toContain('1.5.1 is too old')
+    expect(message).toContain('the band needs 1.6.0 or newer; your statusline is unaffected')
     expect(message).toContain('npm install -g @cc-pulseline/cc-pulseline')
   })
 
@@ -142,16 +147,16 @@ describe('probing', () => {
   })
 
   test('a too-old rung does not stop the walk', async ($, on) => {
-    // This is the real shape of the machine this was written on: `cargo
-    // install` left 1.4.0 on PATH, while the dev build is 1.5.0. A ladder
+    // This is the real shape of the machine this was written on: an older
+    // `cargo install` copy on PATH while the dev build is current. A ladder
     // that stopped at the first thing to answer would have picked the old
     // one and drawn the classic layout into the band at the wrong width —
     // the failure the version gate exists to catch.
     const seen = bottom(on, {
       home: '/home/me',
       binaryVersions: {
-        '/home/me/.claude/pulseline/cc-pulseline': '1.4.0',
-        'cc-pulseline': '1.5.0',
+        '/home/me/.claude/pulseline/cc-pulseline': '1.5.1',
+        'cc-pulseline': '1.6.0',
       },
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
@@ -282,7 +287,7 @@ describe('what the band says when it cannot draw', () => {
     // Following the band's own `npm install -g` line. An install raises no
     // event at all, so a cached failure that never expired would outlive the
     // fix it asked for and the band could not recover inside the session.
-    options.binaryVersion = '1.5.0'
+    options.binaryVersion = '1.6.0'
     await seen.advance(11_000)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/n/two' })
     await seen.settle()

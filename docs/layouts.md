@@ -12,6 +12,7 @@ rows. The shipping layouts:
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
 | `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Optional `todo`/`tools` traceability cells fold into the usage-row gap. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier. See `seams`, `color_budget`, `headline`. |
 | `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge + optional `todo`/`tools` traceability. Nerd-font tier. See `seams`. |
+| `activity` | **Activity rows only.** The one layout that draws no identity and no budget row, and the one whose output is empty when nothing is running. Rows lead with the running tools, so a `--rows`/`max_total_lines` cap cuts the cumulative counts rather than the live row. Built for the above-the-prompt band, not the statusline. |
 
 All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
@@ -506,6 +507,59 @@ can't read, so it collapses to the ` | ` floor (NO_COLOR / dumb terminal).
 
 ---
 
+### `activity` — activity rows only (the band's layout)
+
+```
+ Bash: cargo test --release |  Read: src/render/layout.rs
+󱦻 Explore: Investigate the collector (2m)
+ ▰▰─── Fixing auth bug (1/3)
+✓ Read ×42 | ✓ Bash ×31 ✘2 | ✓ Edit ×18
+```
+
+Running tools and their targets, agents and how long they have been going,
+todo, then the per-tool completed counts. **No identity row, no budget row,
+no quota row** — and empty output when none of the above is happening.
+
+That makes it the wrong choice for `statusLine.command`, where it would show
+nothing most of the time. It exists for the **above-the-prompt band** that
+the plugin draws (`docs/band.md`), which sits beside the statusline rather
+than replacing it: the statusline keeps the steady state, the band keeps the
+turn in flight. Only the transcript path can sample tokens often enough to
+rate them, so TOK/s and the cache trend stay on the statusline by necessity;
+the engine events the band is fed from carry the tool arguments directly, so
+the running target and the failure marks are exact there rather than inferred.
+
+Two things make it a layout rather than a configuration of `none`:
+
+1. **Zero core rows is not expressible through config.** `[segments.config]`
+   gates L2, but L1 and L3 always render, and the height ladder's floor
+   (`FuseCore`) keeps one fused core row however hard it is squeezed.
+2. **Its row order is inverted.** The generic ladder's first rung is
+   `DropRunningTools`, so at two rows the default layout deletes the tool in
+   flight before anything else. Here the running tools are row 0 and the cap
+   truncates from the bottom, which cuts the cumulative counts instead — the
+   most statusline-like figure in the area.
+
+| `--rows` | what survives |
+|---|---|
+| 1 | running tools |
+| 2 | running tools, agents |
+| 3 | running tools, agents, todo |
+| 4+ | the above plus the per-tool completed counts |
+
+A `[segments.tools] visual = "ticker"` override reaches this layout like any
+other, and the ticker fuses the grand total with the running tools into a
+single row. That row leads while a tool is in flight; with none in it, it is
+a cumulative count, and it sorts after the agents and the todo so a cap still
+gives up the count first.
+
+It owns its pipeline (`src/render/frames/activity.rs`) and so takes no
+chrome: `apply_pane` passes it through, and the width-degradation order
+(drop activity → compress L2 → truncate core) has nothing to act on, because
+each row is already width-fitted by `pack_with_separator`.
+
+---
+
 ## Visual Composition
 
 Every layout owns *row arrangement and chrome*. Widget choices for the
@@ -564,6 +618,13 @@ the full name through to the file.
 | `ledger` | `text+sparkline` | `gauge` | `counts+targets` | `name+description+model` | `text` | `word` |
 | `rail` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
 | `anchor` | `text`³ | `text`³ | `ticker`³ | `name`³ | `text`³ | `word` |
+| `activity` | `text`⁴ | `text`⁴ | `counts+targets` | `name+description+model` | `bar+text` | `word`⁴ |
+
+⁴ Unreachable: `activity` draws no core rows, so the three core specs are
+filled in only to keep `default_visuals_for` total. Its `tools_visual` is
+deliberately **not** `ticker` — a ticker gives the grand total alone
+(`✓ 91 tools`) and the per-tool `✓ Read ×42 | ✓ Bash ×31 ✘2` is half of
+what the band is for.
 
 ¹ Informational: compact always renders the fused inline activity row,
 which is the ticker form by construction.
@@ -698,7 +759,7 @@ survive longest). Below `min_width`, all rungs bypass to flat `none`.
 
 The TOML section was renamed `[pane]` → `[layout]` and the Rust enum
 `PaneStyle::V1*/V2*` → `LayoutStyle::*`. Existing TOML strings
-(`"none"`, `"cockpit"`, etc.) are unchanged. Old `[pane]` sections in
+(`"none"`, `"console"`, etc.) are unchanged. Old `[pane]` sections in
 TOML are silently ignored — fall back to defaults.
 
 ### `show_ctx_sparkline` removed

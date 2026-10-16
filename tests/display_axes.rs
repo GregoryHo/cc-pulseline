@@ -185,6 +185,7 @@ const ALL_LAYOUTS: &[LayoutStyle] = &[
     LayoutStyle::Ledger,
     LayoutStyle::Rail,
     LayoutStyle::Anchor,
+    LayoutStyle::Activity,
 ];
 
 fn frame_with_tools_for_ascii_contract() -> RenderFrame {

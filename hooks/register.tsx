@@ -14,7 +14,16 @@ import type { Version } from './binary'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
-import type { BinaryChoice, DrawnOutput, Span, SpanStyle, TaskItem, Tasks, Todo } from '../types'
+import type {
+  BandRun,
+  BinaryChoice,
+  DrawnOutput,
+  Span,
+  SpanStyle,
+  TaskItem,
+  Tasks,
+  Todo,
+} from '../types'
 
 /**
  * cc-pulseline as a mod, stage 0c.
@@ -172,6 +181,9 @@ const binaryChoice = atom({ plugin: 'pulseline', key: 'binary' } as const, null)
 const drawnOutput = atom({ plugin: 'pulseline', key: 'output' } as const, {
   rows: [],
   paneRows: [],
+  // Not `'failed'`: nothing has gone wrong yet, and the band draws the note
+  // only for `'failed'`. See `BandRun` in `../types`.
+  bandRun: 'never',
   runNote: 'binary: not run yet',
   paneNote: 'pane: not run yet',
 })
@@ -819,6 +831,13 @@ async function syncRoot(engine: EngineInterface, state: State): Promise<void> {
 /**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
+ * **Call it through `drawSoon`, never directly.** It guards its own writes
+ * with `runSeq`, but a throw that gets past its internal handlers — an atom
+ * read, the write at the end — leaves the atom untouched, and the band's note
+ * is keyed on `bandRun` rather than on the row count: a direct caller that
+ * lets the rejection go therefore makes the band go quiet about it. `drawSoon`
+ * is where that rejection is recorded, under this run's own sequence number.
+ *
  * Declared at the top of the file on purpose: the loader only lets `$` be
  * passed to a function declared here, never to a closure inside `register`.
  */
@@ -856,12 +875,20 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // calls through `stale`.
   }
 
-  // Nothing to run means nothing to draw but the reason. The band shows
-  // `runNote` whenever there are no rows, so this is what reaches it.
+  // Nothing to run means nothing to draw but the reason. The band draws
+  // `runNote` when `bandRun` is `'failed'`, so this is what reaches it.
   const binary = await resolveBinary(engine, state)
   if (binary.kind !== 'ok') {
     const note = binary.kind === 'missing' ? missingMessage() : tooOldMessage(binary.version)
-    await publish(out => ({ ...out, rows: [], paneRows: [], runNote: note }))
+    // `'failed'`, not `'never'`: the ladder walked and came back empty-handed,
+    // and this message is the only place an install line can reach the person.
+    await publish(out => ({
+      ...out,
+      rows: [],
+      paneRows: [],
+      bandRun: 'failed',
+      runNote: note,
+    }))
     return
   }
 
@@ -882,6 +909,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         ...out,
         rows: [],
         paneRows: [],
+        bandRun: 'failed',
         runNote: `engine refused — ${noteText(String(error)).slice(0, 160)}`,
       }))
       return
@@ -946,6 +974,13 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
   let rows: Span[][] = held.rows
+  // Normalized, because the annotation is a promise about the contract and
+  // not about what the host is holding: `$.state` outlives a reload,
+  // including the reload that upgrades the plugin, and an object written
+  // before `bandRun` existed has no such field. The atom's initial value
+  // only applies when the key is absent, so without this a run that somehow
+  // reached the write without setting it would persist `undefined`.
+  let bandRun: BandRun = held.bandRun ?? 'never'
   let runNote = held.runNote
   let paneRows: Span[][] = held.paneRows
   let paneNote = held.paneNote
@@ -957,17 +992,31 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       String(state.bandRows),
       '--columns',
       String(state.bandCols),
+      // The band is not a second statusline. `activity` is the one layout
+      // that draws no identity and no budget row — those belong to the
+      // statusline, which is always on screen and is the only path that can
+      // sample tokens often enough to rate them. What is left is the turn in
+      // flight, led by the running tools so `--rows 2` outside fullscreen
+      // cuts the cumulative counts rather than the live row. Without this the
+      // band drew whatever layout the person configured: the statusline's own
+      // rows, stacked above the prompt while the statusline drew them below.
+      '--layout',
+      'activity',
     ]
     const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
     rows = run.stdout
       .split('\n')
       .filter(line => line.length > 0)
       .map(spansOf)
+    // Zero rows with a zero exit is the idle band, not a fault — which is why
+    // the health of the run is tracked apart from the count of its rows.
+    bandRun = run.exitCode === 0 ? 'ok' : 'failed'
     runNote =
       run.exitCode === 0
         ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${running.length} running · ${totals.completedTotal} done · ${paneNote}`
         : `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`
   } catch (error) {
+    bandRun = 'failed'
     runNote = `run refused — ${noteText(String(error)).slice(0, 160)}`
     rows = []
   }
@@ -1011,7 +1060,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     }
   }
 
-  await publish(() => ({ rows, runNote, paneRows, paneNote }))
+  await publish(() => ({ rows, bandRun, runNote, paneRows, paneNote }))
 }
 
 /**
@@ -1044,11 +1093,30 @@ async function rememberEffort(engine: EngineInterface, level: string | undefined
  * and dropping it leaves nothing unhandled.
  */
 function drawSoon(engine: EngineInterface, state: State): Promise<void> {
-  return refresh(engine, state).catch(async error => {
+  // `refresh` claims its sequence number in its first statement, and an
+  // `async function` runs to its first `await` synchronously — so the number
+  // read here is the one the run below claimed. That is what lets this
+  // handler, which sits outside `refresh`, apply the same rule `publish`
+  // does.
+  const run = refresh(engine, state)
+  const seq = state.runSeq
+  return run.catch(async error => {
     const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
-    await update(engine, drawnOutput, out => ({ ...out, runNote: note })).catch(
-      () => undefined,
-    )
+    // `bandRun` as well as the note. The band draws its note only for
+    // `'failed'`, so a rejection that left `'ok'` behind would hold the rows
+    // of the run before it and say nothing about the one that threw. This is
+    // the only handler for a throw that got past `refresh`'s own — an atom
+    // read, or the write at its end — so there is nowhere else to record it.
+    //
+    // Sequence-guarded inside the change, exactly as `publish` is: several
+    // refreshes are in flight at once, and an older one rejecting after a
+    // newer one has published must not stamp `'failed'` over the newer rows,
+    // because the render hook puts the note ahead of the rows it holds.
+    // Annotated for the same reason `publish`'s callers are not: nothing here
+    // types the literal, so `'failed'` would widen to `string`.
+    await update(engine, drawnOutput, (out): DrawnOutput =>
+      seq === state.runSeq ? { ...out, bandRun: 'failed', runNote: note } : out,
+    ).catch(() => undefined)
   })
 }
 
@@ -1114,9 +1182,18 @@ export const register: Register = (on, options) => {
       })
     } catch (error) {
       const note = `command refused — ${noteText(String(error)).slice(0, 120)}`
-      await update($, drawnOutput, out => ({ ...out, runNote: note }))
+      // `'failed'` with it. A note the band will not draw is a note nobody
+      // reads, and since Phase E the band draws one only for `'failed'`. The
+      // `refresh` on the next line replaces both fields the moment the binary
+      // answers, which is the right lifetime for it: the band works, so it
+      // should go back to drawing activity.
+      await update($, drawnOutput, (out): DrawnOutput => ({
+        ...out,
+        bandRun: 'failed',
+        runNote: note,
+      }))
     }
-    await refresh($, state)
+    await drawSoon($, state)
     if (DEBUG) $.ui.log((await read($, drawnOutput)).runNote)
     return result
   })
@@ -1155,7 +1232,14 @@ export const register: Register = (on, options) => {
       drawing = drawSoon($, state)
     } catch (error) {
       const note = `mark failed: ${noteText(String(error)).slice(0, 120)}`
-      await update($, drawnOutput, out => ({ ...out, runNote: note }))
+      // `'failed'` with it, or this report cannot be read: the band draws a
+      // note only for `'failed'`. The completion refresh in the `finally`
+      // clears it when it succeeds, so what it costs is one draw.
+      await update($, drawnOutput, (out): DrawnOutput => ({
+        ...out,
+        bandRun: 'failed',
+        runNote: note,
+      }))
     }
 
     let failed = false
@@ -1238,18 +1322,25 @@ export const register: Register = (on, options) => {
           // walk the binary ladder before either had written its answer, and
           // two of the probing cases say so in exact numbers.
           if (drawing !== null) await drawing
-          await refresh($, state)
+          // `drawSoon` rather than `refresh`: a rejection here is a refresh
+          // that threw, and the sequence guard that decides whether it may
+          // still claim the band lives there.
+          await drawSoon($, state)
           if (DEBUG) $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {
           const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
           // Guarded like the start site's, because this write *is* the place
           // the failure gets reported: unguarded, a throw here would reach the
           // backstop below and the note would be lost without a word.
+          // The note alone, and `bandRun` deliberately left where it is: a
+          // refresh that threw has already recorded itself under its own
+          // sequence number inside `drawSoon`, so what reaches here is a
+          // throw with no run behind it — and a failure that cannot name a
+          // run must not outrank the rows a newer one published. Under
+          // `DEBUG` the status entry below still says it.
           await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(
             () => undefined,
           )
-          // Not a status entry: the write above puts it where the band reads
-          // it, and the band draws its note whenever it has no rows.
           if (DEBUG) $.ui.status(note)
         }
         // Nothing above is awaited by the hook any more, so a throw here would
@@ -1468,21 +1559,39 @@ export const register: Register = (on, options) => {
     // Two cells go to the band's own collapse marker at the right edge.
     state.bandCols = Math.max(20, e.props.bodyColumns - 2)
 
-    // With no rows, still draw the note: a band that silently disappears
-    // tells us nothing about why. Drawn whether or not a turn is running,
-    // because this is the only place a missing or too-old binary can say so
-    // and an install line nobody sees fixes nothing.
-    if (held.rows.length === 0 && !DEBUG) {
+    // A run that failed still draws, whether or not a turn is running: a band
+    // that silently disappears tells us nothing about why, and this is the
+    // only place a missing or too-old binary can say so. An install line
+    // nobody sees fixes nothing.
+    //
+    // Keyed on how the run ended rather than on how many rows it produced.
+    // The band asks for the `activity` layout, whose output is empty whenever
+    // nothing is running, so zero rows is the ordinary state between turns —
+    // and `rows.length === 0` here would pin this note over an idle prompt
+    // for the whole session.
+    if (held.bandRun === 'failed' && !DEBUG) {
       const { Text } = $.ui.resolve(e)
       return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
-    // The band is the activity canvas, so it belongs to the turn that is
-    // running. Idle, the statusline already draws the steady state on its own
-    // row — and the band renders whatever layout the person configured, which
-    // is that same row again. Two copies of it stacked is exactly what the
-    // division of labour exists to avoid.
-    if (!e.props.isWorking) return next(e)
+    // Drawn whether or not a turn is running, so the band holds the state it
+    // last drew: the tools that finished, their failures, the agents that
+    // ran and the todo, every one of them marked done by the glyph the
+    // binary already puts there. `e.props.isWorking` used to gate this, and
+    // for a release it had to — the band drew the layout the person had
+    // configured, which is the identity and budget rows the statusline draws
+    // on its own line, so between turns the two were the same thing twice.
+    // Asking for `activity` ended that: what is left between turns is the
+    // turn that just happened, which the statusline never shows.
+    //
+    // Nothing more is needed to keep it there. `turn.complete` refreshes, and
+    // the `read` above subscribes this drawing to the atom that refresh
+    // writes, so the rows settle to the finished state by themselves and then
+    // stand until the next turn moves them.
+    //
+    // Zero rows still yields: before the first tool call there is nothing to
+    // hold, and the activity layout draws nothing when nothing has run.
+    if (held.rows.length === 0 && !DEBUG) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const notes = DEBUG ? [<Text>{held.runNote}</Text>] : []
@@ -1519,7 +1628,7 @@ export const register: Register = (on, options) => {
     // fills a beat later depends on the first draw losing a race with the
     // write, which is not worth running.
     await update($, paneWanted, pane => ({ ...pane, open: true }))
-    await refresh($, state)
+    await drawSoon($, state)
     const opened = await $.ui.open({ id: PANE_ID, title: 'pulseline', rows: 12, closeOnEscape: true })
     // `ui.open` resolves once the pane has been drawn, so by here the render
     // hook has run and the closure holds the box the surface actually gave —
@@ -1530,7 +1639,7 @@ export const register: Register = (on, options) => {
     // drawing is in flight, which is why the geometry lives in the closure in
     // the first place. Nothing is drawn when the pane was not placed, so the
     // second run would have nothing to measure against.
-    if (opened.isPlaced) await refresh($, state)
+    if (opened.isPlaced) await drawSoon($, state)
     else {
       // Nothing was drawn, so there is nothing to keep the flag for: left
       // true, every later refresh would spawn the binary a second time for a
@@ -1592,7 +1701,7 @@ export const register: Register = (on, options) => {
     if (!e.element.startsWith(LAYOUT_KEY)) return next(e)
     const layout = e.element.slice(LAYOUT_KEY.length)
     await update($, paneWanted, pane => ({ ...pane, layout }))
-    await refresh($, state)
+    await drawSoon($, state)
     return next(e)
   })
 

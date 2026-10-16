@@ -194,10 +194,27 @@ export type BinaryChoice =
   | { kind: 'too-old'; path: string; version: string; rung: string; at: number }
   | { kind: 'missing'; at: number }
 
+/**
+ * How the last band run ended, which is not the same question as whether
+ * there are rows.
+ *
+ * The band asks the binary for the `activity` layout, whose output is empty
+ * whenever nothing is running — so zero rows is the ordinary state between
+ * turns, not a fault. Only `'failed'` is worth saying out loud, and it has
+ * to be said whether or not a turn is running: a missing binary raises no
+ * event, and an install line nobody sees fixes nothing.
+ *
+ * `'never'` is the value before the first walk finishes. It draws nothing,
+ * so the band does not flash a not-run-yet note over an idle prompt while
+ * `session.start` is still probing.
+ */
+export type BandRun = 'never' | 'ok' | 'failed'
+
 /** The binary's last output, kept so a reload redraws rather than blanks. */
 export type DrawnOutput = {
   rows: Span[][]
   paneRows: Span[][]
+  bandRun: BandRun
   runNote: string
   paneNote: string
 }

@@ -165,7 +165,7 @@ For backward compatibility, old names map to the new tier system:
 ### Line 1: Identity (Semantic + Secondary)
 
 ```
-[STABLE_BLUE(111)]M:model [separator(238/253)]| [secondary(146/240)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] up-n
+[STABLE_BLUE(111)]M:model [separator(238/253)]| [secondary(146/240)]S:style [separator]| [secondary]CC:version [separator]| [secondary]P:~/path [separator]| [STABLE_GREEN(71)]G:branch[ALERT_ORANGE(214)]*[ACTIVE_CORAL(209)] ↑n …
 ```
 
 - `111` Model: icon+value both STABLE_BLUE (most important identity)

@@ -181,11 +181,6 @@ pub fn render_glyphs(samples: &[u8]) -> String {
     out
 }
 
-/// Visible width of the rendered sparkline, in monospace cells.
-pub const fn width() -> usize {
-    SPARK_CELLS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

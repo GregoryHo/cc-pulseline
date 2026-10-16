@@ -177,7 +177,12 @@ fn main() {
         }
     };
 
-    println!("{}", lines.join("\n"));
+    // An empty render means "nothing to say" — the `activity` layout while
+    // nothing is running, chiefly. `println!` on a joined empty Vec still
+    // emits a newline, which a surface draws as a blank row.
+    if !lines.is_empty() {
+        println!("{}", lines.join("\n"));
+    }
 }
 
 /// Reads `--flag VALUE`, ignoring a missing value or another flag.
@@ -956,7 +961,10 @@ OPTIONS:
                      Example: --palette-map echo-sub-zero
     --columns N      Render for a box N cells wide (overrides COLUMNS)
     --rows N         Render at most N rows (overrides max_total_lines)
-    --layout NAME    Render with this layout (none|compact|budgets|console|ledger|rail|anchor)
+    --layout NAME    Render with this layout
+                     (none|compact|budgets|console|ledger|rail|anchor|activity)
+                     activity = activity rows only, empty when idle — the
+                     above-the-prompt band's layout, not a statusline one
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.
