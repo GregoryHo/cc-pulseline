@@ -324,3 +324,49 @@ fn an_agent_alone_still_draws() {
         "got:\n{lines:?}"
     );
 }
+
+/// This repo's own `.claude/pulseline.toml` sets `[segments.tools] visual =
+/// "ticker"`, and a visual override is global across both canvases — so the
+/// ticker is what the band draws here. It fuses the grand total and the
+/// running tools into ONE row, which makes it the live row while something
+/// runs and a cumulative count when nothing does.
+fn ticker_cfg(rows: Option<usize>) -> RenderConfig {
+    RenderConfig {
+        tools_visual: "ticker".to_string(),
+        ..cfg(rows)
+    }
+}
+
+/// Nothing running, but the session's history, an agent and a todo remain:
+/// what a resident band holds between turns.
+fn between_turns_frame() -> RenderFrame {
+    let mut f = busy_frame();
+    f.tools.clear();
+    f
+}
+
+#[test]
+fn a_ticker_holding_a_running_tool_still_leads() {
+    let lines = render_frame(&busy_frame(), &ticker_cfg(None));
+    assert!(
+        lines[0].contains("cargo test --release"),
+        "the ticker carries the tool in flight, so it stays row 0:\n{}",
+        lines.join("\n")
+    );
+}
+
+#[test]
+fn a_count_only_ticker_does_not_displace_the_live_rows() {
+    let lines = render_frame(&between_turns_frame(), &ticker_cfg(Some(1)));
+    let out = lines.join("\n");
+    assert_eq!(lines.len(), 1, "one row was asked for, got:\n{out}");
+    assert!(
+        out.contains("Investigate the collector"),
+        "the agent is live work and outranks a cumulative count:\n{out}"
+    );
+    assert!(
+        !out.contains("91"),
+        "the grand total is the cumulative count, which this order gives up \
+         first:\n{out}"
+    );
+}

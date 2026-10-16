@@ -141,27 +141,39 @@ fn build_ordered_activity_rows(
         }
     };
 
-    if ticker {
-        rows.extend(build_tools_ticker_row(
-            frame,
-            config,
-            palette,
-            available_width,
-            &sep,
-        ));
-    }
+    let ticker_row = || -> Option<String> {
+        if !ticker {
+            return None;
+        }
+        build_tools_ticker_row(frame, config, palette, available_width, &sep)
+    };
 
     match order {
         ActivityOrder::CountsFirst => {
+            rows.extend(ticker_row());
             rows.extend(counts_rows());
             rows.extend(targets_rows());
             rows.extend(agent_rows());
             rows.extend(todo_rows());
         }
         ActivityOrder::RunningFirst => {
+            // The ticker fuses the grand total and the running tools into one
+            // row, so it leads only while a running tool is in it. With none
+            // — which is every moment between turns, and the band is
+            // resident now — it is the cumulative count wearing the live
+            // row's place, and a one-row cap would truncate the agent or the
+            // todo beneath it. The conditions mirror `targets_rows`' own, so
+            // the `DropRunningTools` rung moves it too.
+            let leads = !frame.tools.is_empty() && config.max_tool_lines > 0;
+            if leads {
+                rows.extend(ticker_row());
+            }
             rows.extend(targets_rows());
             rows.extend(agent_rows());
             rows.extend(todo_rows());
+            if !leads {
+                rows.extend(ticker_row());
+            }
             rows.extend(counts_rows());
         }
     }

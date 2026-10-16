@@ -27,7 +27,7 @@ gate turns that into the one thing it can be diagnosed from: a note saying
 the binary is too old and the statusline is unaffected.
 The statusline path is unchanged: `activity` is opt-in there, no existing
 layout, config key or output moves, and a session that never installed the
-plugin sees exactly what 1.5.1 drew. 699 Rust tests (was 690) and 134 hook
+plugin sees exactly what 1.5.1 drew. 701 Rust tests (was 690) and 134 hook
 tests (was 130).
 
 ### Added
@@ -65,7 +65,10 @@ tests (was 130).
   deleting the running tool first. The layout is now fixed for that
   surface, while per-segment `visual` overrides still reach it — a
   `[segments.tools] visual = "ticker"` in your config still changes the
-  form the band's tool row takes.
+  form the band's tool row takes. Since the ticker fuses the grand total
+  with the running tools, that row leads only while one is in flight;
+  with none it is a cumulative count and sorts after the agents and the
+  todo, so a cap gives up the count rather than the live work.
 - **The band stays up between turns, holding the state it last drew.**
   `e.props.isWorking` gated the draw for one release and had to, since
   what sat there between turns was the statusline's rows stacked above the
@@ -111,7 +114,7 @@ tests (was 130).
   what the generic ladder does. `build_activity_rows` keeps its
   four-argument signature and its 20 test call sites, with the inverted
   order behind a second entry point over a shared private body. New
-  `tests/activity_layout.rs` (9 cases), plus a layout row in
+  `tests/activity_layout.rs` (11 cases), plus a layout row in
   `tests/display_axes.rs` so the Ascii catch-net covers it.
 - `BandRun` on the plugin's output atom (`types/index.d.ts`) records the
   health of the last run apart from the count of its rows, so a reload

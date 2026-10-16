@@ -547,6 +547,12 @@ Two things make it a layout rather than a configuration of `none`:
 | 3 | running tools, agents, todo |
 | 4+ | the above plus the per-tool completed counts |
 
+A `[segments.tools] visual = "ticker"` override reaches this layout like any
+other, and the ticker fuses the grand total with the running tools into a
+single row. That row leads while a tool is in flight; with none in it, it is
+a cumulative count, and it sorts after the agents and the todo so a cap still
+gives up the count first.
+
 It owns its pipeline (`src/render/frames/activity.rs`) and so takes no
 chrome: `apply_pane` passes it through, and the width-degradation order
 (drop activity → compress L2 → truncate core) has nothing to act on, because
