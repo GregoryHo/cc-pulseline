@@ -1086,21 +1086,30 @@ async function rememberEffort(engine: EngineInterface, level: string | undefined
  * and dropping it leaves nothing unhandled.
  */
 function drawSoon(engine: EngineInterface, state: State): Promise<void> {
-  return refresh(engine, state).catch(async error => {
+  // `refresh` claims its sequence number in its first statement, and an
+  // `async function` runs to its first `await` synchronously — so the number
+  // read here is the one the run below claimed. That is what lets this
+  // handler, which sits outside `refresh`, apply the same rule `publish`
+  // does.
+  const run = refresh(engine, state)
+  const seq = state.runSeq
+  return run.catch(async error => {
     const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
     // `bandRun` as well as the note. The band draws its note only for
     // `'failed'`, so a rejection that left `'ok'` behind would hold the rows
     // of the run before it and say nothing about the one that threw. This is
     // the only handler for a throw that got past `refresh`'s own — an atom
     // read, or the write at its end — so there is nowhere else to record it.
-    // Annotated because this `update` is not `refresh`'s own `publish`
-    // helper, so nothing here types the literal and `'failed'` widens to
-    // `string`.
-    await update(engine, drawnOutput, (out): DrawnOutput => ({
-      ...out,
-      bandRun: 'failed',
-      runNote: note,
-    })).catch(() => undefined)
+    //
+    // Sequence-guarded inside the change, exactly as `publish` is: several
+    // refreshes are in flight at once, and an older one rejecting after a
+    // newer one has published must not stamp `'failed'` over the newer rows,
+    // because the render hook puts the note ahead of the rows it holds.
+    // Annotated for the same reason `publish`'s callers are not: nothing here
+    // types the literal, so `'failed'` would widen to `string`.
+    await update(engine, drawnOutput, (out): DrawnOutput =>
+      seq === state.runSeq ? { ...out, bandRun: 'failed', runNote: note } : out,
+    ).catch(() => undefined)
   })
 }
 
@@ -1306,20 +1315,25 @@ export const register: Register = (on, options) => {
           // walk the binary ladder before either had written its answer, and
           // two of the probing cases say so in exact numbers.
           if (drawing !== null) await drawing
-          await refresh($, state)
+          // `drawSoon` rather than `refresh`: a rejection here is a refresh
+          // that threw, and the sequence guard that decides whether it may
+          // still claim the band lives there.
+          await drawSoon($, state)
           if (DEBUG) $.ui.status((await read($, drawnOutput)).runNote)
         } catch (error) {
           const note = `refresh failed: ${noteText(String(error)).slice(0, 120)}`
           // Guarded like the start site's, because this write *is* the place
           // the failure gets reported: unguarded, a throw here would reach the
           // backstop below and the note would be lost without a word.
-          await update($, drawnOutput, (out): DrawnOutput => ({
-            ...out,
-            bandRun: 'failed',
-            runNote: note,
-          })).catch(() => undefined)
-          // Not a status entry: the write above puts it where the band reads
-          // it, and `'failed'` is what makes the band read it at all.
+          // The note alone, and `bandRun` deliberately left where it is: a
+          // refresh that threw has already recorded itself under its own
+          // sequence number inside `drawSoon`, so what reaches here is a
+          // throw with no run behind it — and a failure that cannot name a
+          // run must not outrank the rows a newer one published. Under
+          // `DEBUG` the status entry below still says it.
+          await update($, drawnOutput, out => ({ ...out, runNote: note })).catch(
+            () => undefined,
+          )
           if (DEBUG) $.ui.status(note)
         }
         // Nothing above is awaited by the hook any more, so a throw here would
