@@ -11,7 +11,7 @@ plugin's full reference; this file is the contract to hold changes to.
 | Surface | Statusline | Band (`AbovePrompt`) | Pane (`/pulseline`) |
 | --- | --- | --- | --- |
 | terminal (Claude Code CLI) | yes, the identity and budget rows | `--layout activity`: the turn in flight only, empty until something runs | switchable: ledger / budgets / compact / rail |
-| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting (`compact` default, `rail`, `anchor`), always with `--no-icons`, drawn idle as well | same switcher, `--no-icons` while the desktop shows it |
+| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting, always with `--no-icons`, drawn idle as well: `compact` (default) alone, or `rail` / `anchor` as a powerline head with `activity` stacked under it, since those two draw no activity | same switcher, `--no-icons` while the desktop shows it |
 | mobile | — | yields: the app draws no `Input`/`Select` | yields |
 | vscode | — | yields: Claude Code for VS Code attaches no surface yet | yields |
 | `-p` / SDK | runs if configured | nothing to draw into | nothing to draw into |

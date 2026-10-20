@@ -176,7 +176,9 @@ fn no_icons_draws_every_layout_without_nerd_font_glyphs() {
         "the default render draws Nerd Font glyphs, or this test proves nothing"
     );
 
-    for layout in ["compact", "ledger", "budgets", "rail", "anchor", "activity"] {
+    for layout in [
+        "none", "compact", "console", "ledger", "budgets", "rail", "anchor", "activity",
+    ] {
         let lines = render_with(
             &[
                 "--rows",

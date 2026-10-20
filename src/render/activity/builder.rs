@@ -9,7 +9,9 @@ use super::cells::recent_tool::build_recent_tool_cell;
 use crate::config::{GlyphMode, RenderConfig};
 use crate::render::color::{colorize, visible_width, ThemePalette};
 use crate::render::fmt::{format_agent_elapsed, format_number};
-use crate::render::icons::{glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO};
+use crate::render::icons::{
+    glyph, unicode_glyph, ICON_AGENT, ICON_AGENT_DONE, ICON_GROUP_PARALLEL, ICON_TODO,
+};
 use crate::types::{AgentSummary, CompletedToolCount, RenderFrame, TodoSummary};
 
 use super::agent_groups::{avg_elapsed_ms, classify, AgentGroup};
@@ -910,7 +912,7 @@ fn build_agent_heterogeneous_cell(
             "||".to_string()
         }
     } else {
-        glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1)
+        unicode_glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1)
     };
     let accent: &str = if all_completed {
         p.completed_check.as_str()

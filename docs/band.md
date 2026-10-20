@@ -275,7 +275,7 @@ there are not the terminal's, and each changes what the band asks for:
 | | terminal | desktop |
 | --- | --- | --- |
 | statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
-| band layout | `activity` | the `desktopLayout` setting: `compact` (default — identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` |
+| band layout | `activity` | the `desktopLayout` setting: `compact` (default — identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
 | glyphs | Nerd Font icons | Unicode (`--no-icons`): no Private Use Area glyphs, which the app's face lacks — icons become ASCII labels and powerline seams half blocks `▐▌`; braille, gauges and `✓✘` stay |
 | idle band | yields until something has run | always draws: the head row is the only place context and cost show |
 

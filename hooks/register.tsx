@@ -107,10 +107,11 @@ const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
  * the terminal band relies on — identity and budget on the statusline, the
  * turn in flight above the prompt — leaves the desktop with no context, cost
  * or quota anywhere. Each of these carries all of them in a few rows:
- * `compact` fuses identity and budget into one head row over the activity,
- * and `rail` and `anchor` draw the same as a powerline bar, on half-block
- * seams since the desktop has no Nerd Font (`--no-icons`). Mirrored by the
- * `desktopLayout` field's `options` in `plugin.json`.
+ * `compact` fuses identity and budget into one head row over the activity;
+ * `rail` and `anchor` draw them as a powerline bar, on half-block seams since
+ * the desktop has no Nerd Font (`--no-icons`), with `activity` stacked under
+ * (see `runDesktopBand`). Mirrored by the `desktopLayout` field's `options`
+ * in `plugin.json`.
  */
 const DESKTOP_LAYOUTS = ['compact', 'rail', 'anchor']
 
@@ -636,15 +637,17 @@ function todoOf(
  * one place a test can reach it is the tool path.
  */
 async function syncVersion(engine: EngineInterface): Promise<boolean> {
-  const held = await read(engine, sessionFacts)
-  if (held.version !== null) return true
   try {
+    const held = await read(engine, sessionFacts)
+    if (held.version !== null) return true
     const { version } = await engine.session.version()
     if (version.length === 0) return false
     await update(engine, sessionFacts, facts => ({ ...facts, version }))
     return true
   } catch {
-    // An engine that does not answer: `probeVersion` falls back to the CLI.
+    // An engine that does not answer, or an atom it would not read: never
+    // rejects, so a refresh can call it bare. `probeVersion` falls back to
+    // the CLI.
     return false
   }
 }
@@ -932,6 +935,54 @@ async function runRows(
 }
 
 /**
+ * The desktop band's run: the `desktopLayout` setting, without Nerd Font
+ * glyphs.
+ *
+ * `compact` carries the activity row itself. `rail` and `anchor` do not —
+ * they draw identity, context and quota as a powerline bar and stop there,
+ * whatever `--rows` allows — and the desktop has no statusline to leave the
+ * turn in flight to. So those two are a head, and `activity` is run under it
+ * with the rows the head left: the bar on top, the running tools below.
+ *
+ * The head gets every row but one, so a band with room for two still shows
+ * the tool that is running. A fault in either run is the band's fault.
+ */
+async function runDesktopBand(
+  engine: EngineInterface,
+  payload: string,
+  binaryPath: string,
+  state: State,
+): Promise<{ rows: Span[][]; fault: string | null }> {
+  const layout = desktopLayoutOf(state.options)
+  const box = (rows: number) => [
+    binaryPath,
+    '--rows',
+    String(rows),
+    '--columns',
+    String(state.desktopBandCols),
+  ]
+  if (layout === 'compact') {
+    return runRows(engine, payload, [...box(state.desktopBandRows), '--layout', layout, NO_ICONS])
+  }
+
+  const total = Math.max(1, state.desktopBandRows)
+  const headRows = Math.max(1, total - 1)
+  const ran = await runRows(engine, payload, [...box(headRows), '--layout', layout, NO_ICONS])
+  // Clipped here as well as asked for: a head that drew past `--rows` would
+  // push the running tool out of the band, which is the row this is for.
+  const head = { ...ran, rows: ran.rows.slice(0, headRows) }
+  const left = total - head.rows.length
+  if (head.fault !== null || left <= 0) return head
+  const activity = await runRows(engine, payload, [
+    ...box(left),
+    '--layout',
+    'activity',
+    NO_ICONS,
+  ])
+  return { rows: [...head.rows, ...activity.rows], fault: activity.fault }
+}
+
+/**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
  * **Call it through `drawSoon`, never directly.** It guards its own writes
@@ -970,9 +1021,11 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   }
 
   // Before the ladder, because the dev rung is built from the root.
+  // Its own statement: `syncVersion` never rejects, and a refused root read
+  // must not cost the version its sync.
+  await syncVersion(engine)
   try {
     await syncRoot(engine, state)
-    await syncVersion(engine)
   } catch {
     // Not worth blanking the band for: the root already held is the one the
     // session started in, and `collect` below reports an engine refusing
@@ -1124,18 +1177,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // A run of its own, because the desktop band is a different layout in a
     // different face: the `desktopLayout` setting (see `DESKTOP_LAYOUTS`),
     // with no Nerd Font glyphs.
-    onDesktop
-      ? runRows(engine, payload, [
-          binary.path,
-          '--rows',
-          String(state.desktopBandRows),
-          '--columns',
-          String(state.desktopBandCols),
-          '--layout',
-          desktopLayoutOf(state.options),
-          NO_ICONS,
-        ])
-      : null,
+    onDesktop ? runDesktopBand(engine, payload, binary.path, state) : null,
   ])
 
   rows = terminalRun?.rows ?? []

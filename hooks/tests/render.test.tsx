@@ -557,9 +557,20 @@ describe('the desktop app', () => {
     await warm($)
     await seen.settle()
     const run = renders(seen.spawns).filter(isDesktopBandSpawn).at(-1)
-    // The powerline bar, on the half-block seams `--no-icons` leaves it.
+    // The powerline bar, on the half-block seams `--no-icons` leaves it, given
+    // every row of the 3x120 box but one.
     expect(layoutOf(run)).toBe('rail')
     expect(run?.argv).toContain('--no-icons')
+    expect(run?.argv[run.argv.indexOf('--rows') + 1]).toBe('2')
+
+    // Rail draws no activity, and the desktop has no statusline to leave the
+    // turn in flight to, so `activity` runs under it in the rows it left. The
+    // stand-in binary answers four rows whatever it is asked, so the head is
+    // clipped to its two and the one left goes to the activity run.
+    const under = renders(seen.spawns)
+      .filter(r => layoutOf(r) === 'activity' && r.argv.includes('--no-icons'))
+      .at(-1)
+    expect(under?.argv[under.argv.indexOf('--rows') + 1]).toBe('1')
   })
 
   test('an unknown desktop layout falls back to compact', { options: { desktopLayout: 'ledger' } }, async ($, on) => {

@@ -42,8 +42,9 @@ pub const ICON_API_ERROR: &str = "\u{26A0}";
 // Powerline seam/cap glyphs (PUA Powerline range, NOT Material Design).
 // These live in a Nerd Font's patched Powerline block; used by the `rail`
 // and `anchor` layouts (see `frames/powerline.rs`). Under `seams = "blocks"`
-// or `GlyphMode::Ascii` they degrade to unicode half-blocks / ASCII — they
-// must never reach a non-patched terminal (capability-ladder law).
+// or `GlyphMode::Unicode` they degrade to unicode half-blocks, under
+// `GlyphMode::Ascii` to ASCII — they must never reach a non-patched face
+// (capability-ladder law).
 pub const SEAM_R: &str = "\u{e0b0}"; //  right-pointing seam (left cluster)
 pub const SEAM_L: &str = "\u{e0b2}"; //  left-pointing seam (right cluster)
 pub const CAP_ROUND_L: &str = "\u{e0b6}"; //  rounded left cap (anchor capsule)
@@ -61,6 +62,17 @@ pub const FRAME_BL: char = '\u{2570}'; // ╰
 /// render may not draw the Private Use Area (`Unicode` and `Ascii`).
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
     if mode.nerd_font() {
+        format!("{icon} ")
+    } else {
+        ascii.to_string()
+    }
+}
+
+/// [`glyph`] for an icon that is plain Unicode rather than a Nerd Font glyph
+/// (`⟳`, `⚠`, `‖`): drawn under `Unicode` as well as `Icon`, since only the
+/// Private Use Area is missing there.
+pub fn unicode_glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
+    if mode.unicode() {
         format!("{icon} ")
     } else {
         ascii.to_string()
