@@ -13,9 +13,9 @@
     "desktopLayout": {
       "type": "string",
       "title": "Desktop band layout",
-      "description": "The band's layout in the Claude Code desktop app, which runs no statusline: compact (identity and budget above the activity row), or the powerline rail or anchor with the activity rows under the bar.",
-      "options": ["compact", "rail", "anchor"],
-      "default": "compact"
+      "description": "The band's layout in the Claude Code desktop app, which runs no statusline: quiet (empty until context, quota or the cache passes its limit, then a gauge and a line), compact (identity and budget above the activity row), or the powerline rail or anchor with the activity rows under the bar.",
+      "options": ["quiet", "compact", "rail", "anchor"],
+      "default": "quiet"
     }
   },
   "author": {

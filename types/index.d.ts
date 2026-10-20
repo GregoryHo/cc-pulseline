@@ -211,6 +211,33 @@ export type BinaryChoice =
 export type BandRun = 'never' | 'ok' | 'failed'
 
 /**
+ * One alert the quiet desktop band draws: a value past its limit.
+ *
+ * Worked out in `refresh` from `$.session.usage()` and the last turn's
+ * tokens (`hooks/desktop.ts`), and published with the rows, because the
+ * render hook may read state but never write it.
+ */
+export type Alert =
+  | { kind: 'ctx'; percent: number; used: number; window: number }
+  | {
+      kind: 'quota'
+      /** The rate-limit window as the engine names it: `five_hour`, `seven_day`. */
+      window: string
+      percent: number
+      /** Epoch seconds; absent when the engine named no reset. */
+      resetsAt?: number
+      /** Session cost so far, and per hour since the session began. */
+      usd?: number
+      usdPerHour?: number
+    }
+  | {
+      kind: 'cache'
+      /** Shares of the last turn's input: read from cache, written to it. */
+      read: number
+      creation: number
+    }
+
+/**
  * The binary's last output, kept so a reload redraws rather than blanks.
  *
  * `rows` is the terminal band's, `desktopRows` the desktop app's: the two ask
@@ -220,6 +247,16 @@ export type BandRun = 'never' | 'ok' | 'failed'
 export type DrawnOutput = {
   rows: Span[][]
   desktopRows: Span[][]
+  /**
+   * The quiet desktop band's alerts. Absent from an atom an older version
+   * wrote, so read it as `?? []`.
+   */
+  alerts?: Alert[]
+  /**
+   * The quota windows already notified, one `alertKey` each, so a window is
+   * notified once per reset and not again after a reload. Read as `?? []`.
+   */
+  notified?: string[]
   paneRows: Span[][]
   bandRun: BandRun
   runNote: string

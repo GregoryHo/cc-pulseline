@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 cc-pulseline is a high-performance CLI tool that renders a multi-line statusline for Claude Code. It reads JSON from stdin (the Claude Code statusline payload) and outputs formatted text lines to stdout. The binary is designed to be called repeatedly by the Claude Code statusline hook.
 
-The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline, so its band carries the identity and budget rows itself. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
+The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline; its default band (`quiet`) draws only alerts — context, quota, a cold cache — as `Svg` gauges, and the `compact` / `rail` / `anchor` layouts carry the identity and budget rows. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
 
 ## Build & Test Commands
 
@@ -25,7 +25,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 149 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 166 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
