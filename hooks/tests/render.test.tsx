@@ -24,6 +24,12 @@ import type { Spawn } from './harness'
  * `COLOURED_ROWS` instead of echoing the payload.
  */
 
+/**
+ * The binary-drawn desktop layouts. `quiet`, the default, runs no binary for
+ * the band (see `desktop.test.tsx`), so the cases about those runs name one.
+ */
+const COMPACT = { options: { desktopLayout: 'compact' } }
+
 const ESC = String.fromCharCode(27)
 const warm = ($: { tool: { call: (e: never) => Promise<unknown> } }) =>
   $.tool.call({ tool: 'Read', tool_use_id: 'warm', file_path: '/n/warm' } as never)
@@ -258,7 +264,7 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('what the mods beneath draw stays, under the band, on both surfaces', async ($, on) => {
+  test('what the mods beneath draw stays, under the band, on both surfaces', COMPACT, async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
     await warm($)
 
@@ -464,7 +470,7 @@ const renders = (spawns: Spawn[]) =>
   spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'claude')
 
 describe('the desktop app', () => {
-  test('its band runs compact with ASCII glyphs, sized to its own box', async ($, on) => {
+  test('its band runs compact with ASCII glyphs, sized to its own box', COMPACT, async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
     const terminal = await $.ui.mount(BAND)
     const desktop = await $.ui.mount({
@@ -502,7 +508,7 @@ describe('the desktop app', () => {
     expect(renders(terminalOnly.spawns).some(run => layoutOf(run) === 'activity')).toBe(true)
   })
 
-  test('measuring the desktop band refits it, and only when the box moves', async ($, on) => {
+  test('measuring the desktop band refits it, and only when the box moves', COMPACT, async ($, on) => {
     // The desktop band is drawn idle, so a refresh made before it was measured
     // (session start, a desktop attaching) would otherwise stand at the 3x120
     // guess until the next tool call.
@@ -535,7 +541,7 @@ describe('the desktop app', () => {
     await ui.unmount()
   })
 
-  test('a session the desktop hosts alone runs only the desktop band', async ($, on) => {
+  test('a session the desktop hosts alone runs only the desktop band', COMPACT, async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
     await warm($)
     await seen.settle()
@@ -544,7 +550,7 @@ describe('the desktop app', () => {
     expect(runs.every(isDesktopBandSpawn)).toBe(true)
   })
 
-  test('every span is monospaced, on both surfaces', async ($, on) => {
+  test('every span is monospaced, on both surfaces', COMPACT, async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
     await warm($)
 
@@ -563,7 +569,7 @@ describe('the desktop app', () => {
     }
   })
 
-  test('idle, the desktop band still draws: there is no statusline under it', async ($, on) => {
+  test('idle, the desktop band still draws: there is no statusline under it', COMPACT, async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
     await warm($)
     const ui = await $.ui.mount({
@@ -576,7 +582,7 @@ describe('the desktop app', () => {
     await ui.unmount()
   })
 
-  test('a desktop attaching mid-session gets its band run', async ($, on) => {
+  test('a desktop attaching mid-session gets its band run', COMPACT, async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
     const before = renders(seen.spawns).length
     await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
@@ -606,13 +612,13 @@ describe('the desktop app', () => {
     expect(under?.argv[under.argv.indexOf('--rows') + 1]).toBe('1')
   })
 
-  test('an unknown desktop layout falls back to compact', { options: { desktopLayout: 'ledger' } }, async ($, on) => {
+  test('an unknown desktop layout falls back to quiet', { options: { desktopLayout: 'ledger' } }, async ($, on) => {
     // `ledger` is not among the field's options, so the engine reads it as
-    // unset and the default stands.
+    // unset and the default stands: the quiet band, which runs no binary.
     const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
     await warm($)
     await seen.settle()
-    expect(layoutOf(renders(seen.spawns).filter(isDesktopBandSpawn).at(-1))).toBe('compact')
+    expect(renders(seen.spawns).filter(isDesktopBandSpawn)).toEqual([])
   })
 
   test('the mobile app is not drawn on', async ($, on) => {

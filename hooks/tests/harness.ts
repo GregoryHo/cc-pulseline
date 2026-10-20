@@ -105,6 +105,12 @@ export type Recorder = {
    * cannot draw the band itself says.
    */
   notices: string[]
+  /** Every `$.ui.notify` the mod made, by its text. */
+  notifications: string[]
+  /** Every `$.ui.toast` the mod made, by its text. */
+  toasts: string[]
+  /** Every `$.prompt.fill` the mod made, by its text. */
+  fills: string[]
 }
 
 /**
@@ -248,6 +254,19 @@ export type BottomOptions = {
   binaryVersions?: Readonly<Record<string, string | null>>
   /** What `$.env.get('HOME')` answers, for the installed rung's path. */
   home?: string
+  /**
+   * Whether `$.ui.notify` reports its notification sent; `true` when not
+   * given. `false` is a session with no channel, as one the desktop hosts
+   * alone can be.
+   */
+  notifySent?: boolean
+  /** The draft `$.prompt.read()` answers; empty when not given. */
+  draft?: string
+  /**
+   * What `git status --porcelain=v2 --branch` prints for the quiet band's
+   * `G:` cell. Left out, the run fails as it does outside a repository.
+   */
+  gitStatus?: string
 }
 
 /**
@@ -260,6 +279,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const spawns: Spawn[] = []
   const probes: string[] = []
   const notices: string[] = []
+  const notifications: string[] = []
+  const toasts: string[] = []
+  const fills: string[] = []
   const clock = mock.clock(on, { now: options.startMs ?? STAMP })
 
   // The Task API's two calls are answered the way the engine answers them,
@@ -338,9 +360,14 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
       value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
     })
 
-    // Three different spawns reach here. Claude Code's own version probe,
+    // Four different spawns reach here. Claude Code's own version probe,
     // which asks the CLI by name:
     if (argv[0] === 'claude') return answer(0, '2.1.296 (Claude Code)')
+
+    // The quiet desktop band's branch reading:
+    if (argv[0] === 'git') {
+      return options.gitStatus === undefined ? answer(128, '') : answer(0, options.gitStatus)
+    }
 
     // The binary ladder, probing one candidate:
     if (argv[1] === '--version') {
@@ -392,6 +419,29 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     notices.push(`log: ${String(e.text ?? '')}`)
     return { value: undefined }
   })
+  // The quiet desktop band's notifications and its `/compact` button.
+  on('ui.notify', (_engine, e) => {
+    notifications.push(String(e.text ?? ''))
+    return {
+      value:
+        options.notifySent === false
+          ? { isSent: false as const, reason: 'no-surface' as const }
+          : { isSent: true as const, channel: 'terminal_bell' as const },
+    }
+  })
+  on('ui.toast', (_engine, e) => {
+    toasts.push(String(e.text ?? ''))
+    return { value: undefined }
+  })
+  on('prompt.read', () => {
+    const text = options.draft ?? ''
+    return { value: { text, cursor: text.length } }
+  })
+  // An event, like `ui.render`: its result is the answer itself, not `{ value }`.
+  on('prompt.fill', (_engine, e) => {
+    fills.push(String(e.text ?? ''))
+    return { isFilled: true }
+  })
   // The pane. Without a `ui.open` beneath, the mod's `command.run` hook
   // throws, is skipped, and the dispatch falls through to a `command.run`
   // nothing answers — which reads as the wrong failure entirely.
@@ -416,7 +466,8 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // which is the same rule that makes `<Text {...span} />` drop its text.
   on('ui.render', () => ({ type: 'Text', props: {}, children: [BENEATH] }))
 
-  const binaryRuns = () => spawns.filter(run => run.argv[1] !== '--version')
+  const binaryRuns = () =>
+    spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'git')
 
   const parse = (run: Spawn | undefined, what: string): PayloadShape => {
     if (run === undefined) throw new Error(`the binary was never run ${what}`)
@@ -437,6 +488,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
       root = to
     },
     notices,
+    notifications,
+    toasts,
+    fills,
     settle: () => clock.settle(),
   }
 }

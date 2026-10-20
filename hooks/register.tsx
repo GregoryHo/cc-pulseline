@@ -11,11 +11,27 @@ import {
   tooOldMessage,
 } from './binary'
 import type { Version } from './binary'
+import {
+  COMPACT_KEY,
+  LONG_TURN_MS,
+  QUIET,
+  alertRow,
+  desktopAlerts,
+  longTurnNotice,
+  parseGitStatus,
+  quotaKey,
+  quotaNotice,
+  quotaPast,
+  stripCells,
+  stripOf,
+} from './desktop'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
 import type {
+  Alert,
   BandRun,
+  GitHead,
   BinaryChoice,
   DrawnOutput,
   Span,
@@ -103,17 +119,23 @@ const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
 /**
  * The layouts the desktop band may draw, the first the default.
  *
- * The desktop's Code tab does not run the `statusLine` command, so the split
- * the terminal band relies on — identity and budget on the statusline, the
- * turn in flight above the prompt — leaves the desktop with no context, cost
- * or quota anywhere. Each of these carries all of them in a few rows:
+ * `quiet`, the default, runs no binary for the band: the Code tab already
+ * shows the model, the effort, a context ring and every tool, so the band
+ * draws only what passes a limit — context, quota, a cold cache — as an
+ * `Svg` gauge and a line (see `hooks/desktop.ts`). Empty otherwise.
+ *
+ * The others are the binary's rows. The desktop's Code tab does not run the
+ * `statusLine` command, so the split the terminal band relies on — identity
+ * and budget on the statusline, the turn in flight above the prompt — leaves
+ * the desktop with no context, cost or quota anywhere. Each of these carries
+ * all of them in a few rows:
  * `compact` fuses identity and budget into one head row over the activity;
  * `rail` and `anchor` draw them as a powerline bar, on half-block seams since
  * the desktop has no Nerd Font (`--no-icons`), with `activity` stacked under
  * (see `runDesktopBand`). Mirrored by the `desktopLayout` field's `options`
  * in `plugin.json`.
  */
-const DESKTOP_LAYOUTS = ['compact', 'rail', 'anchor']
+const DESKTOP_LAYOUTS = [QUIET, 'compact', 'rail', 'anchor']
 
 /**
  * The desktop band's layout from the `desktopLayout` setting.
@@ -126,7 +148,7 @@ export function desktopLayoutOf(options: PluginOptions): string {
   const chosen = options.desktopLayout
   return typeof chosen === 'string' && DESKTOP_LAYOUTS.includes(chosen)
     ? chosen
-    : (DESKTOP_LAYOUTS[0] ?? 'compact')
+    : (DESKTOP_LAYOUTS[0] ?? QUIET)
 }
 
 /**
@@ -402,6 +424,17 @@ type State = {
    * the module, so a closure is the right place for them.
    */
   options: PluginOptions
+  /**
+   * The quota windows already notified, by `quotaKey`. Seeded from the atom
+   * on the first refresh after a load, then checked and marked with no
+   * `await` between, so two refreshes in flight cannot both notify.
+   */
+  notified: Set<string> | null
+  /**
+   * The strip's branch, read at most once per `GIT_TTL_MS` for one root: a
+   * `git status` on every tool call is a spawn the strip does not need.
+   */
+  git: { at: number; root: string; head: GitHead | null } | null
 }
 
 /**
@@ -1011,6 +1044,56 @@ async function runDesktopBand(
  * Declared at the top of the file on purpose: the loader only lets `$` be
  * passed to a function declared here, never to a closure inside `register`.
  */
+/**
+ * A native notification, or a toast where no channel sends one.
+ *
+ * A session the desktop hosts alone has no terminal, so only the person's
+ * Notification hooks run and `isSent` can be false; a hook's `{ deny }` makes
+ * the call reject. Either way the toast still says it, so nothing is lost.
+ * Never rejects: its callers float it.
+ */
+async function notifyOrToast(engine: EngineInterface, text: string): Promise<void> {
+  try {
+    const sent = await engine.ui.notify(text, { title: 'pulseline' })
+    if (!sent.isSent) engine.ui.toast(text)
+  } catch {
+    engine.ui.toast(text)
+  }
+}
+
+/** How long a branch reading stands, as the binary's own git cache does. */
+const GIT_TTL_MS = 10_000
+
+/**
+ * The branch for the strip's `G:` cell, or `null` outside a repository.
+ *
+ * Cached in the closure for `GIT_TTL_MS` per root. A failed or refused run is
+ * a `null` too: the strip then leaves the cell out, which is what it does
+ * outside a repository, and the rest of the band is not worth blanking for it.
+ */
+async function gitHead(
+  engine: EngineInterface,
+  state: State,
+  root: string,
+  now: number,
+): Promise<GitHead | null> {
+  const held = state.git
+  if (held !== null && held.root === root && now - held.at < GIT_TTL_MS) return held.head
+  let head: GitHead | null = null
+  try {
+    const run = await engine.process.run(['git', '-C', root, 'status', '--porcelain=v2', '--branch'], {
+      stdin: '',
+      timeoutMs: 1000,
+    })
+    head = run.exitCode === 0 ? parseGitStatus(run.stdout) : null
+  } catch {
+    // Refused or timed out: no branch to show, as outside a repository.
+    head = null
+  }
+  state.git = { at: now, root, head }
+  return head
+}
+
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Each refresh claims a number and only the newest may publish. Several can
   // be in flight at once — parallel tool calls, a turn event landing beside
@@ -1167,6 +1250,26 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const surfaces = collected.surfaces
   const onTerminal = surfaces.length === 0 || surfaces.includes('terminal')
   const onDesktop = surfaces.includes('desktop')
+  const quiet = desktopLayoutOf(state.options) === QUIET
+
+  // The quiet band's strip and alert rows, and a notification for each quota
+  // window that newly passed its limit. Worked out here, never in the render
+  // hook, which may not write state.
+  const drawsQuiet = onDesktop && quiet
+  const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens) : []
+  const strip = drawsQuiet
+    ? stripOf(collected.usage, await gitHead(engine, state, facts.cwd, collected.now), collected.now)
+    : null
+  state.notified ??= new Set(held.notified ?? [])
+  const toNotify: string[] = []
+  for (const quota of drawsQuiet ? quotaPast(collected.usage) : []) {
+    const key = quotaKey(quota)
+    if (state.notified.has(key)) continue
+    // Marked before the call: a second refresh in flight must not notify it again.
+    state.notified.add(key)
+    toNotify.push(quotaNotice(quota, collected.now))
+  }
+  for (const text of toNotify) void notifyOrToast(engine, text)
 
   // The two band runs are independent, so they run together: in sequence, a
   // hanging binary held both bands for two timeouts before either updated.
@@ -1193,7 +1296,8 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // A run of its own, because the desktop band is a different layout in a
     // different face: the `desktopLayout` setting (see `DESKTOP_LAYOUTS`),
     // with no Nerd Font glyphs.
-    onDesktop ? runDesktopBand(engine, payload, binary.path, state) : null,
+    // The quiet band draws from the reading itself, so it spawns nothing.
+    onDesktop && !quiet ? runDesktopBand(engine, payload, binary.path, state) : null,
   ])
 
   rows = terminalRun?.rows ?? []
@@ -1207,7 +1311,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
     } else faults.push(terminalRun.fault)
   }
-  if (desktopRun !== null) {
+  if (drawsQuiet) {
+    done.push(`strip + ${alerts.length} alert(s) desktop quiet`)
+  } else if (desktopRun !== null) {
     if (desktopRun.fault === null) {
       done.push(`${desktopRows.length}r desktop ${state.desktopBandRows}x${state.desktopBandCols}`)
     } else faults.push(`desktop ${desktopRun.fault}`)
@@ -1264,7 +1370,18 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     }
   }
 
-  await publish(() => ({ rows, desktopRows, bandRun, runNote, paneRows, paneNote }))
+  const notified = [...state.notified]
+  await publish(() => ({
+    rows,
+    desktopRows,
+    alerts,
+    strip,
+    notified,
+    bandRun,
+    runNote,
+    paneRows,
+    paneNote,
+  }))
 }
 
 /**
@@ -1363,6 +1480,8 @@ export const register: Register = (on, options) => {
     rootRead: null,
     versionFromEngine: false,
     options,
+    notified: null,
+    git: null,
   }
 
   on('session.start', async ($, e, next) => {
@@ -1746,6 +1865,14 @@ export const register: Register = (on, options) => {
     // turn's own result for five seconds, or ten with the pane open — after
     // every turn.
     void drawSoon($, state)
+    // A long turn's end, said where the desktop is attached: the person has
+    // likely gone to another window. Not a subagent's run, which ends inside
+    // the turn that spawned it, and not an interrupt, which the person made.
+    if (e.agentId === undefined && !e.isAborted && e.durationMs >= LONG_TURN_MS) {
+      if ((await $.session.surfaces()).includes('desktop')) {
+        void notifyOrToast($, longTurnNotice(e.durationMs))
+      }
+    }
     return result
   })
 
@@ -1828,6 +1955,77 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           <Text mono>{`pulseline: ${held.runNote}`}</Text>
+          {below}
+        </Box>
+      )
+    }
+
+    // The quiet band: the strip, then one row for each alert, all stacked on
+    // what the mods beneath draw. Every path keeps `below`. No binary rows
+    // here, so nothing is drawn from `desktopRows`.
+    if (e.surface === 'desktop' && desktopLayoutOf(state.options) === QUIET) {
+      // `?? []` / `?? null`: an atom written before the quiet band existed
+      // has neither field.
+      const alerts = held.alerts ?? []
+      const cells = stripCells(held.strip ?? { quota: [], git: null }, state.lastRunMs)
+      const { Box, Text, Button, Svg } = $.ui.resolve(e)
+      const rows = alerts.map(alert => {
+        const row = alertRow(alert)
+        const parts = [
+          <Text color={row.color} bold mono>
+            {row.label}
+          </Text>,
+          <Text dimColor mono>
+            {row.detail}
+          </Text>,
+        ]
+        if (row.gauge !== null) {
+          parts.unshift(<Svg source={row.gauge.source} alt={row.gauge.alt} width={120} height={10} />)
+        }
+        if (row.compact) {
+          // The press raises `ui.press`, handled below; this is its bottom.
+          parts.push(<Button key={COMPACT_KEY} label="/compact" onPress={() => {}} />)
+        }
+        return (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {parts}
+          </Box>
+        )
+      })
+      if (cells.length > 0) {
+        const parts = cells.flatMap(cell => {
+          const drawn = []
+          if (cell.gauge !== null) {
+            drawn.push(<Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={8} />)
+          }
+          drawn.push(
+            <Text color={cell.color} mono>
+              {cell.label}
+            </Text>,
+          )
+          if (cell.detail !== null) {
+            drawn.push(
+              <Text dimColor mono>
+                {cell.detail}
+              </Text>,
+            )
+          }
+          return drawn
+        })
+        rows.unshift(
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {parts}
+          </Box>,
+        )
+      }
+      if (rows.length === 0) return below
+      // Past `maxRows`, the strip goes before an alert: an alert asks for an
+      // action, the strip is there to glance at.
+      const room = Math.max(1, e.props.maxRows)
+      const shown = rows.length > room && cells.length > 0 ? rows.slice(1) : rows
+      return (
+        <Box flexDirection="column">
+          {shown.slice(0, room)}
           {below}
         </Box>
       )
@@ -1974,6 +2172,19 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+
+  // The quiet band's `/compact` button: it puts the command in the prompt
+  // and leaves the sending to the person. A draft already there is theirs, so
+  // it is not replaced; the toast says what to do instead.
+  on('ui.press', { element: COMPACT_KEY }, async ($, e, next) => {
+    const box = await $.prompt.read()
+    if (box.text.trim().length > 0) {
+      $.ui.toast('The prompt holds a draft. Send or clear it, then press /compact again.')
+    } else {
+      await $.prompt.fill({ text: '/compact', mode: 'replace' })
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('ui.press', { requestId: PANE_ID }, async ($, e, next) => {
     if (!e.element.startsWith(LAYOUT_KEY)) return next(e)

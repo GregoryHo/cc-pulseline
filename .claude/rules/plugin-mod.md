@@ -11,14 +11,16 @@ plugin's full reference; this file is the contract to hold changes to.
 | Surface | Statusline | Band (`AbovePrompt`) | Pane (`/pulseline`) |
 | --- | --- | --- | --- |
 | terminal (Claude Code CLI) | yes, the identity and budget rows | `--layout activity`: the turn in flight only, empty until something runs | switchable: ledger / budgets / compact / rail |
-| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting, always with `--no-icons`, drawn idle as well: `compact` (default) alone, or `rail` / `anchor` as a powerline head with `activity` stacked under it, since those two draw no activity | same switcher, `--no-icons` while the desktop shows it |
+| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting. `quiet` (default) runs no binary: one thin strip kept on screen (`Svg` quota gauges with their reset, cost and `$/h`, `G:` branch; cost alone with no quota reading), plus a row when context or the cache passes its limit, with a `/compact` button for context (`hooks/desktop.ts`). Every path stacks on what the mods beneath draw. `compact` alone, or `rail` / `anchor` as a powerline head with `activity` stacked under it, are the binary's rows, always with `--no-icons` and drawn idle as well | same switcher, `--no-icons` while the desktop shows it |
 | mobile | — | yields: the app draws no `Input`/`Select` | yields |
 | vscode | — | yields: Claude Code for VS Code attaches no surface yet | yields |
 | `-p` / SDK | runs if configured | nothing to draw into | nothing to draw into |
 
 The terminal split is a division of labour: the statusline owns identity
 and budget, the band owns activity, and neither draws the other's rows. The
-desktop has no statusline, so its band carries both. A change that moves
+desktop has no statusline, and its own UI already shows the model, the
+effort, a context ring and every tool, so its default band draws only what
+passes a limit; the binary-drawn desktop layouts carry both. A change that moves
 a row between them changes this table first.
 
 ## Glyph tiers
