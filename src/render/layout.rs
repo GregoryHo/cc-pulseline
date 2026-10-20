@@ -503,7 +503,7 @@ fn assemble_budgets(
             if frame.compact_count > 0 {
                 let marker = format!(
                     "   {}{}",
-                    unicode_glyph(mode, ICON_COMPACT, "~"),
+                    glyph(mode, ICON_COMPACT, "~"),
                     frame.compact_count
                 );
                 trailing.push_str(&colorize(&marker, &p_state.structural, color));
@@ -915,17 +915,13 @@ fn line3_parts(
 
         // 2d: compact boundary marker — ⟳N (icon) / ~N (ascii), structural color.
         if frame.compact_count > 0 {
-            let marker = format!(
-                " {}{}",
-                unicode_glyph(mode, ICON_COMPACT, "~"),
-                frame.compact_count
-            );
+            let marker = format!(" {}{}", glyph(mode, ICON_COMPACT, "~"), frame.compact_count);
             ctx.push_str(&colorize(&marker, &p.structural, color));
         }
 
         // 2e: API-error badge — ⚠API (icon) / !API (ascii), alert_red color.
         if frame.last_api_error_ms.is_some() {
-            let badge = format!(" {}API", unicode_glyph(mode, ICON_API_ERROR, "!"));
+            let badge = format!(" {}API", glyph(mode, ICON_API_ERROR, "!"));
             ctx.push_str(&colorize(&badge, &p.alert_red, color));
         }
 

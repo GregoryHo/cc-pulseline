@@ -58,21 +58,25 @@ pub const PL_TICK: &str = "\u{e0b1}"; //  powerline thin separator (anchor trail
 pub const FRAME_TL: char = '\u{256D}'; // ╭
 pub const FRAME_BL: char = '\u{2570}'; // ╰
 
-/// A segment's prefix: the Nerd Font icon, or its ASCII label where the
-/// render may not draw the Private Use Area (`Unicode` and `Ascii`).
-pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
-    if mode.nerd_font() {
-        format!("{icon} ")
-    } else {
-        ascii.to_string()
-    }
+/// Whether a glyph needs a Nerd Font: any code point in a Private Use Area,
+/// where the patched icons and powerline seams live.
+pub fn is_private_use(glyph: &str) -> bool {
+    glyph
+        .chars()
+        .any(|c| matches!(c as u32, 0xE000..=0xF8FF | 0xF_0000..=0xF_FFFD | 0x10_0000..=0x10_FFFD))
 }
 
-/// [`glyph`] for an icon that is plain Unicode rather than a Nerd Font glyph
-/// (`⟳`, `⚠`, `‖`): drawn under `Unicode` as well as `Icon`, since only the
-/// Private Use Area is missing there.
-pub fn unicode_glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
-    if mode.unicode() {
+/// A segment's prefix: the icon, or its ASCII label where the render may not
+/// draw it — under `Ascii` always, under `Unicode` when the icon is a Nerd
+/// Font glyph. Decided per icon, so a plain-Unicode one (`⟳`, `⚠`, `‖`)
+/// still draws on a surface that only lacks the patched font.
+pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
+    let drawable = match mode {
+        GlyphMode::Icon => true,
+        GlyphMode::Unicode => !is_private_use(icon),
+        GlyphMode::Ascii => false,
+    };
+    if drawable {
         format!("{icon} ")
     } else {
         ascii.to_string()
@@ -88,5 +92,28 @@ pub fn fail_mark(mode: GlyphMode) -> &'static str {
         "\u{2718}"
     } else {
         "x"
+    }
+}
+
+#[cfg(test)]
+mod glyph_tier_tests {
+    use super::*;
+
+    #[test]
+    fn unicode_draws_plain_unicode_icons_and_labels_nerd_font_ones() {
+        assert_eq!(
+            glyph(GlyphMode::Unicode, ICON_COMPACT, "~"),
+            format!("{ICON_COMPACT} ")
+        );
+        assert_eq!(
+            glyph(GlyphMode::Unicode, ICON_API_ERROR, "!"),
+            format!("{ICON_API_ERROR} ")
+        );
+        assert_eq!(glyph(GlyphMode::Unicode, ICON_MODEL, "M:"), "M:");
+        assert_eq!(
+            glyph(GlyphMode::Icon, ICON_MODEL, "M:"),
+            format!("{ICON_MODEL} ")
+        );
+        assert_eq!(glyph(GlyphMode::Ascii, ICON_COMPACT, "~"), "~");
     }
 }

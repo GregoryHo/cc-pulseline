@@ -391,6 +391,12 @@ type State = {
    */
   rootRead: string | null
   /**
+   * Whether `$.session.version()` has answered in this load of the module.
+   * Until it has, every refresh asks again and its answer replaces the held
+   * version, which may be a CLI fallback. See `syncVersion`.
+   */
+  versionFromEngine: boolean
+  /**
    * The manifest's `userConfig` values, as `register`'s second parameter
    * handed them over. Fixed for this activation: a change to them reloads
    * the module, so a closure is the right place for them.
@@ -629,25 +635,35 @@ function todoOf(
 }
 
 /**
- * Writes the engine's own version, while none is held. True once one is.
+ * Writes the engine's own version, until the engine has answered once in
+ * this load of the module. True once it has.
  *
- * Cheap enough for every refresh — one engine call, and none once a version
- * is held — so `refresh` calls it as well as `session.start`: the version is
- * then right from the first draw even where `session.start` raced it, and the
- * one place a test can reach it is the tool path.
+ * The engine's answer wins over whatever is held, because what is held may
+ * be a fallback: the CLI's version from `probeVersion`, or one an older
+ * revision of this module wrote — `$.state` survives the reload that
+ * upgrades the plugin, and 1.7.0 stored the `claude` on PATH. So the held
+ * value is not a reason to stop asking; only the engine's answer is, and the
+ * closure flag that records it starts over with the module, as it should.
+ *
+ * Cheap enough for every refresh — one engine call until it answers, none
+ * after — so `refresh` calls it as well as `session.start`: the version is
+ * right from the first draw even where `session.start` raced it, and the one
+ * place a test can reach it is the tool path. Never rejects.
  */
-async function syncVersion(engine: EngineInterface): Promise<boolean> {
+async function syncVersion(engine: EngineInterface, state: State): Promise<boolean> {
+  if (state.versionFromEngine) return true
   try {
-    const held = await read(engine, sessionFacts)
-    if (held.version !== null) return true
     const { version } = await engine.session.version()
     if (version.length === 0) return false
-    await update(engine, sessionFacts, facts => ({ ...facts, version }))
+    const held = await read(engine, sessionFacts)
+    if (held.version !== version) {
+      await update(engine, sessionFacts, facts => ({ ...facts, version }))
+    }
+    state.versionFromEngine = true
     return true
   } catch {
-    // An engine that does not answer, or an atom it would not read: never
-    // rejects, so a refresh can call it bare. `probeVersion` falls back to
-    // the CLI.
+    // An engine that does not answer, or an atom it would not read. The
+    // next refresh asks again; `probeVersion` falls back to the CLI.
     return false
   }
 }
@@ -666,8 +682,8 @@ async function syncVersion(engine: EngineInterface): Promise<boolean> {
  * when every way fails: the statusline then draws its unknown marker, which
  * is the truth.
  */
-async function probeVersion(engine: EngineInterface): Promise<void> {
-  if (await syncVersion(engine)) return
+async function probeVersion(engine: EngineInterface, state: State): Promise<void> {
+  if (await syncVersion(engine, state)) return
   const held = await read(engine, sessionFacts)
   if (held.version !== null) return
   const fromEnv = await engine.env.get('CLAUDE_CODE_EXECPATH')
@@ -1023,7 +1039,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Before the ladder, because the dev rung is built from the root.
   // Its own statement: `syncVersion` never rejects, and a refused root read
   // must not cost the version its sync.
-  await syncVersion(engine)
+  await syncVersion(engine, state)
   try {
     await syncRoot(engine, state)
   } catch {
@@ -1345,6 +1361,7 @@ export const register: Register = (on, options) => {
     lastCollected: null,
     runSeq: 0,
     rootRead: null,
+    versionFromEngine: false,
     options,
   }
 
@@ -1365,7 +1382,7 @@ export const register: Register = (on, options) => {
     // says anything. `undefined` is what takes it down.
     if (DEBUG) $.ui.status('alive')
     else $.ui.status(undefined)
-    await probeVersion($)
+    await probeVersion($, state)
     try {
       await $.command.register({
         name: 'pulseline',

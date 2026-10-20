@@ -922,4 +922,19 @@ describe("Claude Code's version", () => {
     expect(seen.lastPayload().version).toBeUndefined()
     expect(seen.spawns.some(run => run.argv[0] === 'claude')).toBe(false)
   })
+
+  test('an engine that answers late still replaces the unknown', async ($, on) => {
+    // A refusal is not cached: the next refresh asks again, and the engine's
+    // answer is what the payload carries from then on.
+    const options: { engineVersion: string | null } = { engineVersion: null }
+    const seen = bottom(on, options)
+    await $.tool.call(call('one'))
+    await seen.settle()
+    expect(seen.lastPayload().version).toBeUndefined()
+
+    options.engineVersion = '2.1.299'
+    await $.tool.call(call('two'))
+    await seen.settle()
+    expect(seen.lastPayload().version).toBe('2.1.299')
+  })
 })
