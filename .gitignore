@@ -20,3 +20,4 @@ npm-publish/
 # uncommitted one of these would ship to crates.io from a local
 # `cargo publish --allow-dirty`.
 .arcforge/
+.claude/html-plans/

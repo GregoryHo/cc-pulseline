@@ -108,7 +108,7 @@ Persists `SessionState` across process invocations:
 
 `RenderConfig` controls rendering behavior:
 
-- Glyph mode (Nerd Font icons vs ASCII)
+- Glyph mode (`GlyphMode`: Icon / Unicode / Ascii; see the glyph tiers in `.claude/rules/plugin-mod.md`)
 - Color enable/disable
 - Line caps (`max_tool_lines`, `max_agent_lines`, `max_completed_lines`)
 - Transcript windowing and poll throttle
@@ -130,7 +130,7 @@ Formats the `RenderFrame` into output lines:
 - **L4b**: Running/recent tools with targets (volatile)
 - **L5+**: Activity (agents, todos -- only when active)
 
-Single rendering pipeline: every layout flows through this assembly and is decorated by `apply_pane()`. The exceptions are the layouts that own their full pipeline — see the early-return arms in `render_frame()`.
+Single rendering pipeline for the flat layouts (`None` / `Compact` / `Budgets` / `Console`); `apply_pane()` decorates only `Console`, and `Compact` short-circuits to its own assembly. The pipeline-owning layouts early-return in `render_frame()`.
 
 Applies `WidthDegradeStrategy` when `terminal_width` is set:
 1. Drop activity lines
@@ -143,7 +143,7 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 ### `render/widgets/` -- Atomic Widgets
 
-`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in Icon mode with `·` threshold marks on the empty portion, `======:::--:--` in Ascii), `sparkline` (braille, icon-only), `plot` (normalized braille line plot, icon-only), and `effort` (ordinal pip-ramp). Signatures differ per widget — see the doc comments in `widgets/*.rs`. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
+`gauge` (bracketless marks-on-track — `▰▰▰▰▰▰···──·──` in the Unicode/Icon tiers with `·` threshold marks on the empty portion, `======:::--:--` in Ascii), `sparkline` (braille, Unicode tier: empty under `GlyphMode::Ascii`), `plot` (normalized braille line plot, Unicode tier: empty under `GlyphMode::Ascii`), and `effort` (ordinal pip-ramp). Signatures differ per widget — see the doc comments in `widgets/*.rs`. Ascii-incompatible widgets return an empty string under `GlyphMode::Ascii` so dispatch hubs drop the empty cell cleanly without leaking width. The `gauge` widget's `width` is the visible cell count (no frame); the caller supplies threshold marks, fill colour, and pct.
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
@@ -194,7 +194,7 @@ Agent lifecycle events arrive as progress-type messages:
 
 ## Output Line Format
 
-- **L1**: `M:{model} | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
+- **L1**: `M:{model} | E:{effort} | [T] | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (opt-in — `[segments.config] enabled`, default off)
 - **L3**: `CTX:43% (86.0k/200.0k) | TOK I:10.0k O:20.0k ↗1.5K/s C:50% | $3.50 ($3.50/h)`
 - **Quota**: `Q: 5h: 75% (resets 2h 0m)`

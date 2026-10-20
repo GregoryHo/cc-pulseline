@@ -326,9 +326,10 @@ The contrast floor test (`all_builtin_themes_light_pass_contrast_floor`) enforce
 | `nd-flux` | Design-lab: near-black, electric-lime active, blue→lime→magenta velocity |
 | `nd-glacier` | Design-lab: cold premium slate, glacial-blue + frost-mint, rose alert |
 
-> The full set of theme JSON files lives in `src/themes/`. New themes
-> dropped into that directory are picked up at build time — this table
-> is a curated snapshot, not the source of truth.
+> Built-in themes are the entries of the include_str! table in
+> `src/render/color.rs` (the files live in `src/themes/`). Adding a theme
+> means adding the JSON and registering it there. This table is a curated
+> snapshot, not the source of truth.
 
 Set theme in config:
 

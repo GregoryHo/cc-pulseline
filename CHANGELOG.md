@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-20
+
+Minor release that rethinks what the plugin draws in the Code tab of the
+Claude Code desktop app. 1.7.0 gave the desktop the `compact` head row,
+because the desktop runs no `statusLine` and context, cost and quota had
+nowhere else to go. But the Code tab already shows the model, the effort, the
+permission mode, a context ring and every tool, so that row drew most of
+itself twice. The desktop band now defaults to a new layout, `quiet`, which
+runs no binary at all. It keeps one thin strip on screen with what the Code
+tab lacks (quota gauges, cost and `$/h`, the branch) and opens a row only
+when a value passes its limit. The binary-drawn layouts are still there
+behind a new `desktopLayout` setting, and `rail` / `anchor` join `compact`
+now that `--no-icons` keeps every glyph except the Nerd Font's.
+
+No config key, layout or terminal default moves. A terminal session draws
+exactly what 1.7.0 drew, except that the band no longer hides what other
+mods draw above the prompt. Two things change on the desktop: the default
+band (`quiet` in place of `compact`; set `desktopLayout = "compact"` to keep
+the 1.7.0 row), and what `--no-icons` draws (Unicode in place of ASCII; set
+`display.icons = false` for the ASCII floor). The plugin's binary floor stays
+at 1.7.0: `--no-icons` is not a new flag, and a 1.7.0 binary answers it with
+the ASCII floor, so `rail` or `anchor` on the desktop draws a bare ` | `
+bar until the binary is upgraded. 705 Rust tests (was 702) and 175 hook
+tests (was 143).
+
+### Added
+
+- **`quiet`, the new default desktop band.** It runs no binary. `refresh`
+  works it out from `$.session.usage()`, the last turn's tokens and one
+  `git status --porcelain=v2 --branch` (at most once every 10 seconds per
+  root, as the binary's own git cache does), in the pure helpers of
+  `hooks/desktop.ts`, and publishes it with the rows. The render hook only
+  reads it. One thin strip stays on screen: a small `Svg` gauge per quota
+  window, each a column with its percent over its reset (`resets 4h22m`, red
+  from 85%), then the session cost and `$/h`, and `G:branch* ↑n ↓n` on a row
+  of its own. With no quota reading it draws the cost alone, and outside a
+  repository it leaves `G:` out. Under the strip, a row opens for each value
+  past its limit:
+
+  | alert | opens at | row | action |
+  | --- | --- | --- | --- |
+  | context | 70% (the binary's critical mark) | `Svg` gauge, `CTX 73%`, `146.0k / 200.0k` | a `/compact` button that fills an empty prompt and never sends; a draft is kept and a toast says why |
+  | cache | under 40% read with half or more written (the `C:%` "rebuilding" rung) | `cache 22%`, the share written | none |
+
+  When the band has fewer rows than it needs, the strip goes before an
+  alert. A quota window at 85% raises one `$.ui.notify` per window and
+  reset, kept in the atom so a reload does not repeat it. A main-loop turn
+  of three minutes or more that was not interrupted raises a notification
+  when it ends, while the desktop is attached. Where no channel sends a
+  notification (`isSent: false`), a toast says it instead.
+- **`desktopLayout`**, a `userConfig` setting (a row in `/config`, or
+  `/plugin configure pulseline@cc-pulseline`) that picks the desktop band:
+  `quiet` (default), `compact`, or the powerline `rail` / `anchor` as a head
+  with `activity` run under it in the rows the head leaves. The binary-drawn
+  layouts draw idle as well, as `compact` did in 1.7.0. A stored value
+  outside the four reads as unset, so `quiet`. Changing it reloads the
+  module.
+- **A `Unicode` glyph tier** (`GlyphMode::Unicode`) between `Icon` and
+  `Ascii`: everything but the Private Use Area. Nerd Font icons become their
+  ASCII labels and powerline seams become half blocks (`▐▌`), while braille
+  sparklines and plots, gauge marks, `✓✘` and plain-Unicode icons (`⟳`, `⚠`)
+  stay. `glyph()` decides per icon, so only a PUA icon loses its glyph.
+
+### Changed
+
+- **`--no-icons` asks for the `Unicode` tier, not ASCII.** In 1.7.0 it set
+  `display.icons = false` and dropped the braille sparkline, the plot and
+  the gauge marks, though only the Nerd Font is missing on the desktop. It
+  now lowers `Icon` to `Unicode` after the render config is built, and only
+  ever lowers: `display.icons = false` stays the all-ASCII floor. The
+  powerline layouts keep their filled bar on half-block seams, and a desktop
+  pane on `ledger` gets its CTX sparkline back. `--help` describes the new
+  meaning.
+- **Claude Code's version comes from `$.session.version()`**, the engine the
+  session runs on. The desktop app runs a Claude Code of its own, so asking
+  the `claude` on `PATH` reported the terminal install's version instead.
+  Every refresh asks until the engine answers, and the answer replaces any
+  version held from the CLI fallback. `CLAUDE_CODE_EXECPATH` and then
+  `claude --version` remain the fallback for an engine that refuses the
+  call.
+
+### Fixed
+
+- **The band no longer hides other mods' `AbovePrompt` rows.** The render
+  hook returned its own tree without calling `next(e)` whenever it had rows
+  or a failed run, so another plugin's buttons (`next-steps`' `next:` row,
+  say) vanished: always on the desktop, and on the terminal while activity
+  was held. It now awaits `next(e)` once and draws its rows above what the
+  mods beneath it drew, on every path, the empty one too. `maxRows` clips
+  only pulseline's own rows. The failed-run note is now `mono`, and the hook
+  gains the `.catch(($, e, next) => next(e))` every gating hook carries.
+
+### Internal
+
+- `DrawnOutput` (`types/index.d.ts`) gains `alerts`, `strip` and `notified`,
+  with the new `Alert`, `Strip` and `GitHead` types. All three are optional
+  and read with `?? []` / `?? null`, so a state written by 1.7.0 loads.
+- `GlyphMode::nerd_font()` gates PUA icons and `GlyphMode::unicode()` gates
+  everything else. The render code calls these instead of matching on the
+  variants, and `icons::is_private_use()` is the shared test.
+- New Rust tests: `--no-icons` keeps the rail's half-block seams and the
+  ledger's braille sparkline, and the no-PUA check now also covers `none`
+  and `console`. New hook file `hooks/tests/desktop.test.tsx` covers the
+  quiet strip, alerts, button and notifications, and `render` gains cases
+  for what the mods beneath draw on both surfaces.
+- `.claude/rules/plugin-mod.md` is new: the supported-surfaces table, the
+  glyph tiers, and the hooks-module rules each learned at the cost of a
+  release. `docs/band.md` gains **The quiet band** and drops the
+  sparkline-on-the-desktop known gap, which the `Unicode` tier closes.
+
 ## [1.7.0] - 2026-10-20
 
 Minor release that takes the plugin to the one surface 1.6.0 left dark: the
@@ -1241,6 +1351,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.8.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.0...v1.5.1

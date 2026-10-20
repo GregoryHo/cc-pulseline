@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 174 tests across eight files that run
+It passes `claude plugin validate`, has tests across the eight files in hooks/tests/ that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -174,7 +174,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 174 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), the quiet desktop band's strip,
@@ -510,7 +510,7 @@ hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/desktop.ts             the quiet desktop band's strip, alerts and gauges, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     174 tests
+hooks/tests/*.test.ts(x)     the hook tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```
