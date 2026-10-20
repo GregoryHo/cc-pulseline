@@ -100,6 +100,24 @@ const NOT_TOOL_ACTIVITY = new Set([
 
 const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
 
+/**
+ * The band's layout on the desktop app, where the terminal's is `activity`.
+ *
+ * The desktop's Code tab does not run the `statusLine` command, so the split
+ * the terminal band relies on — identity and budget on the statusline, the
+ * turn in flight above the prompt — leaves the desktop with no context, cost
+ * or quota anywhere. `compact` is the one layout that carries all of them in
+ * two or three rows: identity and budget fused into one head row, activity
+ * under it.
+ */
+const DESKTOP_BAND_LAYOUT = 'compact'
+
+/**
+ * Asks the binary for ASCII glyphs. The desktop app draws text in its own
+ * face, which has none of the Nerd Font's Private Use Area icons.
+ */
+const NO_ICONS = '--no-icons'
+
 /** Button key prefix, so a press can name the layout it asks for. */
 const LAYOUT_KEY = 'layout:'
 
@@ -180,6 +198,7 @@ const binaryChoice = atom({ plugin: 'pulseline', key: 'binary' } as const, null)
 
 const drawnOutput = atom({ plugin: 'pulseline', key: 'output' } as const, {
   rows: [],
+  desktopRows: [],
   paneRows: [],
   // Not `'failed'`: nothing has gone wrong yet, and the band draws the note
   // only for `'failed'`. See `BandRun` in `../types`.
@@ -307,6 +326,8 @@ type Collected = {
   sessionId: string
   agents: readonly AgentInfo[]
   now: number
+  /** Where the session draws, which decides which band runs are made. */
+  surfaces: readonly string[]
 }
 
 /**
@@ -328,6 +349,9 @@ type State = {
   lastRunMs: number
   bandRows: number
   bandCols: number
+  /** The desktop band's box, measured apart: it is not the terminal's. */
+  desktopBandRows: number
+  desktopBandCols: number
   paneHeight: number
   paneCols: number
   /** MCP servers that are serving tools right now, by `$.tool.list()`. */
@@ -625,12 +649,13 @@ async function collect(engine: EngineInterface, state: State): Promise<Collected
   const now = await engine.clock.now()
   state.lastRunMs = now
 
-  const [usage, modelId, sessionId, agents, tools] = await Promise.all([
+  const [usage, modelId, sessionId, agents, tools, surfaces] = await Promise.all([
     engine.session.usage(),
     engine.session.model(),
     engine.session.id(),
     engine.agent.list(),
     engine.tool.list(),
+    engine.session.surfaces(),
   ])
 
   // Which MCP servers are actually serving tools, as against how many are
@@ -668,7 +693,7 @@ async function collect(engine: EngineInterface, state: State): Promise<Collected
     return added ? { ...timings, startedAt, finishedAt } : timings
   })
 
-  return { usage, modelId, sessionId, agents, now }
+  return { usage, modelId, sessionId, agents, now, surfaces }
 }
 
 /**
@@ -885,6 +910,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     await publish(out => ({
       ...out,
       rows: [],
+      desktopRows: [],
       paneRows: [],
       bandRun: 'failed',
       runNote: note,
@@ -908,6 +934,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       await publish(out => ({
         ...out,
         rows: [],
+        desktopRows: [],
         paneRows: [],
         bandRun: 'failed',
         runNote: `engine refused — ${noteText(String(error)).slice(0, 160)}`,
@@ -974,6 +1001,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
   let rows: Span[][] = held.rows
+  // `?? []` for the same reason as `bandRun` below: an object written before
+  // the desktop band existed has no such field.
+  let desktopRows: Span[][] = held.desktopRows ?? []
   // Normalized, because the annotation is a promise about the contract and
   // not about what the host is holding: `$.state` outlives a reload,
   // including the reload that upgrades the plugin, and an object written
@@ -985,40 +1015,88 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   let paneRows: Span[][] = held.paneRows
   let paneNote = held.paneNote
 
-  try {
-    const argv = [
-      binary.path,
-      '--rows',
-      String(state.bandRows),
-      '--columns',
-      String(state.bandCols),
-      // The band is not a second statusline. `activity` is the one layout
-      // that draws no identity and no budget row — those belong to the
-      // statusline, which is always on screen and is the only path that can
-      // sample tokens often enough to rate them. What is left is the turn in
-      // flight, led by the running tools so `--rows 2` outside fullscreen
-      // cuts the cumulative counts rather than the live row. Without this the
-      // band drew whatever layout the person configured: the statusline's own
-      // rows, stacked above the prompt while the statusline drew them below.
-      '--layout',
-      'activity',
-    ]
-    const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
-    rows = run.stdout
-      .split('\n')
-      .filter(line => line.length > 0)
-      .map(spansOf)
-    // Zero rows with a zero exit is the idle band, not a fault — which is why
-    // the health of the run is tracked apart from the count of its rows.
-    bandRun = run.exitCode === 0 ? 'ok' : 'failed'
+  // Which bands to run. An empty roster is a `-p` run, which has always
+  // spawned the terminal's and still does; a session the desktop app hosts
+  // alone has no terminal band to draw, so it is not spawned for.
+  const surfaces = collected.surfaces
+  const onTerminal = surfaces.length === 0 || surfaces.includes('terminal')
+  const onDesktop = surfaces.includes('desktop')
+  // Each run that happens decides the outcome; a failure on either is kept.
+  const done: string[] = []
+  const faults: string[] = []
+
+  if (!onTerminal) rows = []
+  else {
+    try {
+      const argv = [
+        binary.path,
+        '--rows',
+        String(state.bandRows),
+        '--columns',
+        String(state.bandCols),
+        // The band is not a second statusline. `activity` is the one layout
+        // that draws no identity and no budget row — those belong to the
+        // statusline, which is always on screen and is the only path that can
+        // sample tokens often enough to rate them. What is left is the turn in
+        // flight, led by the running tools so `--rows 2` outside fullscreen
+        // cuts the cumulative counts rather than the live row. Without this the
+        // band drew whatever layout the person configured: the statusline's own
+        // rows, stacked above the prompt while the statusline drew them below.
+        '--layout',
+        'activity',
+      ]
+      const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
+      rows = run.stdout
+        .split('\n')
+        .filter(line => line.length > 0)
+        .map(spansOf)
+      // Zero rows with a zero exit is the idle band, not a fault — which is why
+      // the health of the run is tracked apart from the count of its rows.
+      if (run.exitCode === 0) done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
+      else faults.push(`exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`)
+    } catch (error) {
+      faults.push(`run refused — ${noteText(String(error)).slice(0, 160)}`)
+      rows = []
+    }
+  }
+
+  if (!onDesktop) desktopRows = []
+  else {
+    // A run of its own, because the desktop band is a different layout in a
+    // different face: `compact` (see `DESKTOP_BAND_LAYOUT`), with ASCII glyphs.
+    try {
+      const argv = [
+        binary.path,
+        '--rows',
+        String(state.desktopBandRows),
+        '--columns',
+        String(state.desktopBandCols),
+        '--layout',
+        DESKTOP_BAND_LAYOUT,
+        NO_ICONS,
+      ]
+      const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
+      desktopRows = run.stdout
+        .split('\n')
+        .filter(line => line.length > 0)
+        .map(spansOf)
+      if (run.exitCode === 0) {
+        done.push(`${desktopRows.length}r desktop ${state.desktopBandRows}x${state.desktopBandCols}`)
+      } else {
+        faults.push(`desktop exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`)
+      }
+    } catch (error) {
+      faults.push(`desktop run refused — ${noteText(String(error)).slice(0, 160)}`)
+      desktopRows = []
+    }
+  }
+
+  if (onTerminal || onDesktop) {
+    bandRun = faults.length > 0 ? 'failed' : 'ok'
     runNote =
-      run.exitCode === 0
-        ? `${rows.length}r band ${state.bandRows}x${state.bandCols} · ${running.length} running · ${totals.completedTotal} done · ${paneNote}`
-        : `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`
-  } catch (error) {
-    bandRun = 'failed'
-    runNote = `run refused — ${noteText(String(error)).slice(0, 160)}`
-    rows = []
+      faults.length > 0
+        ? faults.join(' · ')
+        : `${done.join(' · ')} · ${running.length} running · ${totals.completedTotal} done · ${paneNote}`
   }
 
   // A reading that did not come back is worth saying out loud: the rows
@@ -1044,6 +1122,10 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         String(state.paneCols),
         '--layout',
         pane.layout,
+        // One pane run serves every surface that shows it, so ASCII as soon
+        // as the desktop is one of them: readable on a terminal, where a
+        // Nerd Font glyph in the desktop's face is a box.
+        ...(onDesktop ? [NO_ICONS] : []),
       ]
       const paneRun = await engine.process.run(paneArgv, { stdin: payload, timeoutMs: 5000 })
       paneRows = paneRun.stdout
@@ -1060,7 +1142,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     }
   }
 
-  await publish(() => ({ rows, bandRun, runNote, paneRows, paneNote }))
+  await publish(() => ({ rows, desktopRows, bandRun, runNote, paneRows, paneNote }))
 }
 
 /**
@@ -1148,6 +1230,8 @@ export const register: Register = (on, options) => {
     lastRunMs: 0,
     bandRows: 3,
     bandCols: 120,
+    desktopBandRows: 3,
+    desktopBandCols: 120,
     paneHeight: 12,
     paneCols: 120,
     mcpServers: new Set(),
@@ -1541,8 +1625,21 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  // The desktop app joining a session already under way. Its band has no rows
+  // until a refresh runs for it, and nothing else would run one before the
+  // next tool call — so a desktop that attached between turns would show no
+  // context or cost until the model next did something.
+  on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
+    const result = await next(e)
+    void drawSoon($, state)
+    return result
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
+    // The terminal and the desktop app, the two surfaces that raise the band.
+    // Each has rows of its own, run for its own layout and glyphs.
+    const desktop = e.surface === 'desktop'
+    if (e.surface !== 'terminal' && !desktop) return next(e)
     // A survey owns the band while it is up; yield rather than fight it.
     if (e.props.hasSurvey) return next(e)
 
@@ -1555,9 +1652,16 @@ export const register: Register = (on, options) => {
     // is running is still the width the next refresh spawns against. A
     // closure field, not an atom, because `$.state.set` is refused while a
     // render hook draws.
-    state.bandRows = e.props.maxRows
     // Two cells go to the band's own collapse marker at the right edge.
-    state.bandCols = Math.max(20, e.props.bodyColumns - 2)
+    if (desktop) {
+      state.desktopBandRows = e.props.maxRows
+      state.desktopBandCols = Math.max(20, e.props.bodyColumns - 2)
+    } else {
+      state.bandRows = e.props.maxRows
+      state.bandCols = Math.max(20, e.props.bodyColumns - 2)
+    }
+    // `?? []`: an atom written before the desktop band existed has no field.
+    const bandRowsHeld = desktop ? (held.desktopRows ?? []) : held.rows
 
     // A run that failed still draws, whether or not a turn is running: a band
     // that silently disappears tells us nothing about why, and this is the
@@ -1591,12 +1695,14 @@ export const register: Register = (on, options) => {
     //
     // Zero rows still yields: before the first tool call there is nothing to
     // hold, and the activity layout draws nothing when nothing has run.
-    if (held.rows.length === 0 && !DEBUG) return next(e)
+    // On the desktop this is only the moment before the first run: `compact`
+    // always draws its head row.
+    if (bandRowsHeld.length === 0 && !DEBUG) return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const notes = DEBUG ? [<Text>{held.runNote}</Text>] : []
     // Clip to what the band shows whole; a taller tree hides behind `n more`.
-    const drawn = held.rows.slice(0, Math.max(1, e.props.maxRows - notes.length))
+    const drawn = bandRowsHeld.slice(0, Math.max(1, e.props.maxRows - notes.length))
 
     return (
       <Box flexDirection="column">
@@ -1611,7 +1717,16 @@ export const register: Register = (on, options) => {
               every character. Splitting them emits `h(Text, style, children)`,
               which is the only form the engine reads.
             */}
-            {spans.map(({ children, ...style }) => <Text {...style}>{children}</Text>)}
+            {/*
+              `mono`, because the desktop draws a Text in a proportional face
+              by default, and the binary packs its columns for a monospaced
+              one. The terminal is always monospaced and ignores it.
+            */}
+            {spans.map(({ children, ...style }) => (
+              <Text {...style} mono>
+                {children}
+              </Text>
+            ))}
           </Box>
         ))}
       </Box>
@@ -1652,7 +1767,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
-    if (e.requestId !== PANE_ID || e.surface !== 'terminal') return next(e)
+    if (e.requestId !== PANE_ID) return next(e)
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
 
     // Both reads come before any other work, so this drawing is subscribed
     // to the rows it shows and to the layout its switcher marks.
@@ -1688,8 +1804,12 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {drawn.map(spans => (
           <Box flexDirection="row">
-            {/* Split for the same reason as the band's rows above. */}
-            {spans.map(({ children, ...style }) => <Text {...style}>{children}</Text>)}
+            {/* Split, and `mono`, for the same reasons as the band's rows above. */}
+            {spans.map(({ children, ...style }) => (
+              <Text {...style} mono>
+                {children}
+              </Text>
+            ))}
           </Box>
         ))}
         {switcher}

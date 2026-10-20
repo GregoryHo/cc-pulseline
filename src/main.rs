@@ -155,6 +155,13 @@ fn main() {
     if let Some(name) = string_flag(&args, "--layout") {
         pulseline_config.layout.name = name;
     }
+    // Before the build for the same reason: `glyph_mode` is resolved from
+    // `display.icons` there. A surface without a Nerd Font — the desktop app
+    // draws text in its own face — asks for the ASCII glyphs per spawn,
+    // without touching the person's config.
+    if args.iter().any(|a| a == "--no-icons") {
+        pulseline_config.display.icons = false;
+    }
 
     let mut render_config = build_render_config(&pulseline_config);
 
@@ -965,6 +972,8 @@ OPTIONS:
                      (none|compact|budgets|console|ledger|rail|anchor|activity)
                      activity = activity rows only, empty when idle — the
                      above-the-prompt band's layout, not a statusline one
+    --no-icons       Render with ASCII glyphs instead of Nerd Font icons
+                     (overrides display.icons)
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.

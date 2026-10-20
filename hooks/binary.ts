@@ -31,8 +31,13 @@
  * — the statusline, drawn a second time above the prompt and now resident —
  * and `bandRun` would read `'ok'`. Refusing it outright is the only way that
  * failure gets said out loud.
+ *
+ * 1.7.0 added `--no-icons`, which every spawn for the desktop app carries.
+ * An older binary ignores an unknown flag the same way, so on the desktop it
+ * would draw Nerd Font glyphs the app's face does not have — a row of boxes,
+ * recorded as `'ok'`.
  */
-export const MIN_VERSION: Version = [1, 6, 0]
+export const MIN_VERSION: Version = [1, 7, 0]
 
 /** How long one probe may take. Five rungs, so this bounds the whole ladder. */
 export const PROBE_TIMEOUT_MS = 400
@@ -134,7 +139,7 @@ export function missingMessage(): string {
  *
  * It names the statusline on purpose. Every version below the floor draws
  * the statusline perfectly well; what they lack is a band flag — `--rows`
- * and `--columns` before 1.5.0, `--layout activity` before 1.6.0 — and none
+ * and `--columns` before 1.5.0, `--layout activity` before 1.6.0, `--no-icons` before 1.7.0 — and none
  * of them refuses. They draw the classic layout into the band at the wrong
  * width, row count or both. Someone reading "too old" would otherwise go
  * looking for a broken statusline that is not broken.

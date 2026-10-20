@@ -7,7 +7,7 @@
     "binaryPath": {
       "type": "string",
       "title": "cc-pulseline binary",
-      "description": "Path to the cc-pulseline binary (1.6.0 or newer). Leave empty to look in the plugin's bin/, ~/.claude/pulseline/, PATH, and the repo's target/release.",
+      "description": "Path to the cc-pulseline binary (1.7.0 or newer). Leave empty to look in the plugin's bin/, ~/.claude/pulseline/, PATH, and the repo's target/release.",
       "default": ""
     }
   },

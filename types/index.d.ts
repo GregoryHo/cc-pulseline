@@ -210,9 +210,16 @@ export type BinaryChoice =
  */
 export type BandRun = 'never' | 'ok' | 'failed'
 
-/** The binary's last output, kept so a reload redraws rather than blanks. */
+/**
+ * The binary's last output, kept so a reload redraws rather than blanks.
+ *
+ * `rows` is the terminal band's, `desktopRows` the desktop app's: the two ask
+ * for different layouts, so one set of rows cannot serve both. `bandRun` and
+ * `runNote` are shared — a failing run on either surface is said on both.
+ */
 export type DrawnOutput = {
   rows: Span[][]
+  desktopRows: Span[][]
   paneRows: Span[][]
   bandRun: BandRun
   runNote: string

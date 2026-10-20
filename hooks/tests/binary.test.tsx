@@ -83,26 +83,26 @@ describe('the version gate', () => {
     expect(parseVersion('cc-pulseline 1.5')).toBeNull()
   })
 
-  test('1.6.0 is the floor', () => {
+  test('1.7.0 is the floor', () => {
     // The floor tracks the release, because each one so far has added the CLI
     // the band of that release drives: `--rows`/`--columns` in 1.5.0,
-    // `--layout activity` in 1.6.0. A binary below it does not refuse the
-    // flag — it warns, falls back to `none` and exits 0 — so the gate is the
-    // only thing that can say so.
-    expect(formatVersion(MIN_VERSION)).toBe('1.6.0')
-    expect(isNewEnough([1, 6, 0])).toBe(true)
-    expect(isNewEnough([1, 5, 1])).toBe(false)
-    // 1.5.9 is still short of 1.6.0; a bigger patch does not make up a minor.
-    expect(isNewEnough([1, 5, 9])).toBe(false)
-    expect(isNewEnough([1, 6, 1])).toBe(true)
+    // `--layout activity` in 1.6.0, `--no-icons` in 1.7.0. A binary below it
+    // does not refuse the flag — it ignores it, or warns and falls back — so
+    // the gate is the only thing that can say so.
+    expect(formatVersion(MIN_VERSION)).toBe('1.7.0')
+    expect(isNewEnough([1, 7, 0])).toBe(true)
+    expect(isNewEnough([1, 6, 0])).toBe(false)
+    // 1.6.9 is still short of 1.7.0; a bigger patch does not make up a minor.
+    expect(isNewEnough([1, 6, 9])).toBe(false)
+    expect(isNewEnough([1, 7, 1])).toBe(true)
     expect(isNewEnough([2, 0, 0])).toBe(true)
     expect(isNewEnough([0, 9, 9])).toBe(false)
   })
 
   test('the too-old message says the statusline is fine, because it is', () => {
-    const message = tooOldMessage('1.5.1')
-    expect(message).toContain('1.5.1 is too old')
-    expect(message).toContain('the band needs 1.6.0 or newer; your statusline is unaffected')
+    const message = tooOldMessage('1.6.0')
+    expect(message).toContain('1.6.0 is too old')
+    expect(message).toContain('the band needs 1.7.0 or newer; your statusline is unaffected')
     expect(message).toContain('npm install -g @cc-pulseline/cc-pulseline')
   })
 
@@ -155,8 +155,8 @@ describe('probing', () => {
     const seen = bottom(on, {
       home: '/home/me',
       binaryVersions: {
-        '/home/me/.claude/pulseline/cc-pulseline': '1.5.1',
-        'cc-pulseline': '1.6.0',
+        '/home/me/.claude/pulseline/cc-pulseline': '1.6.0',
+        'cc-pulseline': '1.7.0',
       },
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
@@ -287,7 +287,7 @@ describe('what the band says when it cannot draw', () => {
     // Following the band's own `npm install -g` line. An install raises no
     // event at all, so a cached failure that never expired would outlive the
     // fix it asked for and the band could not recover inside the session.
-    options.binaryVersion = '1.6.0'
+    options.binaryVersion = '1.7.0'
     await seen.advance(11_000)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r2', file_path: '/n/two' })
     await seen.settle()

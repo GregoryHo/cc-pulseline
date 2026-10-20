@@ -86,9 +86,11 @@ todo progress, per-tool completed counts — and holds that state between
 turns; `/pulseline` opens a pane with the full ledger. The two surfaces are a
 division of labour rather than a replacement: the band draws no identity,
 context or cost row, so keep your `statusLine` setting, which stays the
-steady-state summary.
+steady-state summary. In the Claude Code desktop app, which runs no
+statusline, the band carries the identity and budget row itself — see
+[the desktop app](docs/band.md#the-desktop-app).
 
-Requires cc-pulseline **1.6.0 or newer** on the machine. The plugin finds the
+Requires cc-pulseline **1.7.0 or newer** on the machine. The plugin finds the
 binary on its own — a path you configure, `~/.claude/pulseline/`, `PATH`, or
 a local build — and says what is missing when none of them answers. See
 [the activity band](docs/band.md) for the full picture.
