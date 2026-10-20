@@ -56,10 +56,10 @@ The fixture preserves the user's currently-selected `theme = "..."` so theme exp
 ### Adding a new layout
 
 ```bash
-LAYOUTS=(none compact console ledger)
+LAYOUTS=(none compact budgets console ledger rail anchor activity)
 ```
 
-Add the new name to the array. Keep ordering meaningful (group related layouts so visual diff is easy — current order is minimal → maximal density).
+Add the new name to the array, and to `PREVIEW_LAYOUTS` in `src/preview.rs` in the same order: the two lists mirror each other.
 
 ### Removing / renaming a layout
 

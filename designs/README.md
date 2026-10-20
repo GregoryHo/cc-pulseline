@@ -7,9 +7,8 @@ is then the source of truth.
 
 ## Current docs
 
-| Doc | Scope | Status |
-|---|---|---|
-| [`activity-width-budget.md`](activity-width-budget.md) | Architecture spec for the activity-row width-budget allocator (`render/activity/{budget,builder,cell,truncate}.rs`) — every row knows its char budget; truncators (KeepHead / Sentence / CommandSmart) compose | Shipped. Active reference for `render/activity/`. |
+None at the moment. The activity width-budget spec was absorbed into
+[`docs/architecture.md`](../docs/architecture.md) → Activity Width Budget.
 
 ## When to add / delete a doc
 

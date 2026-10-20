@@ -1,7 +1,7 @@
 //! Build `Cell`s from activity-frame data and pack them into row strings.
 //!
 //! Public entry point: `build_activity_rows(frame, config, palette, available_width)`.
-//! See `designs/activity-width-budget.md` §4 for cell descriptors.
+//! See `docs/architecture.md` → Activity Width Budget for cell descriptors.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

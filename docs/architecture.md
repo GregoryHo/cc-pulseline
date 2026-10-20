@@ -147,6 +147,57 @@ Applies `WidthDegradeStrategy` when `terminal_width` is set:
 
 See [`docs/layouts.md`](layouts.md) for the layout × visual reference and the per-layout default-visuals table.
 
+## Activity Width Budget
+
+`render/activity/` renders the activity rows (L4+) so that every row knows its character budget. Fixed per-tool truncation lengths and a fixed tools-per-row count can't do that: a wide terminal would still cut descriptions at 40 characters, and a narrow one would overflow. The code is the source of truth; this section records why it is shaped the way it is.
+
+### Cell (`cell.rs`)
+
+A row is a `Vec<Cell>`. Each cell has:
+
+- `head`: the unbreakable prefix (icon, label, punctuation), always drawn as is.
+- `body`: optional variable-width content, with a `TruncationStrategy`, a `min_width` (the shortest form that still means something) and an `ideal_width` (the full content). The allocator never gives a body more than `ideal_width`.
+- `tail`: `Pinned` fragments survive whenever the cell is drawn (an agent's elapsed time); `Slack` fragments are the first thing dropped under pressure (a model tag like `[haiku]`).
+- `priority`: `Optional` cells are dropped whole when the row overflows; `Required` cells keep at least their `head`.
+
+Truncation works on plain text and colour is applied afterwards, so a cut never slices an ANSI escape.
+
+### Truncation strategies (`truncate.rs`)
+
+Each strategy is a free function `fn(&str, max_chars) -> String`, picked by content type rather than by a per-tool length:
+
+| Strategy | For | Shape |
+|---|---|---|
+| `KeepHead` | short verb-led labels (skill names, glob patterns) | first N chars + `…` |
+| `KeepTail` | file paths | `.../leaf` when the leaf fits |
+| `KeepMiddle` | both ends matter (a URL's host and leaf) | `prefix…suffix` |
+| `Sentence` | descriptions, prompts, questions | cut at the last word boundary, never mid-word |
+| `CommandSmart` | shell commands | drop the verb and its flags, keep the first quoted payload or path argument, then `Sentence`; falls back to `KeepHead` |
+
+`CommandSmart` exists because the useful part of a shell command is rarely its start: `git commit -m "feat: add foo"` shows as `feat: add foo`, and `sed 's/x/y/' file.txt` as `s/x/y/  file.txt`.
+
+### Row allocator (`budget.rs`)
+
+`pack` fits cells into one row of `available` visible characters:
+
+1. **Survival.** Sum every cell's minimum (head, body `min_width`, pinned tails) plus separators. While that overflows, drop the rightmost `Optional` cell. With none left to drop, accept the overflow.
+2. **Slack.** Hand the remaining width to bodies, left to right, `Required` cells before `Optional` ones, each up to its `ideal_width`.
+3. **Slack tails.** A cell draws its `Slack` tails only if its body got its full `ideal_width`, that is, only when the row had room to spare.
+
+`pack_multi_row` chunks cells by what fits rather than by a fixed count, so the completed-tool counts take one row when they fit and wrap only when they don't. It returns how many cells it placed, so the caller can add a `+N` overflow tail.
+
+### Agent groups (`agent_groups.rs`)
+
+Agents spawned by one assistant turn share the Anthropic API `message.id`, which the transcript collector stores on each `AgentSummary`. `classify` groups by it:
+
+| Group | Rule | Drawn as |
+|---|---|---|
+| `Single` | alone in its `message.id`, or no `message.id` | one row per agent |
+| `Homogeneous` | ≥2 agents, same `message.id`, same `agent_type` | `🤖 type ×N parallel (avg …): first description + N-1 more` |
+| `Heterogeneous` | ≥2 agents, same `message.id`, mixed types | `‖ ×N parallel (avg …): type1: desc1 + type2: desc2 + …` (ASCII `\|\|`) |
+
+`message.id`, not a time window: the JSONL `timestamp` is when Claude Code wrote each block, so agents from one turn can be 20 seconds apart, and a window would miss real batches. Agents from different turns are never folded together, because that would make history look like a parallel fan-out. A missing `message.id` (an older Claude Code, or a cache from an older binary) falls back to one row per agent.
+
 ## Transcript Two-Path Dispatcher
 
 Before JSON parsing, a byte-level pre-filter (`is_ignored_metadata_line`) skips metadata lines (`attachment`/bookkeeping payloads) — these are disproportionately the largest lines, and skipping them roughly halves parse cost on busy sessions. Surviving lines flow through a two-path dispatcher (`apply_transcript_event`):

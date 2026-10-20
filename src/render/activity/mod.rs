@@ -1,4 +1,4 @@
-//! Width-aware activity-row rendering. See `designs/activity-width-budget.md`.
+//! Width-aware activity-row rendering. See `docs/architecture.md` → Activity Width Budget.
 
 pub mod agent_groups;
 pub mod budget;

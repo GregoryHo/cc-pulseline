@@ -116,6 +116,15 @@ tests (was 143).
   glyph tiers, and the hooks-module rules each learned at the cost of a
   release. `docs/band.md` gains **The quiet band** and drops the
   sparkline-on-the-desktop known gap, which the `Unicode` tier closes.
+- `designs/activity-width-budget.md` is retired. Its still-true rationale
+  (cells, truncation strategies, the row allocator, `message.id` agent
+  groups) moves to `docs/architecture.md` → **Activity Width Budget**,
+  which now describes the allocator as the code runs it, and the module
+  docs in `src/render/activity/` point there.
+- `scripts/preview-all-layouts.sh` renders all eight layouts, in step with
+  `cc-pulseline --preview-layouts`, and its kitchen-sink config sets
+  `[segments.config] enabled = true`, so the opt-in L2 row shows.
+- `Cell::ideal_total_width` is `#[cfg(test)]`: only its own tests call it.
 
 ## [1.7.0] - 2026-10-20
 

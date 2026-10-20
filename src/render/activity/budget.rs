@@ -4,7 +4,7 @@
 //! survive and how much body width each gets. Returns the rendered string
 //! (single line, ANSI included).
 //!
-//! See `designs/activity-width-budget.md` §2.4 for the design.
+//! See `docs/architecture.md` → Activity Width Budget for the design.
 
 use super::cell::{Cell, CellPriority};
 

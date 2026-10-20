@@ -1,5 +1,5 @@
 //! End-to-end coverage for the activity-width-budget rendering. Pins the
-//! contract from `designs/activity-width-budget.md` against real
+//! contract from `docs/architecture.md` → Activity Width Budget against real
 //! `PulseLineRunner` calls (transcript ingestion + render).
 
 use std::fs;
