@@ -352,6 +352,11 @@ type State = {
   /** The desktop band's box, measured apart: it is not the terminal's. */
   desktopBandRows: number
   desktopBandCols: number
+  /**
+   * Whether a desktop band has been measured yet. Until then its box is the
+   * 3x120 guess above, so the first measurement is a change by definition.
+   */
+  desktopBandMeasured: boolean
   paneHeight: number
   paneCols: number
   /** MCP servers that are serving tools right now, by `$.tool.list()`. */
@@ -1242,6 +1247,7 @@ export const register: Register = (on, options) => {
     bandCols: 120,
     desktopBandRows: 3,
     desktopBandCols: 120,
+    desktopBandMeasured: false,
     paneHeight: 12,
     paneCols: 120,
     mcpServers: new Set(),
@@ -1664,8 +1670,27 @@ export const register: Register = (on, options) => {
     // render hook draws.
     // Two cells go to the band's own collapse marker at the right edge.
     if (desktop) {
-      state.desktopBandRows = e.props.maxRows
-      state.desktopBandCols = Math.max(20, e.props.bodyColumns - 2)
+      const desktopRows = e.props.maxRows
+      const desktopCols = Math.max(20, e.props.bodyColumns - 2)
+      const moved =
+        !state.desktopBandMeasured ||
+        desktopRows !== state.desktopBandRows ||
+        desktopCols !== state.desktopBandCols
+      state.desktopBandRows = desktopRows
+      state.desktopBandCols = desktopCols
+      state.desktopBandMeasured = true
+      // The terminal band lives with a box one refresh stale, because the next
+      // tool call respawns it at the width measured here. The desktop band is
+      // drawn idle as well — it carries the only context and cost the desktop
+      // shows — so a box guessed before it was measured, or one the window has
+      // since resized away from, would stand until the model next did
+      // something: rows packed for 3x120, clipped rather than refitted.
+      //
+      // Floated, never awaited: the state write at the end of the refresh is
+      // refused while a drawing is in flight, and this one returns first. Gated
+      // on a change, so the redraw that write causes measures the same box and
+      // does not refresh again.
+      if (moved) void drawSoon($, state)
     } else {
       state.bandRows = e.props.maxRows
       state.bandCols = Math.max(20, e.props.bodyColumns - 2)
