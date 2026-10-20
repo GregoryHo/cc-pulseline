@@ -381,7 +381,7 @@ describe('the pane', () => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, panePlaced: false })
 
     const first = await $.command.run({ command: 'pulseline', ...USER_COMMAND })
-    expect(first.text).toContain('wider terminal')
+    expect(first.text).toContain('could not place its pane')
 
     // Left wanted, this second call would take the close branch and claim to
     // have closed a pane that was never placed.
@@ -462,7 +462,7 @@ describe('the desktop app', () => {
     await desktop.unmount()
   })
 
-  test('a terminal session makes no desktop run, and a desktop one no terminal run', async ($, on) => {
+  test('a terminal session makes no desktop run', async ($, on) => {
     const terminalOnly = bottom(on, { stdout: COLOURED_ROWS })
     await warm($)
     await terminalOnly.settle()

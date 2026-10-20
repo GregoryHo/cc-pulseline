@@ -854,6 +854,32 @@ async function syncRoot(engine: EngineInterface, state: State): Promise<void> {
 }
 
 /**
+ * One band run: spawns the binary on the payload and parses its rows.
+ *
+ * Never rejects. `fault` is the note for a run that did not answer cleanly —
+ * a non-zero exit with its stderr, or a refused spawn — and `null` for one
+ * that did, zero rows included.
+ */
+async function runRows(
+  engine: EngineInterface,
+  payload: string,
+  argv: string[],
+): Promise<{ rows: Span[][]; fault: string | null }> {
+  try {
+    const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
+    const rows = run.stdout
+      .split('\n')
+      .filter(line => line.length > 0)
+      .map(spansOf)
+    return run.exitCode === 0
+      ? { rows, fault: null }
+      : { rows, fault: `exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}` }
+  } catch (error) {
+    return { rows: [], fault: `run refused — ${noteText(String(error)).slice(0, 160)}` }
+  }
+}
+
+/**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
  * **Call it through `drawSoon`, never directly.** It guards its own writes
@@ -1000,10 +1026,8 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // The run's results are gathered locally and written once at the end: one
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
-  let rows: Span[][] = held.rows
-  // `?? []` for the same reason as `bandRun` below: an object written before
-  // the desktop band existed has no such field.
-  let desktopRows: Span[][] = held.desktopRows ?? []
+  let rows: Span[][]
+  let desktopRows: Span[][]
   // Normalized, because the annotation is a promise about the contract and
   // not about what the host is holding: `$.state` outlives a reload,
   // including the reload that upgrades the plugin, and an object written
@@ -1021,74 +1045,60 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const surfaces = collected.surfaces
   const onTerminal = surfaces.length === 0 || surfaces.includes('terminal')
   const onDesktop = surfaces.includes('desktop')
-  // Each run that happens decides the outcome; a failure on either is kept.
-  const done: string[] = []
-  const faults: string[] = []
 
-  if (!onTerminal) rows = []
-  else {
-    try {
-      const argv = [
-        binary.path,
-        '--rows',
-        String(state.bandRows),
-        '--columns',
-        String(state.bandCols),
-        // The band is not a second statusline. `activity` is the one layout
-        // that draws no identity and no budget row — those belong to the
-        // statusline, which is always on screen and is the only path that can
-        // sample tokens often enough to rate them. What is left is the turn in
-        // flight, led by the running tools so `--rows 2` outside fullscreen
-        // cuts the cumulative counts rather than the live row. Without this the
-        // band drew whatever layout the person configured: the statusline's own
-        // rows, stacked above the prompt while the statusline drew them below.
-        '--layout',
-        'activity',
-      ]
-      const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
-      rows = run.stdout
-        .split('\n')
-        .filter(line => line.length > 0)
-        .map(spansOf)
-      // Zero rows with a zero exit is the idle band, not a fault — which is why
-      // the health of the run is tracked apart from the count of its rows.
-      if (run.exitCode === 0) done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
-      else faults.push(`exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`)
-    } catch (error) {
-      faults.push(`run refused — ${noteText(String(error)).slice(0, 160)}`)
-      rows = []
-    }
-  }
-
-  if (!onDesktop) desktopRows = []
-  else {
+  // The two band runs are independent, so they run together: in sequence, a
+  // hanging binary held both bands for two timeouts before either updated.
+  const [terminalRun, desktopRun] = await Promise.all([
+    onTerminal
+      ? runRows(engine, payload, [
+          binary.path,
+          '--rows',
+          String(state.bandRows),
+          '--columns',
+          String(state.bandCols),
+          // The band is not a second statusline. `activity` is the one layout
+          // that draws no identity and no budget row — those belong to the
+          // statusline, which is always on screen and is the only path that can
+          // sample tokens often enough to rate them. What is left is the turn in
+          // flight, led by the running tools so `--rows 2` outside fullscreen
+          // cuts the cumulative counts rather than the live row. Without this the
+          // band drew whatever layout the person configured: the statusline's own
+          // rows, stacked above the prompt while the statusline drew them below.
+          '--layout',
+          'activity',
+        ])
+      : null,
     // A run of its own, because the desktop band is a different layout in a
     // different face: `compact` (see `DESKTOP_BAND_LAYOUT`), with ASCII glyphs.
-    try {
-      const argv = [
-        binary.path,
-        '--rows',
-        String(state.desktopBandRows),
-        '--columns',
-        String(state.desktopBandCols),
-        '--layout',
-        DESKTOP_BAND_LAYOUT,
-        NO_ICONS,
-      ]
-      const run = await engine.process.run(argv, { stdin: payload, timeoutMs: 5000 })
-      desktopRows = run.stdout
-        .split('\n')
-        .filter(line => line.length > 0)
-        .map(spansOf)
-      if (run.exitCode === 0) {
-        done.push(`${desktopRows.length}r desktop ${state.desktopBandRows}x${state.desktopBandCols}`)
-      } else {
-        faults.push(`desktop exit ${run.exitCode} — ${noteText(run.stderr).slice(0, 120)}`)
-      }
-    } catch (error) {
-      faults.push(`desktop run refused — ${noteText(String(error)).slice(0, 160)}`)
-      desktopRows = []
-    }
+    onDesktop
+      ? runRows(engine, payload, [
+          binary.path,
+          '--rows',
+          String(state.desktopBandRows),
+          '--columns',
+          String(state.desktopBandCols),
+          '--layout',
+          DESKTOP_BAND_LAYOUT,
+          NO_ICONS,
+        ])
+      : null,
+  ])
+
+  rows = terminalRun?.rows ?? []
+  desktopRows = desktopRun?.rows ?? []
+  // Zero rows with a zero exit is the idle band, not a fault — which is why
+  // the health of the run is tracked apart from the count of its rows.
+  const done: string[] = []
+  const faults: string[] = []
+  if (terminalRun !== null) {
+    if (terminalRun.fault === null) {
+      done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
+    } else faults.push(terminalRun.fault)
+  }
+  if (desktopRun !== null) {
+    if (desktopRun.fault === null) {
+      done.push(`${desktopRows.length}r desktop ${state.desktopBandRows}x${state.desktopBandCols}`)
+    } else faults.push(`desktop ${desktopRun.fault}`)
   }
 
   if (onTerminal || onDesktop) {
@@ -1761,7 +1771,8 @@ export const register: Register = (on, options) => {
       // pane that does not exist, and the next `/pulseline` would take the
       // close branch and report closing it rather than trying again.
       await update($, paneWanted, pane => ({ ...pane, open: false }))
-      return { text: 'pulseline needs a wider terminal to place its pane' }
+      // Not "terminal": the desktop app can decline to place a pane as well.
+      return { text: 'pulseline could not place its pane here — a wider window may fit it' }
     }
     return { text: undefined }
   })
