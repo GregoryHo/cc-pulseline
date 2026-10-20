@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 166 tests across eight files that run
+It passes `claude plugin validate`, has 168 tests across eight files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -174,7 +174,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 166 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 168 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), the quiet desktop band's alerts,
@@ -199,6 +199,13 @@ return. Read it before adding a test.
 Both sites run the binary themselves, because one row count cannot serve a
 small band and a twelve-row pane. The pane run only happens while the pane
 is open.
+
+**The band stacks on the chain, never replaces it.** The hook awaits
+`next(e)` first and draws its rows above whatever the mods beneath it drew
+(another plugin's `AbovePrompt` buttons, say), so installing pulseline hides
+nobody else's band. `maxRows` clips only pulseline's own rows; a taller tree
+scrolls in the engine's window, and with the terminal's two rows outside
+fullscreen, what lies beneath can start scrolled out of view.
 
 **The band's argv names the `activity` layout** (`--layout activity`), the one
 layout that draws no identity and no budget row. That is what makes the two
@@ -489,7 +496,7 @@ hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/desktop.ts             the quiet desktop band's alerts and gauges, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     166 tests
+hooks/tests/*.test.ts(x)     168 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```

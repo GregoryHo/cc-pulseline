@@ -127,9 +127,11 @@ describe('the quiet band', () => {
     const svgs = await ui.findAll({ type: 'Svg' })
     expect(svgs).toHaveLength(1)
     expect(svgs[0]?.props.alt).toBe('Context CTX 73%')
+    // The alert stacks on what the mods beneath draw; it does not replace it.
     const texts = await ui.findAll({ type: 'Text' })
-    expect(texts.map(text => text.text)).toEqual(['CTX 73%', '146.0k / 200.0k'])
-    expect(texts.every(text => text.props.mono === true)).toBe(true)
+    expect(texts.map(text => text.text)).toEqual(['CTX 73%', '146.0k / 200.0k', BENEATH])
+    const own = texts.filter(text => text.text !== BENEATH)
+    expect(own.every(text => text.props.mono === true)).toBe(true)
     const buttons = await ui.findAll({ type: 'Button' })
     expect(buttons.map(button => button.props.label)).toEqual(['/compact'])
 

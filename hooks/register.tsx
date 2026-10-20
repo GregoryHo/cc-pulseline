@@ -1852,6 +1852,13 @@ export const register: Register = (on, options) => {
     // the band again by itself, with nobody calling `$.ui.invalidate`.
     const held = await read($, drawnOutput)
 
+    // What the mods beneath this one draw. The band stacks its rows on top of
+    // it rather than in its place: a hook that answered with its own tree
+    // alone took the whole chain's band, so another mod's `AbovePrompt`
+    // content — a row of buttons, say — vanished whenever this one had rows,
+    // which on the desktop is always.
+    const below = await next(e)
+
     // Measured before anything returns, so a terminal resized while nothing
     // is running is still the width the next refresh spawns against. A
     // closure field, not an atom, because `$.state.set` is refused while a
@@ -1883,12 +1890,36 @@ export const register: Register = (on, options) => {
       state.bandRows = e.props.maxRows
       state.bandCols = Math.max(20, e.props.bodyColumns - 2)
     }
-    // The quiet band: one row for each alert, and nothing at all without one.
-    // No binary rows here, so nothing is drawn from `desktopRows`.
+    // `?? []`: an atom written before the desktop band existed has no field.
+    const bandRowsHeld = desktop ? (held.desktopRows ?? []) : held.rows
+
+    // A run that failed still draws, whether or not a turn is running: a band
+    // that silently disappears tells us nothing about why, and this is the
+    // only place a missing or too-old binary can say so. An install line
+    // nobody sees fixes nothing.
+    //
+    // Keyed on how the run ended rather than on how many rows it produced.
+    // The band asks for the `activity` layout, whose output is empty whenever
+    // nothing is running, so zero rows is the ordinary state between turns —
+    // and `rows.length === 0` here would pin this note over an idle prompt
+    // for the whole session.
+    if (held.bandRun === 'failed' && !DEBUG) {
+      const { Box, Text } = $.ui.resolve(e)
+      return (
+        <Box flexDirection="column">
+          <Text mono>{`pulseline: ${held.runNote}`}</Text>
+          {below}
+        </Box>
+      )
+    }
+
+    // The quiet band: one row for each alert, stacked on what the mods beneath
+    // draw, and only theirs without one. No binary rows here, so nothing is
+    // drawn from `desktopRows`.
     if (e.surface === 'desktop' && desktopLayoutOf(state.options) === QUIET) {
       // `?? []`: an atom written before the quiet band existed has no field.
       const alerts = held.alerts ?? []
-      if (alerts.length === 0) return next(e)
+      if (alerts.length === 0) return below
       const { Box, Text, Button, Svg } = $.ui.resolve(e)
       return (
         <Box flexDirection="column">
@@ -1917,26 +1948,9 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
+          {below}
         </Box>
       )
-    }
-
-    // `?? []`: an atom written before the desktop band existed has no field.
-    const bandRowsHeld = desktop ? (held.desktopRows ?? []) : held.rows
-
-    // A run that failed still draws, whether or not a turn is running: a band
-    // that silently disappears tells us nothing about why, and this is the
-    // only place a missing or too-old binary can say so. An install line
-    // nobody sees fixes nothing.
-    //
-    // Keyed on how the run ended rather than on how many rows it produced.
-    // The band asks for the `activity` layout, whose output is empty whenever
-    // nothing is running, so zero rows is the ordinary state between turns —
-    // and `rows.length === 0` here would pin this note over an idle prompt
-    // for the whole session.
-    if (held.bandRun === 'failed' && !DEBUG) {
-      const { Text } = $.ui.resolve(e)
-      return <Text>{`pulseline: ${held.runNote}`}</Text>
     }
 
     // Drawn whether or not a turn is running, so the band holds the state it
@@ -1958,11 +1972,12 @@ export const register: Register = (on, options) => {
     // hold, and the activity layout draws nothing when nothing has run.
     // On the desktop this is only the moment before the first run: `compact`
     // always draws its head row.
-    if (bandRowsHeld.length === 0 && !DEBUG) return next(e)
+    if (bandRowsHeld.length === 0 && !DEBUG) return below
 
     const { Box, Text } = $.ui.resolve(e)
     const notes = DEBUG ? [<Text>{held.runNote}</Text>] : []
     // Clip to what the band shows whole; a taller tree hides behind `n more`.
+    // Only this mod's own rows: what the mods beneath drew is theirs to size.
     const drawn = bandRowsHeld.slice(0, Math.max(1, e.props.maxRows - notes.length))
 
     return (
@@ -1990,9 +2005,10 @@ export const register: Register = (on, options) => {
             ))}
           </Box>
         ))}
+        {below}
       </Box>
     )
-  })
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'pulseline' }, async ($, e, next) => {
     if ((await read($, paneWanted)).open) {

@@ -48,7 +48,7 @@ test('writing the output atom draws the band again', async ($, on) => {
 
   const second = JSON.stringify(await ui.drawn())
   expect(second).toContain('T:Read: .../three')
-  expect(second).not.toContain(BENEATH)
+  expect(second).toContain(BENEATH)
 
   await ui.unmount()
 })
