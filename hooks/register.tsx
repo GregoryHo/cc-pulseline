@@ -25,6 +25,7 @@ import {
   stripCells,
   stripOf,
 } from './desktop'
+import type { StripCell } from './desktop'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
@@ -1993,28 +1994,37 @@ export const register: Register = (on, options) => {
         )
       })
       if (cells.length > 0) {
-        const parts = cells.flatMap(cell => {
-          const drawn = []
-          if (cell.gauge !== null) {
-            drawn.push(<Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={8} />)
-          }
-          drawn.push(
-            <Text color={cell.color} mono>
-              {cell.label}
-            </Text>,
-          )
-          if (cell.detail !== null) {
-            drawn.push(
+        // A gauge cell is a column: its label line over its detail, so the
+        // detail never wraps beside the gauge. The branch takes a row below.
+        const column = (cell: StripCell) => (
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={1} alignItems="center">
+              {cell.gauge !== null ? <Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={8} /> : null}
+              <Text color={cell.color} mono>
+                {cell.label}
+              </Text>
+            </Box>
+            {cell.detail !== null ? (
               <Text dimColor mono>
                 {cell.detail}
-              </Text>,
-            )
-          }
-          return drawn
-        })
+              </Text>
+            ) : null}
+          </Box>
+        )
+        const gauges = cells.filter(cell => cell.wide !== true)
+        const wide = cells.filter(cell => cell.wide === true)
         rows.unshift(
-          <Box flexDirection="row" gap={1} alignItems="center">
-            {parts}
+          <Box flexDirection="column">
+            {gauges.length > 0 ? (
+              <Box flexDirection="row" gap={2} alignItems="flex-start">
+                {gauges.map(column)}
+              </Box>
+            ) : null}
+            {wide.map(cell => (
+              <Text color={cell.color} mono>
+                {cell.label}
+              </Text>
+            ))}
           </Box>,
         )
       }

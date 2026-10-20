@@ -239,6 +239,8 @@ export type StripCell = {
   /** The label's colour; absent, the surface's own text colour. */
   color?: string
   detail: string | null
+  /** A cell that takes a row of its own, not a column beside the gauges. */
+  wide?: true
 }
 
 /** The strip as cells, in the order drawn; empty when it has nothing to say. */
@@ -251,7 +253,8 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
       gauge: { source: gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8), alt: `Quota ${label}` },
       label,
       ...(quota.percent >= QUOTA_MARKS[1]! ? { color: RED } : {}),
-      detail: reset === null ? null : `resets ${reset}`,
+      // No space inside the span: the column is narrow, and `4h22m` stays on one line.
+      detail: reset === null ? null : `resets ${reset.replace(' ', '')}`,
     }
   })
   if (strip.usd !== undefined) {
@@ -261,7 +264,7 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
       detail: strip.usdPerHour !== undefined ? `$${strip.usdPerHour.toFixed(2)}/h` : null,
     })
   }
-  if (strip.git !== null) cells.push({ gauge: null, label: gitLabel(strip.git), detail: null })
+  if (strip.git !== null) cells.push({ gauge: null, label: gitLabel(strip.git), detail: null, wide: true })
   return cells
 }
 

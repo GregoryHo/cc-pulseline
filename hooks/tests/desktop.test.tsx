@@ -128,6 +128,17 @@ describe('the strip', () => {
       ['G:main* ↑2', null],
     ])
     expect(cells.slice(0, 2).every(cell => cell.gauge?.source.startsWith('<svg'))).toBe(true)
+    // Only the branch takes a row of its own; the rest sit side by side.
+    expect(cells.map(cell => cell.wide === true)).toEqual([false, false, false, true])
+  })
+
+  test('the reset reads tight, with no space in the span', () => {
+    const resetsAt = new Date(STAMP + (4 * 60 + 22) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 15, resetsAt }] }), null, STAMP),
+      STAMP,
+    )
+    expect(cells[0]?.detail).toBe('resets 4h22m')
   })
 
   test('with no quota reading, draws the cost alone', () => {
