@@ -133,13 +133,13 @@ in-terminal agents panel; pairs well with trimming L1 via
 `[segments.identity]` toggles (e.g. `show_style = false`,
 `show_version = false`, `show_project = false`).
 
-The height-degradation ladder (`max_total_lines`) reuses this fused head
-as its final rung: running tools → completed tools → agents → todo →
-merged activity row → quota into L3 → drop config row → **fuse-core**
-(identity + budget + compact quota fused into the row above). But note
-that compact ≠ `none` + `max_total_lines = 2` (idle differs): idle, the
-ladder stops early at the quota merge — L1 and L3+quota keep separate
-rows and fuse-core is never reached — while compact always fuses.
+The height-degradation ladder (`max_total_lines`) ends at fuse-core, which
+packs identity, budget and the compact quota into one row
+(`fused_head_row`). That is the old one-row compact form, and compact
+itself no longer draws it. Compact keeps identity and budget on separate
+packed rows, so idle it matches the ladder's quota-merge stop in row count.
+What sets compact apart is width-aware packing per row, no L2 row, and the
+single fused activity ticker.
 
 ### `budgets` — three parallel gauges
 

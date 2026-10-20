@@ -1,4 +1,4 @@
-//! Truncation strategies. See `designs/activity-width-budget.md` §2.2 / §2.3.
+//! Truncation strategies. See `docs/architecture.md` → Activity Width Budget.
 //! Char-safe throughout: counts use `chars()`, never byte indexing.
 
 const ELLIPSIS: char = '\u{2026}';

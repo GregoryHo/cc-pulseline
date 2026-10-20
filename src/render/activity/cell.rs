@@ -1,5 +1,5 @@
 //! `Cell` data shape consumed by `super::budget::pack`. See
-//! `designs/activity-width-budget.md` §2.1.
+//! `docs/architecture.md` → Activity Width Budget.
 
 use crate::render::activity::truncate::{self, TruncationStrategy};
 use crate::render::color::colorize;
@@ -92,7 +92,8 @@ impl Cell {
     }
 
     /// Width of head + body's `ideal_width` + every tail fragment.
-    /// Used by the allocator to know when to stop allocating slack.
+    /// Only the tests below use it: the allocator works from body widths.
+    #[cfg(test)]
     pub fn ideal_total_width(&self) -> usize {
         let tail: usize = self
             .tail

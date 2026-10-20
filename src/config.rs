@@ -1462,8 +1462,8 @@ pub enum HeightDegradeStrategy {
     MergeQuotaIntoL3,
     /// Drop the L2 config-counts row (static, lowest urgency).
     DropLine2,
-    /// Fuse identity + budget + compact quota into the compact layout's
-    /// single priority-packed head row (the ladder's floor).
+    /// Fuse identity + budget + compact quota into one priority-packed
+    /// head row (`fused_head_row`, the ladder's floor).
     FuseCore,
 }
 

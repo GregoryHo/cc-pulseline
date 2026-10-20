@@ -1,5 +1,5 @@
 //! Group `AgentSummary`s into rendering classes by Anthropic `message.id`.
-//! See `designs/activity-width-budget.md` §3.
+//! See `docs/architecture.md` → Activity Width Budget.
 
 use crate::types::AgentSummary;
 

@@ -26,7 +26,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_CONFIG="${REPO_ROOT}/.claude/pulseline.toml"
 BINARY="${REPO_ROOT}/target/release/cc-pulseline"
 
-LAYOUTS=(none compact console ledger)
+# Keep in step with PREVIEW_LAYOUTS in src/preview.rs (`cc-pulseline --preview-layouts`).
+LAYOUTS=(none compact budgets console ledger rail anchor activity)
 WIDTHS=("$@")
 [[ ${#WIDTHS[@]} -eq 0 ]] && WIDTHS=(140)
 
@@ -120,6 +121,7 @@ show_agent = true
 show_worktree = true
 
 [segments.config]
+enabled = true
 show_claude_md = true
 show_rules = true
 show_memory = true
