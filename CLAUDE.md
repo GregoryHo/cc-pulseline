@@ -47,7 +47,7 @@ cc-pulseline --layout rail    # Render with this layout
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
 cc-pulseline --no-icons       # ASCII glyphs instead of Nerd Font icons
-                              # (overrides display.icons) — the desktop band's
+                              # (overrides display.icons) — used by the desktop app's band, which has no Nerd Font
 ```
 
 Full reference: `print_help()` in `src/main.rs`.

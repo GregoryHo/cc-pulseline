@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-20
+
+Minor release that takes the plugin to the one surface 1.6.0 left dark: the
+Code tab of the Claude Code desktop app. The 1.6.0 split works because the
+terminal draws two things: the statusline under the prompt carries identity,
+context and cost, and the band above it carries activity. The desktop runs no
+`statusLine` command, so that split left context, cost and quota nowhere at
+all. On the desktop the band now asks for `compact`, which puts the identity
+and budget head row above the activity row. It also asks for ASCII glyphs
+through a new `--no-icons` flag, because the app's face has none of the Nerd
+Font's Private Use Area glyphs and each one would draw as a box.
+
+The band's desktop argv names a flag only this release knows, so the plugin
+needs **1.7.0 or newer** on the machine and its version gate moves with it,
+for the same reason it moved in 1.6.0. An older binary does not refuse
+`--no-icons`. It ignores the flag and exits 0, which on the desktop is a row
+of boxes recorded as a successful run. The statusline path is unchanged:
+`--no-icons` is opt-in, no layout, config key or default output moves, and a
+terminal session draws exactly what 1.6.0 drew. 702 Rust tests (was 701) and
+143 hook tests (was 134).
+
+### Added
+
+- **`--no-icons`**: renders with ASCII glyphs instead of Nerd Font icons for
+  this one run, overriding `display.icons` without touching your config. The
+  flag is applied before the render config is built, just as `--layout` is,
+  because `glyph_mode` is resolved from `display.icons` there. It covers
+  every layout, including the coloured powerline seams that only a coloured
+  render emits. `--help` lists it next to `--layout`.
+- **The band and the pane draw in the Claude Code desktop app.** The render
+  hooks now draw on the `desktop` surface as well as `terminal`. `mobile` and
+  `vscode` still yield. The two surfaces get different bands:
+
+  | | terminal | desktop |
+  | --- | --- | --- |
+  | band layout | `activity` | `compact`: identity and budget head row, activity under it |
+  | glyphs | Nerd Font icons | ASCII (`--no-icons`) |
+  | idle band | yields until something has run | always draws: the head row is the only place context and cost show |
+
+  Each surface gets its own run with its own box, and each run is chosen by
+  `$.session.surfaces()`. A session that only the desktop hosts spawns no
+  terminal band, and a terminal session spawns no desktop band. A desktop
+  that attaches mid-session gets drawn from `session.attach` instead of
+  waiting for the next tool call. Every span carries `mono`, because the
+  desktop draws `Text` in a proportional face and the binary packs its
+  columns for a monospaced one. The pane is one run shared by every surface
+  that shows it, and it goes ASCII whenever the desktop is one of those
+  surfaces. TOK/s and the cache sparkline are still missing on the desktop,
+  for the same reason they are missing from the band anywhere.
+
+### Changed
+
+- **The plugin's binary floor moves to 1.7.0** (`hooks/binary.ts`
+  `MIN_VERSION`, and the `binaryPath` description in `plugin.json`). A 1.6.x
+  binary handles the band's terminal run correctly, but it ignores
+  `--no-icons`, so its desktop run would draw Nerd Font glyphs as boxes while
+  `bandRun` read `'ok'`. As before, a rung below the floor is passed over,
+  and the too-old message names the newest copy found and says the
+  statusline is unaffected.
+
+### Internal
+
+- `DrawnOutput` (`types/index.d.ts`) gains `desktopRows` next to `rows`. The
+  two surfaces ask for different layouts, so one set of rows cannot serve
+  both. `bandRun` and `runNote` stay shared, so a failure on either surface
+  is reported on both. A state held from before this release, with no
+  `desktopRows` field, loads as empty.
+- New hook cases for the desktop app (`the desktop app` in `render`). In Rust,
+  `tests/cli_box_overrides.rs` adds a cross-layout check that `--no-icons`
+  leaves no Private Use Area code point in `compact`, `ledger`, `budgets`,
+  `rail`, `anchor` or `activity`. That check runs with colour on and first
+  confirms that the default render does emit PUA glyphs, so it would catch a
+  regression.
+- `docs/band.md` gains **The desktop app**: the terminal/desktop table, the
+  per-surface runs, and two ways to load the plugin there (install it from
+  the marketplace, or set `CLAUDE_CODE_PLUGIN_DIRS` in the user settings
+  `env` block, since `--plugin-dir` cannot be passed to a session the
+  desktop starts). README notes that on the desktop the band carries the
+  identity and budget row itself.
+
 ## [1.6.0] - 2026-10-16
 
 Minor release that closes the stopgap 1.5.1 named. 1.5.1 could only stop
@@ -1161,6 +1241,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.7.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.4.0...v1.5.0

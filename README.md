@@ -16,11 +16,11 @@ Four things at a glance, re-colored live as you work:
 - **Core metrics** — identity on L1 (model · style · version · project · git) and budget on L3 (`CTX% · tokens · cost`) are always visible. Config counts (CLAUDE.md / rules / MCPs / skills …) are an opt-in L2 row.
 - **Threshold alerts** — context shifts to warn at 55% and red at 70%; burn rate turns magenta past $50/h. The numbers recolor themselves — no reading required.
 - **Live activity** — running tools with their targets, agent status, and todo progress stream in on L4+, noise-filtered and capped per segment.
-- **Layouts & themes** — layouts from flat to framed to Powerline single-bar, plus built-in themes and composable per-segment widgets. See [docs/layouts.md](docs/layouts.md).
+- **Layouts & themes** — layouts from flat (`none`) to framed (`console`) to grouped Powerline/capsule rows (`rail` / `anchor`), plus built-in themes and composable per-segment widgets. See [docs/layouts.md](docs/layouts.md).
 
 ## Features
 
-- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity, across layouts from flat to framed to Powerline single-bar (`none`, `console`, `rail`, … — see [docs/layouts.md](docs/layouts.md) for the catalog)
+- **Multi-line metrics dashboard** — Identity, config counts, budget, quota, and live activity, across layouts from flat (`none`) to framed (`console`) to grouped Powerline/capsule rows (`rail` / `anchor`, … — see [docs/layouts.md](docs/layouts.md) for the catalog)
 - **Incremental transcript parsing** — Seek-based JSONL parsing with per-session offsets
 - **Deep observability** — Active tools with targets, agent status, todo tracking
 - **Session-aware** — Concurrent Claude Code sessions tracked independently
@@ -169,7 +169,7 @@ max_lines = 1
 
 ### Layouts & Visual Composition
 
-`[layout].name` picks how rows are arranged and decorated. Layouts ship from flat (`none`) to framed (`console`) to Powerline single-bar (`rail` / `anchor`) — see [docs/layouts.md](docs/layouts.md) for the catalog.
+`[layout].name` picks how rows are arranged and decorated. Layouts range from flat (`none`) to framed (`console`) to grouped Powerline/capsule rows (`rail` / `anchor`) — see [docs/layouts.md](docs/layouts.md) for the catalog (`pane::LayoutStyle` is the source of truth).
 
 ![console and rail layouts](docs/assets/layouts.png)
 
@@ -202,7 +202,7 @@ cc-pulseline --preview          # preview themes (optional theme names)
 cc-pulseline --preview-layouts  # preview every layout (optional widths)
 cc-pulseline --select-theme     # interactively select and apply a theme (--project for project config)
 cc-pulseline --palette-map      # show palette field → UI element mapping (optional theme)
-cc-pulseline --layout rail --columns 120 --rows 3   # one-off overrides, handy for previewing
+cc-pulseline --layout rail --columns 120 --rows 3 --no-icons   # one-off overrides, handy for previewing
 ```
 
 Run `cc-pulseline --help` for the full option reference and the built-in theme list.

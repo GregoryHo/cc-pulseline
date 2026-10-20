@@ -737,7 +737,7 @@ visual = ""
 # delta-time tail.
 name = "none"
 min_width = 60          # skip framing when terminal can't fit this many cols
-max_width = 160         # clamp auto-sized frames to this many cols
+max_width = 140         # clamp auto-sized frames to this many cols
 # cc_margin = 4         # cols subtracted from the detected terminal width
 
 # Per-line separator tint. When true, the `|` between segments uses a
