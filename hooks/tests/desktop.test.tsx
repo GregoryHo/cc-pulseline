@@ -7,14 +7,20 @@ import {
   desktopAlerts,
   formatSpan,
   gaugeSvg,
+  gitLabel,
   hitRate,
+  parseGitStatus,
+  quotaPast,
+  stripCells,
+  stripOf,
 } from '../desktop'
 import { BAND, BENEATH, DESKTOP_BAND, STAMP, bottom, isDesktopBandSpawn } from './harness'
 import type { Spawn } from './harness'
 
 /**
- * The quiet desktop band: empty until context, quota or the cache passes its
- * limit, then a gauge, a line and — for context — a `/compact` button.
+ * The quiet desktop band: one thin strip of quota, cost and the branch, kept
+ * on screen, and a row more only when the context or the cache passes its
+ * limit — the context's with a `/compact` button.
  *
  * The pure half (`hooks/desktop.ts`) is read directly; the rest is driven
  * through the engine, one refresh (a `tool.call`) before each mount.
@@ -24,7 +30,9 @@ const warm = ($: { tool: { call: (e: never) => Promise<unknown> } }, id = 'warm'
   $.tool.call({ tool: 'Read', tool_use_id: id, file_path: '/n/warm' } as never)
 
 const renders = (spawns: Spawn[]) =>
-  spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'claude')
+  spawns.filter(
+    run => run.argv[1] !== '--version' && run.argv[0] !== 'claude' && run.argv[0] !== 'git',
+  )
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   startedAt: STAMP - 2 * 3_600_000,
@@ -44,49 +52,43 @@ const tokens = (read: number, creation: number, input: number) => ({
 /** A reset 47 minutes after the test clock, as the engine names one. */
 const RESETS_AT = new Date(STAMP + 47 * 60_000).toISOString()
 
+/** `git status --porcelain=v2 --branch` on `main`, two ahead, one file changed. */
+const GIT_STATUS = [
+  '# branch.oid 0123456789abcdef',
+  '# branch.head main',
+  '# branch.upstream origin/main',
+  '# branch.ab +2 -0',
+  '1 .M N... 100644 100644 100644 0123 4567 hooks/register.tsx',
+].join('\n')
+
 describe('the alerts', () => {
-  test('none while every value is under its limit', () => {
-    expect(desktopAlerts(usage(), tokens(900, 50, 50), STAMP)).toEqual([])
+  test('none while the context and the cache are under their limits', () => {
+    expect(desktopAlerts(usage(), tokens(900, 50, 50))).toEqual([])
   })
 
   test('context at its limit opens one, with the tokens used', () => {
-    const alerts = desktopAlerts(
-      usage({ context: { window: 200_000, percent: 73 } }),
-      null,
-      STAMP,
-    )
+    const alerts = desktopAlerts(usage({ context: { window: 200_000, percent: 73 } }), null)
     expect(alerts).toEqual([{ kind: 'ctx', percent: 73, used: 146_000, window: 200_000 }])
-    const row = alertRow(alerts[0]!, STAMP)
+    const row = alertRow(alerts[0]!)
     expect(row.label).toBe('CTX 73%')
     expect(row.detail).toBe('146.0k / 200.0k')
     expect(row.compact).toBe(true)
   })
 
-  test('a quota window past its limit carries its reset and the cost rate', () => {
-    const alerts = desktopAlerts(
-      usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 89, resetsAt: RESETS_AT }] }),
-      null,
-      STAMP,
-    )
-    expect(alerts).toHaveLength(1)
-    const row = alertRow(alerts[0]!, STAMP)
-    expect(row.label).toBe('5h 89%')
-    expect(row.detail).toBe('resets 47m  $3.50  $1.75/h')
-    expect(row.compact).toBe(false)
-  })
-
-  test('a quota window under its limit opens nothing', () => {
-    const quiet = usage({ rateLimits: [{ kind: 'seven_day', percentUsed: 84 }] })
-    expect(desktopAlerts(quiet, null, STAMP)).toEqual([])
+  test('quota opens no row: the strip draws it', () => {
+    const full = usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 99 }] })
+    expect(desktopAlerts(full, null)).toEqual([])
+    expect(quotaPast(full).map(quota => quota.window)).toEqual(['five_hour'])
+    expect(quotaPast(usage({ rateLimits: [{ kind: 'seven_day', percentUsed: 84 }] }))).toEqual([])
   })
 
   test('a rebuilding cache opens a hint; a cold start does not', () => {
     // Under 40% read with half or more written: the cache is being rebuilt.
-    const rebuilding = desktopAlerts(usage(), tokens(220, 640, 140), STAMP)
+    const rebuilding = desktopAlerts(usage(), tokens(220, 640, 140))
     expect(rebuilding.map(alert => alert.kind)).toEqual(['cache'])
-    expect(alertRow(rebuilding[0]!, STAMP).detail).toBe('rebuilding · 64% of input is new cache')
+    expect(alertRow(rebuilding[0]!).detail).toBe('rebuilding · 64% of input is new cache')
     // Under 40% read with little written is a cold start, not worth a line.
-    expect(desktopAlerts(usage(), tokens(100, 100, 800), STAMP)).toEqual([])
+    expect(desktopAlerts(usage(), tokens(100, 100, 800))).toEqual([])
     expect(hitRate(tokens(0, 0, 0))).toBeNull()
   })
 
@@ -106,35 +108,112 @@ describe('the alerts', () => {
   })
 })
 
+describe('the strip', () => {
+  test('draws each quota window, the cost and its rate, then the branch', () => {
+    const strip = stripOf(
+      usage({
+        rateLimits: [
+          { kind: 'five_hour', percentUsed: 41, resetsAt: RESETS_AT },
+          { kind: 'seven_day', percentUsed: 22 },
+        ],
+      }),
+      parseGitStatus(GIT_STATUS),
+      STAMP,
+    )
+    const cells = stripCells(strip, STAMP)
+    expect(cells.map(cell => [cell.label, cell.detail])).toEqual([
+      ['5h 41%', 'resets 47m'],
+      ['7d 22%', null],
+      ['$3.50', '$1.75/h'],
+      ['G:main* ↑2', null],
+    ])
+    expect(cells.slice(0, 2).every(cell => cell.gauge?.source.startsWith('<svg'))).toBe(true)
+  })
+
+  test('with no quota reading, draws the cost alone', () => {
+    const cells = stripCells(stripOf(usage(), null, STAMP), STAMP)
+    expect(cells.map(cell => cell.label)).toEqual(['$3.50'])
+  })
+
+  test('a window past its limit draws red', () => {
+    const strip = stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 89 }] }), null, STAMP)
+    expect(stripCells(strip, STAMP)[0]?.color).toBe('#d75f5f')
+  })
+
+  test('reads the branch, its changes and its distance from upstream', () => {
+    expect(parseGitStatus(GIT_STATUS)).toEqual({ branch: 'main', dirty: true, ahead: 2, behind: 0 })
+    const clean = parseGitStatus('# branch.head feat\n# branch.ab +0 -3\n')
+    expect(clean && gitLabel(clean)).toBe('G:feat ↓3')
+    expect(parseGitStatus('')).toBeNull()
+  })
+})
+
 describe('the quiet band', () => {
-  test('is the default, spawns no binary for the band, and yields under every limit', async ($, on) => {
+  test('is the default and spawns no binary for the band', async ($, on) => {
     const seen = bottom(on, { surfaces: ['desktop'] })
     await warm($)
     await seen.settle()
     expect(renders(seen.spawns).filter(isDesktopBandSpawn)).toEqual([])
+    expect(renders(seen.spawns)).toEqual([])
+  })
 
+  test('keeps the strip on screen, above what the mods beneath draw', async ($, on) => {
+    const seen = bottom(on, {
+      surfaces: ['desktop'],
+      gitStatus: GIT_STATUS,
+      usage: { rateLimits: [{ kind: 'five_hour', percentUsed: 41, resetsAt: RESETS_AT }] },
+    })
+    await warm($)
+    await seen.settle()
     const ui = await $.ui.mount(DESKTOP_BAND)
-    expect(JSON.stringify(await ui.drawn())).toContain(BENEATH)
+
+    const svgs = await ui.findAll({ type: 'Svg' })
+    expect(svgs.map(svg => svg.props.alt)).toEqual(['Quota 5h 41%'])
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    expect(texts).toEqual(['5h 41%', 'resets 47m', '$1.53', '$0.01/h', 'G:main* ↑2', BENEATH])
+    // No button while nothing asks for an action.
+    expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   })
 
-  test('context past its limit draws a gauge and a /compact button', async ($, on) => {
+  test('with nothing to draw, draws only what the mods beneath draw', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined } })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    expect(JSON.stringify(await ui.drawn())).toContain(BENEATH)
+    expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+    expect((await ui.findAll({ type: 'Text' })).map(text => text.text)).toEqual([BENEATH])
+    await ui.unmount()
+  })
+
+  test('context past its limit adds a gauge and a /compact button under the strip', async ($, on) => {
     const seen = bottom(on, { surfaces: ['desktop'], usage: { window: 200_000, percent: 73 } })
     await warm($)
     await seen.settle()
     const ui = await $.ui.mount(DESKTOP_BAND)
 
     const svgs = await ui.findAll({ type: 'Svg' })
-    expect(svgs).toHaveLength(1)
-    expect(svgs[0]?.props.alt).toBe('Context CTX 73%')
-    // The alert stacks on what the mods beneath draw; it does not replace it.
+    expect(svgs.map(svg => svg.props.alt)).toEqual(['Context CTX 73%'])
+    // The strip (cost only: no quota reading), the alert, then the chain beneath.
     const texts = await ui.findAll({ type: 'Text' })
-    expect(texts.map(text => text.text)).toEqual(['CTX 73%', '146.0k / 200.0k', BENEATH])
+    expect(texts.map(text => text.text)).toEqual(['$1.53', '$0.01/h', 'CTX 73%', '146.0k / 200.0k', BENEATH])
     const own = texts.filter(text => text.text !== BENEATH)
     expect(own.every(text => text.props.mono === true)).toBe(true)
     const buttons = await ui.findAll({ type: 'Button' })
     expect(buttons.map(button => button.props.label)).toEqual(['/compact'])
 
+    await ui.unmount()
+  })
+
+  test('past its rows, drops the strip before an alert', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { percent: 73 } })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount({ ...DESKTOP_BAND, props: { ...DESKTOP_BAND.props, maxRows: 1 } })
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    expect(texts[0]).toBe('CTX 73%')
+    expect(texts).toContain(BENEATH)
     await ui.unmount()
   })
 
@@ -171,6 +250,7 @@ describe('the quiet band', () => {
     await seen.settle()
     expect(seen.notifications).toEqual(['5h quota at 89%. It resets in 47m.'])
 
+    // The strip draws it; no row of its own, no button.
     const ui = await $.ui.mount(DESKTOP_BAND)
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.map(text => text.text)[0]).toBe('5h 89%')
@@ -190,13 +270,15 @@ describe('the quiet band', () => {
     expect(seen.toasts).toEqual(['7d quota at 92%.'])
   })
 
-  test('a terminal session has no alerts and no notifications', async ($, on) => {
+  test('a terminal session has no strip, no alerts and no notifications', async ($, on) => {
     const seen = bottom(on, {
+      gitStatus: GIT_STATUS,
       usage: { percent: 90, rateLimits: [{ kind: 'five_hour', percentUsed: 99 }] },
     })
     await warm($)
     await seen.settle()
     expect(seen.notifications).toEqual([])
+    expect(seen.spawns.some(run => run.argv[0] === 'git')).toBe(false)
     // The terminal band runs as it always has: the activity layout.
     const run = renders(seen.spawns).at(-1)
     expect(run?.argv[run.argv.indexOf('--layout') + 1]).toBe('activity')

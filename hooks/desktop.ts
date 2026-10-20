@@ -1,6 +1,6 @@
 import type { SessionUsage } from 'claude-code'
 
-import type { Alert, Tokens } from '../types'
+import type { Alert, GitHead, Strip, Tokens } from '../types'
 
 /**
  * The quiet desktop band: what it draws, worked out from figures the module
@@ -8,8 +8,9 @@ import type { Alert, Tokens } from '../types'
  *
  * The Code tab already shows the model, the effort, the permission mode and a
  * context ring, and its transcript lists every tool. What it does not show is
- * cost, quota and the cache, so the quiet band draws nothing until one of
- * those — or the context — passes its limit.
+ * quota, cost, the branch and the cache. So the quiet band keeps one thin
+ * strip of the first three, and adds a row only when the context or the
+ * cache passes its limit.
  */
 
 /**
@@ -40,6 +41,7 @@ export const COMPACT_KEY = 'pulseline:compact'
 
 const AMBER = '#d7875f'
 const RED = '#d75f5f'
+const BLUE = '#7a9cc6'
 
 /** The last turn's input, split into cache read, cache written, and the rest. */
 export function hitRate(tokens: Tokens | null): { read: number; creation: number } | null {
@@ -52,11 +54,10 @@ export function hitRate(tokens: Tokens | null): { read: number; creation: number
 }
 
 /**
- * The alerts for one reading, context first: it is the one with a button.
- *
- * `now` is `$.clock.now()`, the same clock `usage.startedAt` is on.
+ * The alert rows for one reading, context first: it is the one with a button.
+ * Quota has no row of its own; the strip draws it, and `quotaPast` notifies.
  */
-export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null, now: number): Alert[] {
+export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null): Alert[] {
   const alerts: Alert[] = []
 
   const ctx = usage.context.percent
@@ -69,23 +70,6 @@ export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null, now: n
     })
   }
 
-  const usd = usage.cost?.usd
-  const hours = (now - usage.startedAt) / 3_600_000
-  // A rate over the first minute is noise: one turn's cost read as an hour's.
-  const usdPerHour = usd !== undefined && hours >= 1 / 60 ? usd / hours : undefined
-  for (const limit of usage.rateLimits) {
-    if (limit.percentUsed < LIMITS.quota) continue
-    const resetsMs = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt)
-    alerts.push({
-      kind: 'quota',
-      window: limit.kind,
-      percent: limit.percentUsed,
-      ...(Number.isFinite(resetsMs) ? { resetsAt: Math.floor(resetsMs / 1000) } : {}),
-      ...(usd !== undefined ? { usd } : {}),
-      ...(usdPerHour !== undefined ? { usdPerHour } : {}),
-    })
-  }
-
   const hit = hitRate(tokens)
   if (hit !== null && hit.read < CACHE_READ_UNDER && hit.creation >= CACHE_CREATION_AT) {
     alerts.push({ kind: 'cache', ...hit })
@@ -94,9 +78,79 @@ export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null, now: n
   return alerts
 }
 
-/** What a quota alert is notified under: its window and that window's reset. */
-export function alertKey(alert: Alert & { kind: 'quota' }): string {
-  return `${alert.window}@${alert.resetsAt ?? 'unknown'}`
+/** One quota window as the strip holds it. */
+export type QuotaWindow = Strip['quota'][number]
+
+/** The engine's rate-limit windows, their resets as epoch seconds. */
+function quotaWindows(usage: SessionUsage): QuotaWindow[] {
+  return usage.rateLimits.map(limit => {
+    const resetsMs = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt)
+    return {
+      window: limit.kind,
+      percent: limit.percentUsed,
+      ...(Number.isFinite(resetsMs) ? { resetsAt: Math.floor(resetsMs / 1000) } : {}),
+    }
+  })
+}
+
+/** The quota windows at or past their limit: each is notified once per reset. */
+export function quotaPast(usage: SessionUsage): QuotaWindow[] {
+  return quotaWindows(usage).filter(quota => quota.percent >= LIMITS.quota)
+}
+
+/** What a quota window is notified under: the window and its reset. */
+export function quotaKey(quota: QuotaWindow): string {
+  return `${quota.window}@${quota.resetsAt ?? 'unknown'}`
+}
+
+/**
+ * The strip the quiet band keeps on screen: every quota window, the session
+ * cost and its rate, and the branch. `now` is `$.clock.now()`, the clock
+ * `usage.startedAt` is on.
+ */
+export function stripOf(usage: SessionUsage, git: GitHead | null, now: number): Strip {
+  const usd = usage.cost?.usd
+  const hours = (now - usage.startedAt) / 3_600_000
+  // A rate over the first minute is noise: one turn's cost read as an hour's.
+  const usdPerHour = usd !== undefined && hours >= 1 / 60 ? usd / hours : undefined
+  return {
+    quota: quotaWindows(usage),
+    ...(usd !== undefined ? { usd } : {}),
+    ...(usdPerHour !== undefined ? { usdPerHour } : {}),
+    git,
+  }
+}
+
+/**
+ * The branch out of `git status --porcelain=v2 --branch`: its name, whether
+ * the tree has changes, and how far it is ahead of and behind its upstream.
+ * `null` for output that names no branch, as outside a repository.
+ */
+export function parseGitStatus(stdout: string): GitHead | null {
+  let branch: string | null = null
+  let ahead = 0
+  let behind = 0
+  let dirty = false
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith('# branch.head ')) branch = line.slice('# branch.head '.length).trim()
+    else if (line.startsWith('# branch.ab ')) {
+      const [plus, minus] = line.slice('# branch.ab '.length).trim().split(' ')
+      ahead = Math.abs(Number.parseInt(plus ?? '0', 10)) || 0
+      behind = Math.abs(Number.parseInt(minus ?? '0', 10)) || 0
+    } else if (line.length > 0 && !line.startsWith('#')) dirty = true
+  }
+  return branch === null ? null : { branch, dirty, ahead, behind }
+}
+
+/** `G:main* ↑2 ↓1`, as the statusline's identity row draws it. */
+export function gitLabel(git: GitHead): string {
+  return [
+    `G:${git.branch}${git.dirty ? '*' : ''}`,
+    git.ahead > 0 ? `↑${git.ahead}` : null,
+    git.behind > 0 ? `↓${git.behind}` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' ')
 }
 
 /** `five_hour` → `5h`, `seven_day` → `7d`; any other window as the engine names it. */
@@ -141,14 +195,14 @@ export type AlertRow = {
   /** The `Svg` gauge's markup, and what it says for a reader that cannot see it. */
   gauge: { source: string; alt: string } | null
   label: string
-  /** The label's colour: amber for a warning, red past the quota limit. */
+  /** The label's colour: amber for a warning. */
   color: string
   detail: string
   /** Whether the row carries the `/compact` button. */
   compact: boolean
 }
 
-export function alertRow(alert: Alert, now: number): AlertRow {
+export function alertRow(alert: Alert): AlertRow {
   switch (alert.kind) {
     case 'ctx': {
       const label = `CTX ${Math.round(alert.percent)}%`
@@ -158,23 +212,6 @@ export function alertRow(alert: Alert, now: number): AlertRow {
         color: AMBER,
         detail: `${formatTokens(alert.used)} / ${formatTokens(alert.window)}`,
         compact: true,
-      }
-    }
-    case 'quota': {
-      const label = `${windowLabel(alert.window)} ${Math.round(alert.percent)}%`
-      const reset = resetsIn(alert.resetsAt, now)
-      const cost = [
-        alert.usd !== undefined ? `$${alert.usd.toFixed(2)}` : null,
-        alert.usdPerHour !== undefined ? `$${alert.usdPerHour.toFixed(2)}/h` : null,
-      ]
-      return {
-        gauge: { source: gaugeSvg(alert.percent, QUOTA_MARKS, RED), alt: `Quota ${label}` },
-        label,
-        color: RED,
-        detail: [reset === null ? null : `resets ${reset}`, ...cost]
-          .filter((part): part is string => part !== null)
-          .join('  '),
-        compact: false,
       }
     }
     case 'cache':
@@ -188,11 +225,44 @@ export function alertRow(alert: Alert, now: number): AlertRow {
   }
 }
 
-/** The notification a quota alert raises once per window and reset. */
-export function quotaNotice(alert: Alert & { kind: 'quota' }, now: number): string {
-  const reset = resetsIn(alert.resetsAt, now)
-  const head = `${windowLabel(alert.window)} quota at ${Math.round(alert.percent)}%.`
+/** The notification a quota window raises once per reset. */
+export function quotaNotice(quota: QuotaWindow, now: number): string {
+  const reset = resetsIn(quota.resetsAt, now)
+  const head = `${windowLabel(quota.window)} quota at ${Math.round(quota.percent)}%.`
   return reset === null ? head : `${head} It resets in ${reset}.`
+}
+
+/** One cell of the strip: an optional small gauge, a label, a dim detail. */
+export type StripCell = {
+  gauge: { source: string; alt: string } | null
+  label: string
+  /** The label's colour; absent, the surface's own text colour. */
+  color?: string
+  detail: string | null
+}
+
+/** The strip as cells, in the order drawn; empty when it has nothing to say. */
+export function stripCells(strip: Strip, now: number): StripCell[] {
+  const cells: StripCell[] = strip.quota.map(quota => {
+    const label = `${windowLabel(quota.window)} ${Math.round(quota.percent)}%`
+    const fill = quota.percent >= QUOTA_MARKS[1]! ? RED : quota.percent >= QUOTA_MARKS[0]! ? AMBER : BLUE
+    const reset = resetsIn(quota.resetsAt, now)
+    return {
+      gauge: { source: gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8), alt: `Quota ${label}` },
+      label,
+      ...(quota.percent >= QUOTA_MARKS[1]! ? { color: RED } : {}),
+      detail: reset === null ? null : `resets ${reset}`,
+    }
+  })
+  if (strip.usd !== undefined) {
+    cells.push({
+      gauge: null,
+      label: `$${strip.usd.toFixed(2)}`,
+      detail: strip.usdPerHour !== undefined ? `$${strip.usdPerHour.toFixed(2)}/h` : null,
+    })
+  }
+  if (strip.git !== null) cells.push({ gauge: null, label: gitLabel(strip.git), detail: null })
+  return cells
 }
 
 /** The notification a long turn raises when it ends. */
@@ -205,9 +275,13 @@ export function longTurnNotice(durationMs: number): string {
  * each threshold mark. Drawn as an image on the desktop, so its colours hold
  * on a light and a dark theme alike: the track is translucent.
  */
-export function gaugeSvg(percent: number, marks: readonly number[], fill: string): string {
-  const width = 120
-  const height = 10
+export function gaugeSvg(
+  percent: number,
+  marks: readonly number[],
+  fill: string,
+  width = 120,
+  height = 10,
+): string {
   const at = (share: number) => Math.round((width * Math.min(100, Math.max(0, share))) / 100)
   const ticks = marks
     .map(mark => `<rect x="${at(mark)}" width="1" height="${height}" fill="#ffffff" fill-opacity="0.7"/>`)

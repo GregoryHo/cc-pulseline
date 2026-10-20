@@ -15,11 +15,15 @@ import {
   COMPACT_KEY,
   LONG_TURN_MS,
   QUIET,
-  alertKey,
   alertRow,
   desktopAlerts,
   longTurnNotice,
+  parseGitStatus,
+  quotaKey,
   quotaNotice,
+  quotaPast,
+  stripCells,
+  stripOf,
 } from './desktop'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
@@ -27,6 +31,7 @@ import { shouldRefresh } from './throttle'
 import type {
   Alert,
   BandRun,
+  GitHead,
   BinaryChoice,
   DrawnOutput,
   Span,
@@ -420,11 +425,16 @@ type State = {
    */
   options: PluginOptions
   /**
-   * The quota windows already notified, by `alertKey`. Seeded from the atom
+   * The quota windows already notified, by `quotaKey`. Seeded from the atom
    * on the first refresh after a load, then checked and marked with no
    * `await` between, so two refreshes in flight cannot both notify.
    */
   notified: Set<string> | null
+  /**
+   * The strip's branch, read at most once per `GIT_TTL_MS` for one root: a
+   * `git status` on every tool call is a spawn the strip does not need.
+   */
+  git: { at: number; root: string; head: GitHead | null } | null
 }
 
 /**
@@ -1051,6 +1061,39 @@ async function notifyOrToast(engine: EngineInterface, text: string): Promise<voi
   }
 }
 
+/** How long a branch reading stands, as the binary's own git cache does. */
+const GIT_TTL_MS = 10_000
+
+/**
+ * The branch for the strip's `G:` cell, or `null` outside a repository.
+ *
+ * Cached in the closure for `GIT_TTL_MS` per root. A failed or refused run is
+ * a `null` too: the strip then leaves the cell out, which is what it does
+ * outside a repository, and the rest of the band is not worth blanking for it.
+ */
+async function gitHead(
+  engine: EngineInterface,
+  state: State,
+  root: string,
+  now: number,
+): Promise<GitHead | null> {
+  const held = state.git
+  if (held !== null && held.root === root && now - held.at < GIT_TTL_MS) return held.head
+  let head: GitHead | null = null
+  try {
+    const run = await engine.process.run(['git', '-C', root, 'status', '--porcelain=v2', '--branch'], {
+      stdin: '',
+      timeoutMs: 1000,
+    })
+    head = run.exitCode === 0 ? parseGitStatus(run.stdout) : null
+  } catch {
+    // Refused or timed out: no branch to show, as outside a repository.
+    head = null
+  }
+  state.git = { at: now, root, head }
+  return head
+}
+
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Each refresh claims a number and only the newest may publish. Several can
   // be in flight at once — parallel tool calls, a turn event landing beside
@@ -1209,20 +1252,22 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   const onDesktop = surfaces.includes('desktop')
   const quiet = desktopLayoutOf(state.options) === QUIET
 
-  // The quiet band's alerts, and a notification for each quota window that
-  // newly passed its limit. Worked out here, never in the render hook, which
-  // may not write state.
-  const alerts: Alert[] =
-    onDesktop && quiet ? desktopAlerts(collected.usage, facts.tokens, collected.now) : []
+  // The quiet band's strip and alert rows, and a notification for each quota
+  // window that newly passed its limit. Worked out here, never in the render
+  // hook, which may not write state.
+  const drawsQuiet = onDesktop && quiet
+  const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens) : []
+  const strip = drawsQuiet
+    ? stripOf(collected.usage, await gitHead(engine, state, facts.cwd, collected.now), collected.now)
+    : null
   state.notified ??= new Set(held.notified ?? [])
   const toNotify: string[] = []
-  for (const alert of alerts) {
-    if (alert.kind !== 'quota') continue
-    const key = alertKey(alert)
+  for (const quota of drawsQuiet ? quotaPast(collected.usage) : []) {
+    const key = quotaKey(quota)
     if (state.notified.has(key)) continue
     // Marked before the call: a second refresh in flight must not notify it again.
     state.notified.add(key)
-    toNotify.push(quotaNotice(alert, collected.now))
+    toNotify.push(quotaNotice(quota, collected.now))
   }
   for (const text of toNotify) void notifyOrToast(engine, text)
 
@@ -1266,8 +1311,8 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
     } else faults.push(terminalRun.fault)
   }
-  if (onDesktop && quiet) {
-    done.push(`${alerts.length} alert(s) desktop quiet`)
+  if (drawsQuiet) {
+    done.push(`strip + ${alerts.length} alert(s) desktop quiet`)
   } else if (desktopRun !== null) {
     if (desktopRun.fault === null) {
       done.push(`${desktopRows.length}r desktop ${state.desktopBandRows}x${state.desktopBandCols}`)
@@ -1330,6 +1375,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     rows,
     desktopRows,
     alerts,
+    strip,
     notified,
     bandRun,
     runNote,
@@ -1435,6 +1481,7 @@ export const register: Register = (on, options) => {
     versionFromEngine: false,
     options,
     notified: null,
+    git: null,
   }
 
   on('session.start', async ($, e, next) => {
@@ -1913,41 +1960,72 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // The quiet band: one row for each alert, stacked on what the mods beneath
-    // draw, and only theirs without one. No binary rows here, so nothing is
-    // drawn from `desktopRows`.
+    // The quiet band: the strip, then one row for each alert, all stacked on
+    // what the mods beneath draw. Every path keeps `below`. No binary rows
+    // here, so nothing is drawn from `desktopRows`.
     if (e.surface === 'desktop' && desktopLayoutOf(state.options) === QUIET) {
-      // `?? []`: an atom written before the quiet band existed has no field.
+      // `?? []` / `?? null`: an atom written before the quiet band existed
+      // has neither field.
       const alerts = held.alerts ?? []
-      if (alerts.length === 0) return below
+      const cells = stripCells(held.strip ?? { quota: [], git: null }, state.lastRunMs)
       const { Box, Text, Button, Svg } = $.ui.resolve(e)
+      const rows = alerts.map(alert => {
+        const row = alertRow(alert)
+        const parts = [
+          <Text color={row.color} bold mono>
+            {row.label}
+          </Text>,
+          <Text dimColor mono>
+            {row.detail}
+          </Text>,
+        ]
+        if (row.gauge !== null) {
+          parts.unshift(<Svg source={row.gauge.source} alt={row.gauge.alt} width={120} height={10} />)
+        }
+        if (row.compact) {
+          // The press raises `ui.press`, handled below; this is its bottom.
+          parts.push(<Button key={COMPACT_KEY} label="/compact" onPress={() => {}} />)
+        }
+        return (
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {parts}
+          </Box>
+        )
+      })
+      if (cells.length > 0) {
+        const parts = cells.flatMap(cell => {
+          const drawn = []
+          if (cell.gauge !== null) {
+            drawn.push(<Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={8} />)
+          }
+          drawn.push(
+            <Text color={cell.color} mono>
+              {cell.label}
+            </Text>,
+          )
+          if (cell.detail !== null) {
+            drawn.push(
+              <Text dimColor mono>
+                {cell.detail}
+              </Text>,
+            )
+          }
+          return drawn
+        })
+        rows.unshift(
+          <Box flexDirection="row" gap={1} alignItems="center">
+            {parts}
+          </Box>,
+        )
+      }
+      if (rows.length === 0) return below
+      // Past `maxRows`, the strip goes before an alert: an alert asks for an
+      // action, the strip is there to glance at.
+      const room = Math.max(1, e.props.maxRows)
+      const shown = rows.length > room && cells.length > 0 ? rows.slice(1) : rows
       return (
         <Box flexDirection="column">
-          {alerts.slice(0, Math.max(1, e.props.maxRows)).map(alert => {
-            const row = alertRow(alert, state.lastRunMs)
-            const cells = [
-              <Text color={row.color} bold mono>
-                {row.label}
-              </Text>,
-              <Text dimColor mono>
-                {row.detail}
-              </Text>,
-            ]
-            if (row.gauge !== null) {
-              cells.unshift(
-                <Svg source={row.gauge.source} alt={row.gauge.alt} width={120} height={10} />,
-              )
-            }
-            if (row.compact) {
-              // The press raises `ui.press`, handled below; this is its bottom.
-              cells.push(<Button key={COMPACT_KEY} label="/compact" onPress={() => {}} />)
-            }
-            return (
-              <Box flexDirection="row" gap={1} alignItems="center">
-                {cells}
-              </Box>
-            )
-          })}
+          {shown.slice(0, room)}
           {below}
         </Box>
       )

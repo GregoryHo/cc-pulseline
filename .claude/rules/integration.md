@@ -1,9 +1,10 @@
 # Claude Code Integration
 
 > The statusline runs in the terminal CLI only. The Claude Code desktop app's
-> Code tab does not run `statusLine.command`; there the plugin's band draws
-> alerts for context, quota and the cache (`quiet`, the default), or the
-> identity and budget rows (`compact`, `rail`, `anchor`). See `plugin-mod.md`.
+> Code tab does not run `statusLine.command`; there the plugin's band draws a
+> strip of quota, cost and branch with alerts for context and the cache
+> (`quiet`, the default), or the identity and budget rows (`compact`, `rail`,
+> `anchor`). See `plugin-mod.md`.
 
 ## Hook Lifecycle
 

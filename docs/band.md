@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 168 tests across eight files that run
+It passes `claude plugin validate`, has 174 tests across eight files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -174,11 +174,11 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 168 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 174 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
-`$.state` surviving a reload (`state`), the quiet desktop band's alerts,
-button and notifications (`desktop`), and what the band and pane actually
+`$.state` surviving a reload (`state`), the quiet desktop band's strip,
+alerts, button and notifications (`desktop`), and what the band and pane actually
 draw (`render`) — colours, row clipping against `maxRows`, the width and the
 layout reaching the binary, when the band yields and when it speaks, the
 pane's switcher, and the desktop app's own runs (`the desktop app` in
@@ -283,9 +283,9 @@ there are not the terminal's, and each changes what the band asks for:
 | | terminal | desktop |
 | --- | --- | --- |
 | statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
-| band layout | `activity` | the `desktopLayout` setting: `quiet` (default — no binary run; alerts only, see below), `compact` (identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
+| band layout | `activity` | the `desktopLayout` setting: `quiet` (default — no binary run; a strip and alerts, see below), `compact` (identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
 | glyphs | Nerd Font icons | Unicode (`--no-icons`): no Private Use Area glyphs, which the app's face lacks — icons become ASCII labels and powerline seams half blocks `▐▌`; braille, gauges and `✓✘` stay |
-| idle band | yields until something has run | `quiet`: yields until an alert opens. The others always draw: the head row is the only place context and cost show |
+| idle band | yields until something has run | always draws: `quiet` its strip of quota, cost and branch (only what the mods beneath draw when it has no reading at all); the others their head row, the only place context and cost show |
 
 The split in **What it draws** above is a terminal fact. On the desktop it
 would leave context, cost and quota nowhere at all, so the desktop band draws
@@ -296,24 +296,38 @@ they are missing from the band anywhere (**Known gaps**).
 
 The Code tab already shows the model and effort, the permission mode, a
 context ring, and every tool in the transcript, so `compact` drew most of
-its row twice. `quiet` draws only what the Code tab lacks, and only when it
-needs a look. `refresh` works the alerts out from `$.session.usage()` and the
-last turn's tokens (`hooks/desktop.ts`) and publishes them with the rows; the
-render hook only reads them. Each alert is one row:
+its row twice. `quiet` draws only what the Code tab lacks. `refresh` works it
+out from `$.session.usage()`, the last turn's tokens and one `git status`
+(`hooks/desktop.ts`) and publishes it with the rows; the render hook only
+reads it.
+
+One thin strip stays on screen: a small `Svg` gauge per quota window with
+its percent and reset (red from 85%), the session cost and `$/h`, and
+`G:branch* ↑n ↓n`. With no quota reading it draws the cost alone; outside a
+repository it leaves `G:` out. The branch is read with `git status
+--porcelain=v2 --branch` at most once every 10 seconds per root, as the
+binary's own git cache does. `S:` and the activity rows are not drawn: the
+Code tab shows the turn, and the pane keeps the rest.
+
+Under the strip, a row opens for each value past its limit:
 
 | alert | opens at | row | action |
 | --- | --- | --- | --- |
 | context | 70% (the binary's critical mark) | `Svg` gauge, `CTX 73%`, `146.0k / 200.0k` | a `/compact` button that fills an empty prompt, never sends; a draft is kept and a toast says why |
-| quota | a window at 85% | `Svg` gauge, `5h 89%`, the reset, cost and `$/h` | one `$.ui.notify` per window and reset, kept in the atom so a reload does not repeat it |
 | cache | under 40% read with half or more written (the `C:%` "rebuilding" rung) | `cache 22%`, the share written | none |
+
+Quota has no row of its own: the strip draws it. A window at 85% raises one
+`$.ui.notify` per window and reset, kept in the atom so a reload does not
+repeat it. When the band has fewer rows than it needs, the strip goes before
+an alert. Every path, the empty one too, stacks on what the mods beneath draw.
 
 A turn on the main loop that runs three minutes or more, not interrupted,
 raises a notification when it ends, wherever the desktop is attached. Where
 no channel sends a notification (`isSent: false`, which a session the desktop
 hosts alone can answer), a toast says it instead.
 
-Not yet seen on a real desktop: whether a one-row band clips the 10px-high
-`Svg`. The gauge is fixed at 120x10 CSS pixels.
+Not yet seen on a real desktop: whether a one-row band clips an `Svg`. The
+alert gauge is fixed at 120x10 CSS pixels, the strip's at 64x8.
 
 Every span is drawn with `mono`. The desktop draws a `Text` in a proportional
 face by default and the binary packs its columns for a monospaced one; the
@@ -494,9 +508,9 @@ hooks/register.tsx           the hooks, the atoms, and the resolver
 hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
-hooks/desktop.ts             the quiet desktop band's alerts and gauges, pure
+hooks/desktop.ts             the quiet desktop band's strip, alerts and gauges, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     168 tests
+hooks/tests/*.test.ts(x)     174 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```
