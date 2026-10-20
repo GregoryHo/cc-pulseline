@@ -721,9 +721,10 @@ fn build_tool_rows(
     if !spec.show_targets {
         return rows;
     }
-    let arrow_glyph = match config.glyph_mode {
-        GlyphMode::Icon => ICON_RUNNING.0,
-        GlyphMode::Ascii => ICON_RUNNING.1,
+    let arrow_glyph = if config.glyph_mode.unicode() {
+        ICON_RUNNING.0
+    } else {
+        ICON_RUNNING.1
     };
     let arrow_w = visible_width(arrow_glyph) + 1; // arrow + trailing space
     for t in frame.tools.iter().take(config.max_tool_lines.max(1)) {
@@ -778,9 +779,10 @@ fn build_tool_ticker_row(
         parts.push(format!("{check}{label}"));
     }
 
-    let arrow_glyph = match config.glyph_mode {
-        GlyphMode::Icon => ICON_RUNNING.0,
-        GlyphMode::Ascii => ICON_RUNNING.1,
+    let arrow_glyph = if config.glyph_mode.unicode() {
+        ICON_RUNNING.0
+    } else {
+        ICON_RUNNING.1
     };
     let arrow_w = visible_width(arrow_glyph) + 1;
     let shown: Vec<&crate::types::ToolSummary> = frame

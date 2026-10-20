@@ -66,6 +66,9 @@ pub fn tier(config: &RenderConfig) -> SeamTier {
     }
     match config.glyph_mode {
         GlyphMode::Ascii => SeamTier::AsciiFloor,
+        // No patched font: the powerline seams are Private Use Area glyphs,
+        // so the half blocks are the richest bar this render can draw.
+        GlyphMode::Unicode => SeamTier::Blocks,
         GlyphMode::Icon => match config.pane_seams {
             LayoutSeams::Powerline => SeamTier::Powerline,
             LayoutSeams::Blocks => SeamTier::Blocks,

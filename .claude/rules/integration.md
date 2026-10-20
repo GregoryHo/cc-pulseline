@@ -1,5 +1,9 @@
 # Claude Code Integration
 
+> The statusline runs in the terminal CLI only. The Claude Code desktop app's
+> Code tab does not run `statusLine.command`; there the plugin's band draws the
+> identity and budget rows instead. See `plugin-mod.md`.
+
 ## Hook Lifecycle
 
 - Claude Code pipes JSON to cc-pulseline's stdin on each UI state change

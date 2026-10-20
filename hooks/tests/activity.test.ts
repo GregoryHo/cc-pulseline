@@ -901,3 +901,25 @@ describe('the spawn itself', () => {
     expect(payload.context_window?.context_window_size).toBe(1_000_000)
   })
 })
+
+describe("Claude Code's version", () => {
+  test('is the engine the session runs on, not the claude on PATH', async ($, on) => {
+    // The desktop app runs a Claude Code of its own. Asking the CLI there
+    // reported the person's terminal install — the harness's CLI answers
+    // 2.1.296 — over the session's own engine.
+    const seen = bottom(on, { engineVersion: '2.1.299' })
+    await $.tool.call(call('one'))
+    await seen.settle()
+    expect(seen.lastPayload().version).toBe('2.1.299')
+  })
+
+  test('an engine that will not say leaves the version unknown on the tool path', async ($, on) => {
+    // The CLI fallback is `session.start`'s alone, so a refresh never waits
+    // on `claude --version`; the binary draws its unknown marker meanwhile.
+    const seen = bottom(on, { engineVersion: null })
+    await $.tool.call(call('one'))
+    await seen.settle()
+    expect(seen.lastPayload().version).toBeUndefined()
+    expect(seen.spawns.some(run => run.argv[0] === 'claude')).toBe(false)
+  })
+})

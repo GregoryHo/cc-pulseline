@@ -82,7 +82,7 @@ pub fn render(
     mode: GlyphMode,
     color_enabled: bool,
 ) -> String {
-    if matches!(mode, GlyphMode::Ascii) {
+    if !mode.unicode() {
         return String::new();
     }
     let raw = render_glyphs_timed(samples);

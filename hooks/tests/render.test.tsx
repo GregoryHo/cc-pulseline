@@ -552,6 +552,25 @@ describe('the desktop app', () => {
     expect(after.some(isDesktopBandSpawn)).toBe(true)
   })
 
+  test('the desktop band draws the layout the setting names', { options: { desktopLayout: 'rail' } }, async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await warm($)
+    await seen.settle()
+    const run = renders(seen.spawns).filter(isDesktopBandSpawn).at(-1)
+    // The powerline bar, on the half-block seams `--no-icons` leaves it.
+    expect(layoutOf(run)).toBe('rail')
+    expect(run?.argv).toContain('--no-icons')
+  })
+
+  test('an unknown desktop layout falls back to compact', { options: { desktopLayout: 'ledger' } }, async ($, on) => {
+    // `ledger` is not among the field's options, so the engine reads it as
+    // unset and the default stands.
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await warm($)
+    await seen.settle()
+    expect(layoutOf(renders(seen.spawns).filter(isDesktopBandSpawn).at(-1))).toBe('compact')
+  })
+
   test('the mobile app is not drawn on', async ($, on) => {
     bottom(on, { stdout: COLOURED_ROWS, surfaces: ['mobile'] })
     await warm($)

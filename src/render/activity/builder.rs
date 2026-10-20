@@ -664,9 +664,10 @@ fn build_agent_single_cell(
     let completed = a.is_completed();
 
     let prefix_glyph = if completed {
-        match mode {
-            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
-            GlyphMode::Ascii => "A:".to_string(),
+        if mode.unicode() {
+            format!("{ICON_AGENT_DONE} ")
+        } else {
+            "A:".to_string()
         }
     } else {
         glyph(mode, ICON_AGENT, "A:")
@@ -736,7 +737,7 @@ fn build_agent_single_cell(
     if spec.show_model {
         tail.extend(model_slack_tail(&a.model, p, color));
     }
-    if completed && mode == GlyphMode::Ascii {
+    if completed && !mode.unicode() {
         tail.push(TailFragment::Slack {
             text: colorize(" [done]", &p.structural, color),
             width: 7,
@@ -828,9 +829,10 @@ fn build_agent_homogeneous_cell(
     let has_body = spec.show_description && !descriptions.is_empty();
 
     let prefix_glyph = if all_completed {
-        match mode {
-            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
-            GlyphMode::Ascii => "A:".to_string(),
+        if mode.unicode() {
+            format!("{ICON_AGENT_DONE} ")
+        } else {
+            "A:".to_string()
         }
     } else {
         glyph(mode, ICON_AGENT, "A:")
@@ -902,9 +904,10 @@ fn build_agent_heterogeneous_cell(
     let all_completed = group.iter().all(|a| a.is_completed());
 
     let prefix_glyph = if all_completed {
-        match mode {
-            GlyphMode::Icon => format!("{ICON_AGENT_DONE} "),
-            GlyphMode::Ascii => "||".to_string(),
+        if mode.unicode() {
+            format!("{ICON_AGENT_DONE} ")
+        } else {
+            "||".to_string()
         }
     } else {
         glyph(mode, ICON_GROUP_PARALLEL.0, ICON_GROUP_PARALLEL.1)

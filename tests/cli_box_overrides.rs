@@ -199,3 +199,59 @@ fn no_icons_draws_every_layout_without_nerd_font_glyphs() {
         }
     }
 }
+
+#[test]
+fn no_icons_keeps_the_powerline_bar_on_half_block_seams() {
+    // `--no-icons` drops only the Private Use Area. The rail still draws its
+    // filled bar — a background on every segment, joined by the Unicode half
+    // blocks the `Blocks` seam tier uses — where the ASCII floor would draw a
+    // bare ` | ` with no fill.
+    let lines = render_with(
+        &[
+            "--rows",
+            "3",
+            "--columns",
+            "120",
+            "--layout",
+            "rail",
+            "--no-icons",
+        ],
+        false,
+    );
+    let joined = lines.join("\n");
+    assert!(
+        joined.contains("\x1b[48;5;"),
+        "the rail keeps its background fill under --no-icons: {joined:?}"
+    );
+    assert!(
+        joined.contains('\u{2590}') || joined.contains('\u{258c}'),
+        "the rail joins its segments with half blocks under --no-icons: {joined:?}"
+    );
+}
+
+#[test]
+fn no_icons_keeps_the_braille_sparkline() {
+    // The sparkline is braille, not a Nerd Font glyph, so a face without the
+    // patched font can still draw it.
+    let lines = render_with(
+        &[
+            "--rows",
+            "14",
+            "--columns",
+            "100",
+            "--layout",
+            "ledger",
+            "--no-icons",
+        ],
+        false,
+    );
+    let ctx = lines
+        .iter()
+        .map(|line| strip_ansi(line))
+        .find(|line| line.contains("CTX"))
+        .expect("the ledger labels a CTX row");
+    assert!(
+        ctx.chars().any(|c| ('\u{2800}'..='\u{28ff}').contains(&c)),
+        "the ledger's CTX row keeps its braille sparkline under --no-icons: {ctx}"
+    );
+}

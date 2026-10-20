@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 cc-pulseline is a high-performance CLI tool that renders a multi-line statusline for Claude Code. It reads JSON from stdin (the Claude Code statusline payload) and outputs formatted text lines to stdout. The binary is designed to be called repeatedly by the Claude Code statusline hook.
 
+The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline, so its band carries the identity and budget rows itself. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
+
 ## Build & Test Commands
 
 ```bash
@@ -23,7 +25,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 144 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 148 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
@@ -46,8 +48,8 @@ cc-pulseline --layout rail    # Render with this layout
                               # plugin band's layout, not a statusline one
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
-cc-pulseline --no-icons       # ASCII glyphs instead of Nerd Font icons
-                              # (overrides display.icons) — used by the desktop app's band, which has no Nerd Font
+cc-pulseline --no-icons       # No Nerd Font glyphs (GlyphMode::Unicode): ASCII labels, half-block seams, braille kept
+                              # (only lowers Icon; display.icons = false stays ASCII) — the desktop band's
 ```
 
 Full reference: `print_help()` in `src/main.rs`.

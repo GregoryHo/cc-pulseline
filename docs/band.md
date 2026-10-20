@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 144 tests across seven files that run
+It passes `claude plugin validate`, has 148 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -174,7 +174,7 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 144 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 148 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
@@ -275,8 +275,8 @@ there are not the terminal's, and each changes what the band asks for:
 | | terminal | desktop |
 | --- | --- | --- |
 | statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
-| band layout | `activity` | `compact`: identity and budget in one head row, activity under it |
-| glyphs | Nerd Font icons | ASCII (`--no-icons`): the app's face has no Private Use Area glyphs |
+| band layout | `activity` | the `desktopLayout` setting: `compact` (default — identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` |
+| glyphs | Nerd Font icons | Unicode (`--no-icons`): no Private Use Area glyphs, which the app's face lacks — icons become ASCII labels and powerline seams half blocks `▐▌`; braille, gauges and `✓✘` stay |
 | idle band | yields until something has run | always draws: the head row is the only place context and cost show |
 
 The split in **What it draws** above is a terminal fact. On the desktop it
@@ -295,6 +295,11 @@ spawns no desktop one. A desktop that attaches mid-session gets its run from
 one `bandRun` and `runNote`, so a failure on either is said on both. The pane
 is one run for whichever surfaces show it, with `--no-icons` whenever the
 desktop is among them.
+
+`desktopLayout` is a `userConfig` field, so it is a row in `/config` (or
+`/plugin configure pulseline@cc-pulseline`), and changing it reloads the
+module. Its `options` are exactly the layouts that carry identity and budget
+in a few rows; a stored value outside them reads as unset, so `compact`.
 
 `mobile` and `vscode` still yield: the mobile app draws no `Input` or
 `Select`, and VS Code attaches no surface yet.
@@ -374,7 +379,7 @@ field, which the hooks module does not use.
 | Agents | `$.agent.list()` |
 | Context, cost, rate limits | `$.session.usage()` |
 | Token breakdown | `turn.complete`'s `e.usage` (per turn, not per tick) |
-| Claude Code's version | `claude --version`, probed once. `CLAUDE_CODE_EXECPATH` is tried first and is never there — see below |
+| Claude Code's version | `$.session.version()`, the engine the session runs on — which is not always the `claude` on `PATH`: the desktop app runs a Claude Code of its own. Asked on every refresh until it answers; `session.start` alone falls back to `CLAUDE_CODE_EXECPATH` (never there) and then `claude --version` |
 | Effort level | `classic.PostToolUse`'s and `classic.Stop`'s `e.effort.level`. Two hooks because `BaseHookInput.effort` rides only on the hooks that fire "within a tool-use context … absent for session-lifecycle hooks": `PostToolUse` is the frequent one, `Stop` is all a turn with no tool call in it has |
 | Output style | `prompt.compose`'s `e.outputStyle` |
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
@@ -422,7 +427,6 @@ hook draws.
 | The band's first draw of a session, at the measured width | `session.start` refreshes before anything has drawn, so that spawn uses the closure's initial `3x120`. The render hook measures `maxRows` and `bodyColumns` but cannot act on it: `$.state.set` is refused while a drawing is in flight, and no `$` call answers the band's geometry from outside a render — `viewport` is on the render event's envelope only. So unlike the pane, which `ui.open` resolves "once drawn" and can therefore refresh against, the band converges on the next refresh instead. That is now the next tool call's spawn on the way in rather than a completion, so the window is one tool call of a turn the band only appears during |
 | `--rows` in the pane, where the layout is `ledger` | the pane tells the binary the box it got, but the ledger returns before the height ladder — `--layout ledger --rows 4` still emits eleven rows (`src/render/layout.rs`'s comment says so: the ledger owns its pipeline and `ledger_dense` is its height lever). The pane's body is a window over the tree, so nothing is lost — it scrolls — but the switcher sits under the rows and goes below the fold in a short dock. Closing it properly means either the ledger honouring the cap or wiring `ledger_dense`, both inside `src/render/`, which the band does not touch |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
-| Sparklines and Unicode gauge marks on the desktop | `--no-icons` reuses the binary's one ASCII switch (`display.icons = false`), which drops the icon-only widgets (braille sparkline, plot) and draws gauges as `=`/`-`, though the desktop's monospace face draws those glyphs fine — only the Nerd Font's Private Use Area is missing there. The desktop band's `compact` uses CTX `text` and loses nothing; a desktop pane on `ledger` loses its CTX sparkline. Closing it means a glyph tier between Icon and Ascii in `src/render/icons.rs` |
 | Pane geometry with the pane open on two surfaces | one pane run serves every surface that shows it, sized from whichever surface drew it last — so with the pane open in a terminal and on the desktop at once (Remote Control), one of them gets rows packed for the other's box |
 | A failure on one surface hides the other's rows | `bandRun` and `runNote` are shared: a failing desktop run puts its note on the terminal band in place of that band's healthy rows, and the reverse |
 
@@ -460,7 +464,7 @@ hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     144 tests
+hooks/tests/*.test.ts(x)     148 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```

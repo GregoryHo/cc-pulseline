@@ -69,9 +69,10 @@ const ASCII_GLYPHS: FrameGlyphs = FrameGlyphs {
 };
 
 pub fn glyphs(mode: GlyphMode) -> &'static FrameGlyphs {
-    match mode {
-        GlyphMode::Icon => &UNICODE_GLYPHS,
-        GlyphMode::Ascii => &ASCII_GLYPHS,
+    if mode.unicode() {
+        &UNICODE_GLYPHS
+    } else {
+        &ASCII_GLYPHS
     }
 }
 

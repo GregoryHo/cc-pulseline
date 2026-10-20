@@ -40,7 +40,7 @@ pub fn render(
     mode: GlyphMode,
     color_enabled: bool,
 ) -> String {
-    if matches!(mode, GlyphMode::Ascii) {
+    if !mode.unicode() {
         return String::new();
     }
     if samples.is_empty() {

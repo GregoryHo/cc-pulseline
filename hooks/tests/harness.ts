@@ -56,16 +56,24 @@ export const isPaneSpawn = (run: Spawn): boolean => {
   return at >= 0 && run.argv[at + 1] !== 'activity' && !isDesktopBandSpawn(run)
 }
 
+/** The layouts the `desktopLayout` setting offers, mirrored from the mod. */
+const DESKTOP_LAYOUTS = ['compact', 'rail', 'anchor']
+
 /**
- * Whether a spawn was the desktop band's: `compact` with ASCII glyphs.
+ * Whether a spawn was the desktop band's: a desktop layout without Nerd Font
+ * glyphs.
  *
- * The pane offers `compact` too, and adds `--no-icons` whenever the desktop is
- * attached, so a desktop case that opens the pane must not switch it to
- * `compact` — the two would read alike here.
+ * The pane offers `compact` and `rail` too, and adds `--no-icons` whenever the
+ * desktop is attached, so a desktop case that opens the pane must not switch
+ * it to the layout the desktop band draws — the two would read alike here.
  */
 export const isDesktopBandSpawn = (run: Spawn): boolean => {
   const at = run.argv.indexOf('--layout')
-  return at >= 0 && run.argv[at + 1] === 'compact' && run.argv.includes('--no-icons')
+  return (
+    at >= 0 &&
+    DESKTOP_LAYOUTS.includes(run.argv[at + 1] ?? '') &&
+    run.argv.includes('--no-icons')
+  )
 }
 
 /** What `bottom` hands back, for reading the mod's side of the exchange. */
@@ -184,6 +192,11 @@ export type BottomOptions = {
    * mod runs the desktop band only when `desktop` is among them.
    */
   surfaces?: readonly ('terminal' | 'desktop' | 'mobile' | 'vscode')[]
+  /**
+   * What `$.session.version()` answers; `2.1.299` when not given. `null`
+   * makes the call throw, so the mod falls back to asking the CLI.
+   */
+  engineVersion?: string | null
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
   stdout?: string
   /**
@@ -303,6 +316,15 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('session.root', () => ({ value: root }))
   on('session.id', () => ({ value: options.sessionId ?? 'session-under-test' }))
   on('session.surfaces', () => ({ value: options.surfaces ?? ['terminal'] }))
+  // The engine's own version, deliberately not the CLI probe's `2.1.296`
+  // below, so a case can tell which one reached the payload.
+  on('session.version', () =>
+    options.engineVersion === null
+      ? (() => {
+          throw new Error('session.version refused')
+        })()
+      : { value: { version: options.engineVersion ?? '2.1.299', base: '2.1.299' } },
+  )
   // Answered as core echoes it, for the case that attaches the desktop late.
   on('session.attach', (_engine, e) => ({ clientId: e.clientId }))
   on('agent.list', () => ({ value: options.agents ?? [] }))

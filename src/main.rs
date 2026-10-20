@@ -4,7 +4,7 @@ use cc_pulseline::{
     config::{
         build_render_config, check_configs, config_path, default_config_toml,
         default_project_config_toml, load_merged_config, project_config_path,
-        update_theme_in_config, ColorsConfig,
+        update_theme_in_config, ColorsConfig, GlyphMode,
     },
     preview::preview_layouts,
     render::color::{
@@ -155,15 +155,17 @@ fn main() {
     if let Some(name) = string_flag(&args, "--layout") {
         pulseline_config.layout.name = name;
     }
-    // Before the build for the same reason: `glyph_mode` is resolved from
-    // `display.icons` there. A surface without a Nerd Font — the desktop app
-    // draws text in its own face — asks for the ASCII glyphs per spawn,
-    // without touching the person's config.
-    if args.iter().any(|a| a == "--no-icons") {
-        pulseline_config.display.icons = false;
-    }
 
     let mut render_config = build_render_config(&pulseline_config);
+
+    // A surface without a Nerd Font — the desktop app draws text in its own
+    // face — asks for the Unicode tier per spawn, without touching the
+    // person's config: no Private Use Area glyphs, everything else kept, so
+    // the powerline layouts still draw a filled bar on half-block seams. It
+    // only ever lowers the tier: `display.icons = false` stays ASCII.
+    if args.iter().any(|a| a == "--no-icons") && render_config.glyph_mode == GlyphMode::Icon {
+        render_config.glyph_mode = GlyphMode::Unicode;
+    }
 
     // A caller that owns the box it draws into — a function-hooks mod
     // drawing the rows itself — knows its size exactly, where the hook path
@@ -972,8 +974,10 @@ OPTIONS:
                      (none|compact|budgets|console|ledger|rail|anchor|activity)
                      activity = activity rows only, empty when idle — the
                      above-the-prompt band's layout, not a statusline one
-    --no-icons       Render with ASCII glyphs instead of Nerd Font icons
-                     (overrides display.icons)
+    --no-icons       Render without Nerd Font glyphs, for a face that has
+                     none: icons become ASCII labels and powerline seams
+                     half blocks; braille and gauges stay. (display.icons =
+                     false is the all-ASCII floor.)
 
 RUNTIME:
     Reads Claude Code statusline JSON from stdin, outputs formatted lines.

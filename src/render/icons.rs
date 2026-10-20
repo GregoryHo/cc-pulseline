@@ -57,20 +57,24 @@ pub const PL_TICK: &str = "\u{e0b1}"; //  powerline thin separator (anchor trail
 pub const FRAME_TL: char = '\u{256D}'; // ╭
 pub const FRAME_BL: char = '\u{2570}'; // ╰
 
+/// A segment's prefix: the Nerd Font icon, or its ASCII label where the
+/// render may not draw the Private Use Area (`Unicode` and `Ascii`).
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
-    match mode {
-        GlyphMode::Icon => format!("{icon} "),
-        GlyphMode::Ascii => ascii.to_string(),
+    if mode.nerd_font() {
+        format!("{icon} ")
+    } else {
+        ascii.to_string()
     }
 }
 
-/// The tool-failure mark, mode-aware: `✘` (U+2718) under Icon, `x` under Ascii.
+/// The tool-failure mark, mode-aware: `✘` (U+2718) under Icon and Unicode, `x` under Ascii.
 /// One source of truth so every failure-count site (activity rows, rail/anchor
 /// traceability cells) degrades identically and no raw dingbat leaks into the
 /// ASCII floor. Both forms are width-1.
 pub fn fail_mark(mode: GlyphMode) -> &'static str {
-    match mode {
-        GlyphMode::Icon => "\u{2718}",
-        GlyphMode::Ascii => "x",
+    if mode.unicode() {
+        "\u{2718}"
+    } else {
+        "x"
     }
 }

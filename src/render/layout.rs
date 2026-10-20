@@ -782,14 +782,11 @@ pub(crate) fn format_line2(
         let count_str = colorize(&count.to_string(), &p.primary, color);
         let label_str = colorize(label, &p.structural, color);
 
-        match mode {
-            crate::config::GlyphMode::Icon => {
-                let icon_str = colorize(&format!("{icon} "), indicator_color, color);
-                format!("{icon_str}{count_str} {label_str}")
-            }
-            crate::config::GlyphMode::Ascii => {
-                format!("{count_str} {label_str}")
-            }
+        if mode.nerd_font() {
+            let icon_str = colorize(&format!("{icon} "), indicator_color, color);
+            format!("{icon_str}{count_str} {label_str}")
+        } else {
+            format!("{count_str} {label_str}")
         }
     };
 
@@ -867,14 +864,12 @@ pub(crate) fn format_line2(
     }
     if config.show_duration {
         let duration_text = format_duration(frame.line2.elapsed_minutes);
-        let item = match mode {
-            crate::config::GlyphMode::Icon => {
-                let icon_str =
-                    colorize(&format!("{} ", ICON_ELAPSED), &p.indicator_duration, color);
-                let time_str = colorize(&duration_text, &p.primary, color);
-                format!("{icon_str}{time_str}")
-            }
-            crate::config::GlyphMode::Ascii => colorize(&duration_text, &p.primary, color),
+        let item = if mode.nerd_font() {
+            let icon_str = colorize(&format!("{} ", ICON_ELAPSED), &p.indicator_duration, color);
+            let time_str = colorize(&duration_text, &p.primary, color);
+            format!("{icon_str}{time_str}")
+        } else {
+            colorize(&duration_text, &p.primary, color)
         };
         parts.push(item);
     }

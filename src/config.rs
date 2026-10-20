@@ -1401,10 +1401,30 @@ pub fn default_project_config_toml() -> &'static str {
 
 // ── Render Config (runtime, built from PulselineConfig + env) ────────
 
+/// Which glyphs a render may draw, from plainest to richest.
+///
+/// `Unicode` is the middle tier: everything `Icon` draws except the Nerd
+/// Font's Private Use Area icons and powerline seams — braille, gauge
+/// marks, half-block seams and dingbats stay. It is what a surface with no
+/// patched font asks for (`--no-icons`), where `Ascii` is the person's own
+/// `display.icons = false`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GlyphMode {
     Ascii,
+    Unicode,
     Icon,
+}
+
+impl GlyphMode {
+    /// Whether Nerd Font Private Use Area glyphs may be drawn.
+    pub fn nerd_font(self) -> bool {
+        matches!(self, GlyphMode::Icon)
+    }
+
+    /// Whether glyphs beyond ASCII may be drawn: braille, blocks, dingbats.
+    pub fn unicode(self) -> bool {
+        !matches!(self, GlyphMode::Ascii)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
