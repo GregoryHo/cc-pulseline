@@ -197,7 +197,8 @@ describe('the band', () => {
     const ui = await $.ui.mount(BAND)
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('T:Read: .../main.rs')
-    expect(drawn).not.toContain(BENEATH)
+    // Stacked over what the mods beneath drew, never in its place.
+    expect(drawn).toContain(BENEATH)
 
     await ui.unmount()
   })
@@ -236,7 +237,7 @@ describe('the band', () => {
     const ui = await $.ui.mount(IDLE_BAND)
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('T:Read: .../main.rs')
-    expect(drawn).not.toContain(BENEATH)
+    expect(drawn).toContain(BENEATH)
     expect(seen.spawns.length).toBeGreaterThan(0)
     await ui.unmount()
   })
@@ -255,6 +256,37 @@ describe('the band', () => {
     expect(text?.text).toContain('cc-pulseline not found')
 
     await ui.unmount()
+  })
+
+  test('what the mods beneath draw stays, under the band, on both surfaces', async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
+    await warm($)
+
+    // Answering with its own tree alone, the band took the whole chain's:
+    // another mod's `AbovePrompt` content vanished whenever this one had rows,
+    // which on the desktop is always. The bottom stands in for that mod.
+    for (const band of [BAND, DESKTOP_BAND]) {
+      const ui = await $.ui.mount(band)
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn, band.surface).toContain('M:Opus 5')
+      expect(drawn, band.surface).toContain(BENEATH)
+      // The band's rows first, the chain's beneath them.
+      expect(drawn.indexOf('M:Opus 5'), band.surface).toBeLessThan(drawn.indexOf(BENEATH))
+      await ui.unmount()
+    }
+  })
+
+  test('a failed run notes it above what the mods beneath draw', async ($, on) => {
+    bottom(on, { exitCode: 2, stderr: 'boom', surfaces: ['terminal', 'desktop'] })
+    await warm($)
+
+    for (const band of [IDLE_BAND, DESKTOP_BAND]) {
+      const ui = await $.ui.mount(band)
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn, band.surface).toContain('pulseline:')
+      expect(drawn, band.surface).toContain(BENEATH)
+      await ui.unmount()
+    }
   })
 
   test('a survey owns the band, so the mod yields', async ($, on) => {
@@ -520,7 +552,8 @@ describe('the desktop app', () => {
     // and the binary packed its columns for a monospaced one.
     for (const band of [BAND, DESKTOP_BAND]) {
       const ui = await $.ui.mount(band)
-      const texts = await ui.findAll({ type: 'Text' })
+      // The mod's own Texts: what the bottom draws beneath it is not its to set.
+      const texts = (await ui.findAll({ type: 'Text' })).filter(text => text.text !== BENEATH)
       expect(texts.length, `${band.surface} drew no Text`).toBeGreaterThan(0)
       for (const text of texts) {
         expect(text.props.mono, `${band.surface}: ${text.text}`).toBe(true)
@@ -539,7 +572,7 @@ describe('the desktop app', () => {
     })
     const drawn = JSON.stringify(await ui.drawn())
     expect(drawn).toContain('M:Opus 5')
-    expect(drawn).not.toContain(BENEATH)
+    expect(drawn).toContain(BENEATH)
     await ui.unmount()
   })
 
