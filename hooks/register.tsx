@@ -101,20 +101,39 @@ const NOT_TOOL_ACTIVITY = new Set([
 const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
 
 /**
- * The band's layout on the desktop app, where the terminal's is `activity`.
+ * The layouts the desktop band may draw, the first the default.
  *
  * The desktop's Code tab does not run the `statusLine` command, so the split
  * the terminal band relies on — identity and budget on the statusline, the
  * turn in flight above the prompt — leaves the desktop with no context, cost
- * or quota anywhere. `compact` is the one layout that carries all of them in
- * two or three rows: identity and budget fused into one head row, activity
- * under it.
+ * or quota anywhere. Each of these carries all of them in a few rows:
+ * `compact` fuses identity and budget into one head row over the activity;
+ * `rail` and `anchor` draw them as a powerline bar, on half-block seams since
+ * the desktop has no Nerd Font (`--no-icons`), with `activity` stacked under
+ * (see `runDesktopBand`). Mirrored by the `desktopLayout` field's `options`
+ * in `plugin.json`.
  */
-const DESKTOP_BAND_LAYOUT = 'compact'
+const DESKTOP_LAYOUTS = ['compact', 'rail', 'anchor']
 
 /**
- * Asks the binary for ASCII glyphs. The desktop app draws text in its own
- * face, which has none of the Nerd Font's Private Use Area icons.
+ * The desktop band's layout from the `desktopLayout` setting.
+ *
+ * The engine already treats a stored value outside the field's `options` as
+ * unset, so this check only matters to a manifest and a module that have
+ * drifted apart — and there the default is the safe answer.
+ */
+export function desktopLayoutOf(options: PluginOptions): string {
+  const chosen = options.desktopLayout
+  return typeof chosen === 'string' && DESKTOP_LAYOUTS.includes(chosen)
+    ? chosen
+    : (DESKTOP_LAYOUTS[0] ?? 'compact')
+}
+
+/**
+ * Asks the binary for no Nerd Font glyphs. The desktop app draws text in its
+ * own face, which has none of the Private Use Area icons or powerline seams;
+ * braille, gauge marks and half blocks it draws fine, and the binary keeps
+ * them.
  */
 const NO_ICONS = '--no-icons'
 
@@ -372,6 +391,12 @@ type State = {
    */
   rootRead: string | null
   /**
+   * Whether `$.session.version()` has answered in this load of the module.
+   * Until it has, every refresh asks again and its answer replaces the held
+   * version, which may be a CLI fallback. See `syncVersion`.
+   */
+  versionFromEngine: boolean
+  /**
    * The manifest's `userConfig` values, as `register`'s second parameter
    * handed them over. Fixed for this activation: a change to them reloads
    * the module, so a closure is the right place for them.
@@ -610,14 +635,55 @@ function todoOf(
 }
 
 /**
+ * Writes the engine's own version, until the engine has answered once in
+ * this load of the module. True once it has.
+ *
+ * The engine's answer wins over whatever is held, because what is held may
+ * be a fallback: the CLI's version from `probeVersion`, or one an older
+ * revision of this module wrote — `$.state` survives the reload that
+ * upgrades the plugin, and 1.7.0 stored the `claude` on PATH. So the held
+ * value is not a reason to stop asking; only the engine's answer is, and the
+ * closure flag that records it starts over with the module, as it should.
+ *
+ * Cheap enough for every refresh — one engine call until it answers, none
+ * after — so `refresh` calls it as well as `session.start`: the version is
+ * right from the first draw even where `session.start` raced it, and the one
+ * place a test can reach it is the tool path. Never rejects.
+ */
+async function syncVersion(engine: EngineInterface, state: State): Promise<boolean> {
+  if (state.versionFromEngine) return true
+  try {
+    const { version } = await engine.session.version()
+    if (version.length === 0) return false
+    const held = await read(engine, sessionFacts)
+    if (held.version !== version) {
+      await update(engine, sessionFacts, facts => ({ ...facts, version }))
+    }
+    state.versionFromEngine = true
+    return true
+  } catch {
+    // An engine that does not answer, or an atom it would not read. The
+    // next refresh asks again; `probeVersion` falls back to the CLI.
+    return false
+  }
+}
+
+/**
  * Resolves Claude Code's own version, once per session.
  *
- * No call on `$` answers it, and `CLAUDE_CODE_EXECPATH` is set on the
- * children Claude Code spawns rather than on its own environment, so this
- * asks the CLI. Left null when that fails: the statusline then draws its
- * unknown marker, which is the truth.
+ * `$.session.version()` first: the engine the session runs on, which is not
+ * always the `claude` on PATH. The desktop app runs a Claude Code of its own,
+ * and asking the CLI there reported the person's terminal install instead —
+ * `2.1.304` over a session running `2.1.299`.
+ *
+ * The CLI is the fallback for an engine that refuses the call.
+ * `CLAUDE_CODE_EXECPATH` is set on the children Claude Code spawns rather
+ * than on its own environment, so it is tried and is rarely there. Left null
+ * when every way fails: the statusline then draws its unknown marker, which
+ * is the truth.
  */
-async function probeVersion(engine: EngineInterface): Promise<void> {
+async function probeVersion(engine: EngineInterface, state: State): Promise<void> {
+  if (await syncVersion(engine, state)) return
   const held = await read(engine, sessionFacts)
   if (held.version !== null) return
   const fromEnv = await engine.env.get('CLAUDE_CODE_EXECPATH')
@@ -885,6 +951,54 @@ async function runRows(
 }
 
 /**
+ * The desktop band's run: the `desktopLayout` setting, without Nerd Font
+ * glyphs.
+ *
+ * `compact` carries the activity row itself. `rail` and `anchor` do not —
+ * they draw identity, context and quota as a powerline bar and stop there,
+ * whatever `--rows` allows — and the desktop has no statusline to leave the
+ * turn in flight to. So those two are a head, and `activity` is run under it
+ * with the rows the head left: the bar on top, the running tools below.
+ *
+ * The head gets every row but one, so a band with room for two still shows
+ * the tool that is running. A fault in either run is the band's fault.
+ */
+async function runDesktopBand(
+  engine: EngineInterface,
+  payload: string,
+  binaryPath: string,
+  state: State,
+): Promise<{ rows: Span[][]; fault: string | null }> {
+  const layout = desktopLayoutOf(state.options)
+  const box = (rows: number) => [
+    binaryPath,
+    '--rows',
+    String(rows),
+    '--columns',
+    String(state.desktopBandCols),
+  ]
+  if (layout === 'compact') {
+    return runRows(engine, payload, [...box(state.desktopBandRows), '--layout', layout, NO_ICONS])
+  }
+
+  const total = Math.max(1, state.desktopBandRows)
+  const headRows = Math.max(1, total - 1)
+  const ran = await runRows(engine, payload, [...box(headRows), '--layout', layout, NO_ICONS])
+  // Clipped here as well as asked for: a head that drew past `--rows` would
+  // push the running tool out of the band, which is the row this is for.
+  const head = { ...ran, rows: ran.rows.slice(0, headRows) }
+  const left = total - head.rows.length
+  if (head.fault !== null || left <= 0) return head
+  const activity = await runRows(engine, payload, [
+    ...box(left),
+    '--layout',
+    'activity',
+    NO_ICONS,
+  ])
+  return { rows: [...head.rows, ...activity.rows], fault: activity.fault }
+}
+
+/**
  * Builds the payload from the engine, runs the binary, parses its rows.
  *
  * **Call it through `drawSoon`, never directly.** It guards its own writes
@@ -923,6 +1037,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   }
 
   // Before the ladder, because the dev rung is built from the root.
+  // Its own statement: `syncVersion` never rejects, and a refused root read
+  // must not cost the version its sync.
+  await syncVersion(engine, state)
   try {
     await syncRoot(engine, state)
   } catch {
@@ -1074,19 +1191,9 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
         ])
       : null,
     // A run of its own, because the desktop band is a different layout in a
-    // different face: `compact` (see `DESKTOP_BAND_LAYOUT`), with ASCII glyphs.
-    onDesktop
-      ? runRows(engine, payload, [
-          binary.path,
-          '--rows',
-          String(state.desktopBandRows),
-          '--columns',
-          String(state.desktopBandCols),
-          '--layout',
-          DESKTOP_BAND_LAYOUT,
-          NO_ICONS,
-        ])
-      : null,
+    // different face: the `desktopLayout` setting (see `DESKTOP_LAYOUTS`),
+    // with no Nerd Font glyphs.
+    onDesktop ? runDesktopBand(engine, payload, binary.path, state) : null,
   ])
 
   rows = terminalRun?.rows ?? []
@@ -1254,6 +1361,7 @@ export const register: Register = (on, options) => {
     lastCollected: null,
     runSeq: 0,
     rootRead: null,
+    versionFromEngine: false,
     options,
   }
 
@@ -1274,7 +1382,7 @@ export const register: Register = (on, options) => {
     // says anything. `undefined` is what takes it down.
     if (DEBUG) $.ui.status('alive')
     else $.ui.status(undefined)
-    await probeVersion($)
+    await probeVersion($, state)
     try {
       await $.command.register({
         name: 'pulseline',

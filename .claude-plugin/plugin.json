@@ -9,6 +9,13 @@
       "title": "cc-pulseline binary",
       "description": "Path to the cc-pulseline binary (1.7.0 or newer). Leave empty to look in the plugin's bin/, ~/.claude/pulseline/, PATH, and the repo's target/release.",
       "default": ""
+    },
+    "desktopLayout": {
+      "type": "string",
+      "title": "Desktop band layout",
+      "description": "The band's layout in the Claude Code desktop app, which runs no statusline: compact (identity and budget above the activity row), or the powerline rail or anchor with the activity rows under the bar.",
+      "options": ["compact", "rail", "anchor"],
+      "default": "compact"
     }
   },
   "author": {

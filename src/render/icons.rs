@@ -42,8 +42,9 @@ pub const ICON_API_ERROR: &str = "\u{26A0}";
 // Powerline seam/cap glyphs (PUA Powerline range, NOT Material Design).
 // These live in a Nerd Font's patched Powerline block; used by the `rail`
 // and `anchor` layouts (see `frames/powerline.rs`). Under `seams = "blocks"`
-// or `GlyphMode::Ascii` they degrade to unicode half-blocks / ASCII — they
-// must never reach a non-patched terminal (capability-ladder law).
+// or `GlyphMode::Unicode` they degrade to unicode half-blocks, under
+// `GlyphMode::Ascii` to ASCII — they must never reach a non-patched face
+// (capability-ladder law).
 pub const SEAM_R: &str = "\u{e0b0}"; //  right-pointing seam (left cluster)
 pub const SEAM_L: &str = "\u{e0b2}"; //  left-pointing seam (right cluster)
 pub const CAP_ROUND_L: &str = "\u{e0b6}"; //  rounded left cap (anchor capsule)
@@ -57,20 +58,62 @@ pub const PL_TICK: &str = "\u{e0b1}"; //  powerline thin separator (anchor trail
 pub const FRAME_TL: char = '\u{256D}'; // ╭
 pub const FRAME_BL: char = '\u{2570}'; // ╰
 
+/// Whether a glyph needs a Nerd Font: any code point in a Private Use Area,
+/// where the patched icons and powerline seams live.
+pub fn is_private_use(glyph: &str) -> bool {
+    glyph
+        .chars()
+        .any(|c| matches!(c as u32, 0xE000..=0xF8FF | 0xF_0000..=0xF_FFFD | 0x10_0000..=0x10_FFFD))
+}
+
+/// A segment's prefix: the icon, or its ASCII label where the render may not
+/// draw it — under `Ascii` always, under `Unicode` when the icon is a Nerd
+/// Font glyph. Decided per icon, so a plain-Unicode one (`⟳`, `⚠`, `‖`)
+/// still draws on a surface that only lacks the patched font.
 pub fn glyph(mode: GlyphMode, icon: &str, ascii: &str) -> String {
-    match mode {
-        GlyphMode::Icon => format!("{icon} "),
-        GlyphMode::Ascii => ascii.to_string(),
+    let drawable = match mode {
+        GlyphMode::Icon => true,
+        GlyphMode::Unicode => !is_private_use(icon),
+        GlyphMode::Ascii => false,
+    };
+    if drawable {
+        format!("{icon} ")
+    } else {
+        ascii.to_string()
     }
 }
 
-/// The tool-failure mark, mode-aware: `✘` (U+2718) under Icon, `x` under Ascii.
+/// The tool-failure mark, mode-aware: `✘` (U+2718) under Icon and Unicode, `x` under Ascii.
 /// One source of truth so every failure-count site (activity rows, rail/anchor
 /// traceability cells) degrades identically and no raw dingbat leaks into the
 /// ASCII floor. Both forms are width-1.
 pub fn fail_mark(mode: GlyphMode) -> &'static str {
-    match mode {
-        GlyphMode::Icon => "\u{2718}",
-        GlyphMode::Ascii => "x",
+    if mode.unicode() {
+        "\u{2718}"
+    } else {
+        "x"
+    }
+}
+
+#[cfg(test)]
+mod glyph_tier_tests {
+    use super::*;
+
+    #[test]
+    fn unicode_draws_plain_unicode_icons_and_labels_nerd_font_ones() {
+        assert_eq!(
+            glyph(GlyphMode::Unicode, ICON_COMPACT, "~"),
+            format!("{ICON_COMPACT} ")
+        );
+        assert_eq!(
+            glyph(GlyphMode::Unicode, ICON_API_ERROR, "!"),
+            format!("{ICON_API_ERROR} ")
+        );
+        assert_eq!(glyph(GlyphMode::Unicode, ICON_MODEL, "M:"), "M:");
+        assert_eq!(
+            glyph(GlyphMode::Icon, ICON_MODEL, "M:"),
+            format!("{ICON_MODEL} ")
+        );
+        assert_eq!(glyph(GlyphMode::Ascii, ICON_COMPACT, "~"), "~");
     }
 }

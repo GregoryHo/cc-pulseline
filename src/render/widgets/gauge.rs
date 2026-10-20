@@ -47,9 +47,10 @@ pub fn render(
     }
     let filled_count = cell_for_pct(width, pct).min(width);
 
-    let (filled_ch, empty_ch, mark_ch) = match mode {
-        GlyphMode::Icon => (FILLED_ICON, EMPTY_ICON, MARK_ICON),
-        GlyphMode::Ascii => (FILLED_ASCII, EMPTY_ASCII, MARK_ASCII),
+    let (filled_ch, empty_ch, mark_ch) = if mode.unicode() {
+        (FILLED_ICON, EMPTY_ICON, MARK_ICON)
+    } else {
+        (FILLED_ASCII, EMPTY_ASCII, MARK_ASCII)
     };
 
     let mark_cells: Vec<usize> = marks

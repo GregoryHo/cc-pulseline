@@ -52,7 +52,7 @@ pub fn render(level: &str, mode: GlyphMode, palette: &ThemePalette, color_enable
     // The single-glyph `▮` form differentiates lit/dim by colour alone, so
     // it only reads with colour on AND icons available. Otherwise fall back
     // to distinct `=`/`-` shapes (Ascii mode, or NO_COLOR).
-    let color_form = color_enabled && matches!(mode, GlyphMode::Icon);
+    let color_form = color_enabled && mode.unicode();
     let (filled_ch, empty_ch) = if color_form {
         (PIP_ICON, PIP_ICON)
     } else {
