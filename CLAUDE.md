@@ -23,7 +23,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 134 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 143 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
@@ -46,6 +46,8 @@ cc-pulseline --layout rail    # Render with this layout
                               # plugin band's layout, not a statusline one
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
+cc-pulseline --no-icons       # ASCII glyphs instead of Nerd Font icons
+                              # (overrides display.icons) — used by the desktop app's band, which has no Nerd Font
 ```
 
 Full reference: `print_help()` in `src/main.rs`.

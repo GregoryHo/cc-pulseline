@@ -244,7 +244,7 @@ Uses the same CTX threshold colors as context percentage:
 | Reset ≥24h | `Q: 7d: 55% (resets 2d 0h 0m)` |
 | No data | (no quota line) |
 
-Config toggles: `show_quota` (master), `show_quota_five_hour`, `show_quota_seven_day`. Quota line is treated as activity-level for width degradation (dropped first).
+Config: `[segments.quota]` `enabled` (master), `show_five_hour`, `show_seven_day`. The quota row belongs to the Budget group, so DropActivityLinesFirst keeps it. It folds into L3 only on the height ladder (MergeQuotaIntoL3).
 
 ## Line 4+: Activity
 

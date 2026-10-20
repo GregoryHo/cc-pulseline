@@ -10,7 +10,7 @@ thing to install and one version to track. The statusline path is untouched
 and stays the default: the two are different canvases with different jobs,
 and installing the plugin does not ask you to drop your `statusLine` setting.
 
-It passes `claude plugin validate`, has 130 tests across seven files that run
+It passes `claude plugin validate`, has 143 tests across seven files that run
 against the engine itself, and type-checks once the contract is in place
 (see **Type-checking** below). There is no gate flag and no hard-coded path.
 What has not changed is the API underneath: the engine's own contract says
@@ -23,12 +23,13 @@ in those words, so expect to follow it.
 claude --plugin-dir .
 ```
 
-An interactive session: the render hooks yield on any surface but the
-terminal (`e.surface !== 'terminal'`), and a `-p` run draws nothing to put
-the band in. `/pulseline` opens a pane, `/pulseline` again closes it.
+An interactive session: the render hooks draw on the terminal and in the
+desktop app (see **The desktop app** below) and yield on any other surface,
+and a `-p` run draws nothing to put the band in. `/pulseline` opens a pane,
+`/pulseline` again closes it.
 
 It finds the binary itself — see **Finding the binary** below. Nothing else
-is needed on a machine that has cc-pulseline 1.6.0 or newer installed.
+is needed on a machine that has cc-pulseline 1.7.0 or newer installed.
 
 `--plugin-dir .` is the development loop. For everyone else the plugin
 installs in one step:
@@ -73,11 +74,13 @@ same call.
 
 ### The version floor, and why
 
-**The band needs 1.6.0 or newer. An older binary leaves your statusline
+**The band needs 1.7.0 or newer. An older binary leaves your statusline
 completely unaffected.** The floor tracks the release, because each one so
 far has added the CLI the band of that release drives: `--rows`, `--columns`
-and the `activity` input in 1.5.0, `--layout activity` in 1.6.0. None of
-those is an error to an older binary. An unknown layout name in particular
+and the `activity` input in 1.5.0, `--layout activity` in 1.6.0, `--no-icons`
+in 1.7.0. None of those is an error to an older binary. A 1.6.x binary
+ignores `--no-icons`, so on the desktop it would draw Nerd Font glyphs the
+app's face does not have — a row of boxes, recorded as `'ok'`. An unknown layout name in particular
 warns on stderr, falls back to `none` and exits 0 — so a 1.5.x binary would
 answer a band spawn with the identity and budget rows, which is the
 statusline drawn a second time above the prompt and, since the band is now
@@ -97,7 +100,7 @@ copy found, so you are not sent updating to a version you already have.
 
 A `userConfig` string field, so it is a row in `/config` and is stored in
 settings under `pluginConfigs`. Put an absolute path to a cc-pulseline
-binary of 1.6.0 or newer in it; leave it empty to use the ladder. Changing
+binary of 1.7.0 or newer in it; leave it empty to use the ladder. Changing
 it reloads the module, and a `classic.ConfigChange` also clears the
 remembered resolution, so installing the binary mid-session is picked up
 without a restart.
@@ -171,13 +174,14 @@ is a common one — `claude plugin test` refuses it ("not run from this
 spelling … with no options before `plugin`"), while `validate` tolerates it.
 `command` bypasses the function.
 
-The 134 tests cover: the stdin payload's shape (`payload`), the ANSI and
+The 143 tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), and what the band and pane actually
 draw (`render`) — colours, row clipping against `maxRows`, the width and the
-layout reaching the binary, when the band yields and when it speaks, and the
-pane's switcher.
+layout reaching the binary, when the band yields and when it speaks, the
+pane's switcher, and the desktop app's own runs (`the desktop app` in
+`render`).
 
 `hooks/tests/harness.ts` is the shared bottom. Its header documents the
 non-obvious things about the test kit — among them that `$.state` cannot be
@@ -261,6 +265,61 @@ whether or not a turn is running. It is keyed on how the run ended
 (`bandRun: 'never' | 'ok' | 'failed'` on the output atom), never on the row
 count — with `activity` zero rows is normal, and a note keyed on it would sit
 over an idle prompt for the whole session.
+
+## The desktop app
+
+The same plugin draws in the Code tab of Claude Code Desktop, which raises
+both sites — the band and the pane — on the `desktop` surface. Two things
+there are not the terminal's, and each changes what the band asks for:
+
+| | terminal | desktop |
+| --- | --- | --- |
+| statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
+| band layout | `activity` | `compact`: identity and budget in one head row, activity under it |
+| glyphs | Nerd Font icons | ASCII (`--no-icons`): the app's face has no Private Use Area glyphs |
+| idle band | yields until something has run | always draws: the head row is the only place context and cost show |
+
+The split in **What it draws** above is a terminal fact. On the desktop it
+would leave context, cost and quota nowhere at all, so the desktop band draws
+them itself. TOK/s and the cache sparkline stay missing there, for the reason
+they are missing from the band anywhere (**Known gaps**).
+
+Every span is drawn with `mono`. The desktop draws a `Text` in a proportional
+face by default and the binary packs its columns for a monospaced one; the
+terminal is always monospaced and ignores the prop.
+
+Each surface gets a run of its own, chosen by `$.session.surfaces()`: a
+session the desktop hosts alone spawns no terminal band, a terminal session
+spawns no desktop one. A desktop that attaches mid-session gets its run from
+`session.attach`, rather than waiting for the next tool call. The two share
+one `bandRun` and `runNote`, so a failure on either is said on both. The pane
+is one run for whichever surfaces show it, with `--no-icons` whenever the
+desktop is among them.
+
+`mobile` and `vscode` still yield: the mobile app draws no `Input` or
+`Select`, and VS Code attaches no surface yet.
+
+### Running it in the desktop app
+
+`--plugin-dir` cannot be given to a session the desktop app starts. Two ways
+instead:
+
+- **Installed**: + next to the prompt box → Plugins → Add marketplace
+  `GregoryHo/cc-pulseline`, then add `pulseline`. A plugin installed at user
+  scope from a terminal (`/plugin install`) loads in the desktop's sessions
+  too.
+- **This checkout**: name it in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block
+  of `~/.claude/settings.json` (a project's settings are not read for it), and
+  start a new session:
+
+  ```json
+  { "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/cc-pulseline" } }
+  ```
+
+  A long-lived desktop session reloads on save only with
+  `CLAUDE_CODE_PLUGIN_DIR_WATCH=1` set the same way.
+
+The binary ladder is the same; rung 5 resolves against the session's root.
 
 ## What it does not say
 
@@ -363,6 +422,9 @@ hook draws.
 | The band's first draw of a session, at the measured width | `session.start` refreshes before anything has drawn, so that spawn uses the closure's initial `3x120`. The render hook measures `maxRows` and `bodyColumns` but cannot act on it: `$.state.set` is refused while a drawing is in flight, and no `$` call answers the band's geometry from outside a render — `viewport` is on the render event's envelope only. So unlike the pane, which `ui.open` resolves "once drawn" and can therefore refresh against, the band converges on the next refresh instead. That is now the next tool call's spawn on the way in rather than a completion, so the window is one tool call of a turn the band only appears during |
 | `--rows` in the pane, where the layout is `ledger` | the pane tells the binary the box it got, but the ledger returns before the height ladder — `--layout ledger --rows 4` still emits eleven rows (`src/render/layout.rs`'s comment says so: the ledger owns its pipeline and `ledger_dense` is its height lever). The pane's body is a window over the tree, so nothing is lost — it scrolls — but the switcher sits under the rows and goes below the fold in a short dock. Closing it properly means either the ledger honouring the cap or wiring `ledger_dense`, both inside `src/render/`, which the band does not touch |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
+| Sparklines and Unicode gauge marks on the desktop | `--no-icons` reuses the binary's one ASCII switch (`display.icons = false`), which drops the icon-only widgets (braille sparkline, plot) and draws gauges as `=`/`-`, though the desktop's monospace face draws those glyphs fine — only the Nerd Font's Private Use Area is missing there. The desktop band's `compact` uses CTX `text` and loses nothing; a desktop pane on `ledger` loses its CTX sparkline. Closing it means a glyph tier between Icon and Ascii in `src/render/icons.rs` |
+| Pane geometry with the pane open on two surfaces | one pane run serves every surface that shows it, sized from whichever surface drew it last — so with the pane open in a terminal and on the desktop at once (Remote Control), one of them gets rows packed for the other's box |
+| A failure on one surface hides the other's rows | `bandRun` and `runNote` are shared: a failing desktop run puts its note on the terminal band in place of that band's healthy rows, and the reverse |
 
 `classic.*` events close what the engine's own events do not: effort rides
 on the classic hook inputs that fire within a tool-use context — not
@@ -398,7 +460,7 @@ hooks/payload.ts             the binary's stdin contract, pure
 hooks/binary.ts              the ladder and the version gate, pure
 hooks/throttle.ts            the refresh gate, pure
 hooks/tests/harness.ts       shared bottom, and the kit's sharp edges
-hooks/tests/*.test.ts(x)     130 tests
+hooks/tests/*.test.ts(x)     143 tests
 types/index.d.ts             the `$.state` contract
 tsconfig.json
 ```

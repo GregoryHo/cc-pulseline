@@ -4,12 +4,16 @@ import {
   BAND,
   BENEATH,
   COLOURED_ROWS,
+  DESKTOP_BAND,
+  DESKTOP_PANE,
   IDLE_BAND,
   PANE,
   USER_COMMAND,
   bottom,
+  isDesktopBandSpawn,
   isPaneSpawn,
 } from './harness'
+import type { Spawn } from './harness'
 
 /**
  * What the band and the pane actually draw.
@@ -377,7 +381,7 @@ describe('the pane', () => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, panePlaced: false })
 
     const first = await $.command.run({ command: 'pulseline', ...USER_COMMAND })
-    expect(first.text).toContain('wider terminal')
+    expect(first.text).toContain('could not place its pane')
 
     // Left wanted, this second call would take the close branch and claim to
     // have closed a pane that was never placed.
@@ -418,5 +422,138 @@ describe('the pane', () => {
     const band = await $.ui.mount(BAND)
     expect((await band.findAll({ type: 'Text' })).some(text => text.text === 'M:Opus 5')).toBe(true)
     await band.unmount()
+  })
+})
+
+/** The `--layout` a spawn asked for. */
+const layoutOf = (run: Spawn | undefined) => run?.argv[run.argv.indexOf('--layout') + 1]
+
+const renders = (spawns: Spawn[]) =>
+  spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'claude')
+
+describe('the desktop app', () => {
+  test('its band runs compact with ASCII glyphs, sized to its own box', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
+    const terminal = await $.ui.mount(BAND)
+    const desktop = await $.ui.mount({
+      ...DESKTOP_BAND,
+      props: { ...DESKTOP_BAND.props, maxRows: 3, bodyColumns: 90 },
+    })
+    await warm($)
+    await seen.settle()
+
+    // The desktop runs no statusline, so its band carries identity and budget
+    // itself — and draws in a face with no Nerd Font glyphs.
+    const desktopRun = renders(seen.spawns).filter(isDesktopBandSpawn).at(-1)
+    expect(layoutOf(desktopRun)).toBe('compact')
+    expect(desktopRun?.argv).toContain('--no-icons')
+    expect(desktopRun?.argv[desktopRun.argv.indexOf('--rows') + 1]).toBe('3')
+    expect(desktopRun?.argv[desktopRun.argv.indexOf('--columns') + 1]).toBe('88')
+
+    // The terminal beside it keeps its own run, unchanged.
+    const terminalRun = renders(seen.spawns)
+      .filter(run => layoutOf(run) === 'activity')
+      .at(-1)
+    expect(terminalRun?.argv).not.toContain('--no-icons')
+    expect(terminalRun?.argv[terminalRun.argv.indexOf('--rows') + 1]).toBe('4')
+    expect(terminalRun?.argv[terminalRun.argv.indexOf('--columns') + 1]).toBe('118')
+
+    await terminal.unmount()
+    await desktop.unmount()
+  })
+
+  test('a terminal session makes no desktop run', async ($, on) => {
+    const terminalOnly = bottom(on, { stdout: COLOURED_ROWS })
+    await warm($)
+    await terminalOnly.settle()
+    expect(renders(terminalOnly.spawns).filter(isDesktopBandSpawn)).toEqual([])
+    expect(renders(terminalOnly.spawns).some(run => layoutOf(run) === 'activity')).toBe(true)
+  })
+
+  test('a session the desktop hosts alone runs only the desktop band', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await warm($)
+    await seen.settle()
+    const runs = renders(seen.spawns)
+    expect(runs.length).toBeGreaterThan(0)
+    expect(runs.every(isDesktopBandSpawn)).toBe(true)
+  })
+
+  test('every span is monospaced, on both surfaces', async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
+    await warm($)
+
+    // The desktop draws a Text in a proportional face unless told otherwise,
+    // and the binary packed its columns for a monospaced one.
+    for (const band of [BAND, DESKTOP_BAND]) {
+      const ui = await $.ui.mount(band)
+      const texts = await ui.findAll({ type: 'Text' })
+      expect(texts.length, `${band.surface} drew no Text`).toBeGreaterThan(0)
+      for (const text of texts) {
+        expect(text.props.mono, `${band.surface}: ${text.text}`).toBe(true)
+      }
+      expect(JSON.stringify(await ui.drawn())).toContain('M:Opus 5')
+      await ui.unmount()
+    }
+  })
+
+  test('idle, the desktop band still draws: there is no statusline under it', async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await warm($)
+    const ui = await $.ui.mount({
+      ...DESKTOP_BAND,
+      props: { ...DESKTOP_BAND.props, isWorking: false },
+    })
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('M:Opus 5')
+    expect(drawn).not.toContain(BENEATH)
+    await ui.unmount()
+  })
+
+  test('a desktop attaching mid-session gets its band run', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
+    const before = renders(seen.spawns).length
+    await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+    await seen.settle()
+    const after = renders(seen.spawns).slice(before)
+    expect(after.some(isDesktopBandSpawn)).toBe(true)
+  })
+
+  test('the mobile app is not drawn on', async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['mobile'] })
+    await warm($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'mobile' })
+    expect(JSON.stringify(await ui.drawn())).toContain(BENEATH)
+    await ui.unmount()
+  })
+
+  test('its pane draws the rows and the switcher, with ASCII glyphs', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+    const ui = await $.ui.mount(DESKTOP_PANE)
+
+    const buttons = await ui.findAll({ type: 'Button' })
+    expect(buttons.map(button => button.props.label)).toEqual([
+      '1: ledger',
+      '2: budgets',
+      '3: compact',
+      '4: rail',
+    ])
+    const texts = await ui.findAll({ type: 'Text' })
+    expect(texts.some(text => text.text === 'M:Opus 5')).toBe(true)
+    expect(texts.every(text => text.props.mono === true)).toBe(true)
+
+    const paneRun = renders(seen.spawns).filter(isPaneSpawn).at(-1)
+    expect(layoutOf(paneRun)).toBe('ledger')
+    expect(paneRun?.argv).toContain('--no-icons')
+
+    await ui.unmount()
+  })
+
+  test('a terminal pane keeps its icons', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS })
+    await $.command.run({ command: 'pulseline', ...USER_COMMAND })
+    const paneRun = renders(seen.spawns).filter(isPaneSpawn).at(-1)
+    expect(paneRun?.argv).not.toContain('--no-icons')
   })
 })

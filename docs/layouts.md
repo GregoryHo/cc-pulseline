@@ -32,7 +32,7 @@ TOML strings below are stable — internally they map 1-to-1 onto
 [layout]
 name        = "none"     # see catalog below
 min_width   = 60         # skip framing when terminal can't fit this many cols
-max_width   = 160        # clamp auto-sized frames to this many cols
+max_width   = 140        # clamp auto-sized frames to this many cols (default)
 cc_margin   = 4          # cols subtracted from the detected terminal width
 tonal_strata = true      # 2-tier separator tint (see docs/theme-palette.md)
 ```
@@ -127,7 +127,7 @@ CTX:43% (86.0k/200.0k) | TOK I:10 O:20 C:50% | $3.50 | 5h:62%
 ```
 
 **Cost:** 2–3 rows total. (Absolute minimum footprint: `none` +
-`max_total_lines = 1–2`, which lands on the FuseCore 1-row fused head.)
+`max_total_lines = 1`, which lands on the FuseCore 1-row fused head.)
 **Pick when** the statusline keeps squeezing Claude Code's footer or the
 in-terminal agents panel; pairs well with trimming L1 via
 `[segments.identity]` toggles (e.g. `show_style = false`,
@@ -580,7 +580,7 @@ means "use layout default". Unknown widget names are silently dropped.
 
 ```toml
 [segments.budget]
-context_visual = "text"             # default for every layout except ledger
+context_visual = "text"             # most layouts' default — see Per-layout defaults below
 context_visual = "gauge"            # gauge bar replaces percentage text
 context_visual = "text+sparkline"   # numbers + braille trend (ledger default)
 context_visual = ""                 # = layout default

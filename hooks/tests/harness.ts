@@ -53,7 +53,19 @@ export type Spawn = { argv: readonly string[]; stdin: string }
  */
 export const isPaneSpawn = (run: Spawn): boolean => {
   const at = run.argv.indexOf('--layout')
-  return at >= 0 && run.argv[at + 1] !== 'activity'
+  return at >= 0 && run.argv[at + 1] !== 'activity' && !isDesktopBandSpawn(run)
+}
+
+/**
+ * Whether a spawn was the desktop band's: `compact` with ASCII glyphs.
+ *
+ * The pane offers `compact` too, and adds `--no-icons` whenever the desktop is
+ * attached, so a desktop case that opens the pane must not switch it to
+ * `compact` — the two would read alike here.
+ */
+export const isDesktopBandSpawn = (run: Spawn): boolean => {
+  const at = run.argv.indexOf('--layout')
+  return at >= 0 && run.argv[at + 1] === 'compact' && run.argv.includes('--no-icons')
 }
 
 /** What `bottom` hands back, for reading the mod's side of the exchange. */
@@ -167,6 +179,11 @@ export type BottomOptions = {
   root?: string
   /** Where the clock starts. */
   startMs?: number
+  /**
+   * What `$.session.surfaces()` answers; `['terminal']` when not given. The
+   * mod runs the desktop band only when `desktop` is among them.
+   */
+  surfaces?: readonly ('terminal' | 'desktop' | 'mobile' | 'vscode')[]
   /** Rows the stand-in binary answers with, instead of echoing the payload. */
   stdout?: string
   /**
@@ -285,6 +302,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   let root = options.root ?? '/work'
   on('session.root', () => ({ value: root }))
   on('session.id', () => ({ value: options.sessionId ?? 'session-under-test' }))
+  on('session.surfaces', () => ({ value: options.surfaces ?? ['terminal'] }))
+  // Answered as core echoes it, for the case that attaches the desktop late.
+  on('session.attach', (_engine, e) => ({ clientId: e.clientId }))
   on('agent.list', () => ({ value: options.agents ?? [] }))
   on('tool.list', () => ({ value: options.tools ?? [] }))
   on('process.run', async ($, e) => {
@@ -309,7 +329,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
           ? options.binaryVersions[path]
           : 'binaryVersion' in options
             ? options.binaryVersion
-            : '1.6.0'
+            : '1.7.0'
       const present = options.binaryAt === undefined || options.binaryAt.includes(path)
       if (version === null || version === undefined || !present) {
         // As a missing file does: nothing on stdout and a non-zero status.
@@ -387,7 +407,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     lastPayload: () => parse(binaryRuns().at(-1), 'for the band'),
     payloads: () =>
       binaryRuns()
-        .filter(run => !isPaneSpawn(run))
+        .filter(run => !isPaneSpawn(run) && !isDesktopBandSpawn(run))
         .map(run => JSON.parse(run.stdin) as PayloadShape),
     lastPanePayload: () => parse(binaryRuns().filter(isPaneSpawn).at(-1), 'for the pane'),
     advance: ms => clock.advance(ms),
@@ -419,6 +439,9 @@ export const BAND = {
   },
 } as const
 
+/** The band as the desktop app raises it. */
+export const DESKTOP_BAND = { ...BAND, surface: 'desktop' } as const
+
 /** The same band with nothing running. */
 export const IDLE_BAND = {
   ...BAND,
@@ -440,6 +463,9 @@ export const PANE = {
     view: {},
   },
 } as const
+
+/** The pane as the desktop app raises it. */
+export const DESKTOP_PANE = { ...PANE, surface: 'desktop' } as const
 
 /** What `$.command.run` takes as the person's own invocation. */
 export const USER_COMMAND: { args: string; origin: PromptOrigin; presentation: { isFullscreen: boolean; columns: number } } = {
