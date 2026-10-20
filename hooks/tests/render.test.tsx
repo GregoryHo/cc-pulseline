@@ -470,6 +470,39 @@ describe('the desktop app', () => {
     expect(renders(terminalOnly.spawns).some(run => layoutOf(run) === 'activity')).toBe(true)
   })
 
+  test('measuring the desktop band refits it, and only when the box moves', async ($, on) => {
+    // The desktop band is drawn idle, so a refresh made before it was measured
+    // (session start, a desktop attaching) would otherwise stand at the 3x120
+    // guess until the next tool call.
+    const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
+    await warm($)
+    await seen.settle()
+    const desktopRuns = () => renders(seen.spawns).filter(isDesktopBandSpawn)
+    const sizeOf = (run: Spawn | undefined) => [
+      run?.argv[run.argv.indexOf('--rows') + 1],
+      run?.argv[run.argv.indexOf('--columns') + 1],
+    ]
+    expect(sizeOf(desktopRuns().at(-1))).toEqual(['3', '120'])
+
+    const props = { ...DESKTOP_BAND.props, maxRows: 2, bodyColumns: 80 }
+    const ui = await $.ui.mount({ ...DESKTOP_BAND, props })
+    await seen.settle()
+    expect(sizeOf(desktopRuns().at(-1))).toEqual(['2', '78'])
+
+    // The same box again draws, and spawns nothing.
+    const before = desktopRuns().length
+    await ui.redraw(props)
+    await seen.settle()
+    expect(desktopRuns().length).toBe(before)
+
+    // A resize does.
+    await ui.redraw({ ...props, bodyColumns: 60 })
+    await seen.settle()
+    expect(sizeOf(desktopRuns().at(-1))).toEqual(['2', '58'])
+
+    await ui.unmount()
+  })
+
   test('a session the desktop hosts alone runs only the desktop band', async ($, on) => {
     const seen = bottom(on, { stdout: COLOURED_ROWS, surfaces: ['desktop'] })
     await warm($)
