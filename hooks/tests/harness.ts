@@ -1,4 +1,4 @@
-import type { AgentInfo, On, PromptOrigin, ToolInfo } from 'claude-code'
+import type { AgentInfo, On, PromptOrigin, SessionContextBreakdown, ToolInfo } from 'claude-code'
 import { mock } from 'claude-code/testing'
 
 /**
@@ -97,6 +97,8 @@ export type Recorder = {
   settle: () => Promise<void>
   /** Moves the session's project root, as `/cd` or a worktree move would. */
   moveRoot: (to: string) => void
+  /** Changes what `$.session.usage()` answers from here on, as a turn would. */
+  setUsage: (over: UsageOptions) => void
   /**
    * Every `$.ui.status` and `$.ui.log` the mod made, in order.
    *
@@ -175,6 +177,15 @@ export type UsageOptions = {
   percent?: number
   rateLimits?: { kind: string; percentUsed: number; resetsAt?: string }[]
   cost?: { usd: number } | undefined
+  /** The last response's input tokens; absent, the engine has no reading. */
+  tokens?: number
+  /**
+   * What a `{ breakdown }` call answers of autocompact; absent, the breakdown
+   * is too, as with no session bound.
+   */
+  autoCompact?: { threshold?: number; enabled: boolean }
+  /** The breakdown's `totalTokens`; absent, the same as `tokens`. */
+  breakdownTokens?: number
 }
 
 export type BottomOptions = {
@@ -335,15 +346,31 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('classic.PostCompact', () => ({}))
   // A turn's own bottom. Its result is `{ text, usage? }`, not `{ value }`.
   on('turn.complete', () => ({ text: '' }))
-  on('session.usage', () => ({
+  // Mutable, so a case can move the context on between turns.
+  let usage: UsageOptions = options.usage ?? {}
+  on('session.usage', (_engine, e) => ({
     value: {
       startedAt: 1_699_000_000_000,
       context: {
-        window: options.usage?.window ?? 1_000_000,
-        percent: options.usage?.percent ?? 43,
+        window: usage.window ?? 1_000_000,
+        percent: usage.percent ?? 43,
+        ...(usage.tokens !== undefined ? { tokens: usage.tokens } : {}),
+        // Only the fields the mod reads: the rest of a breakdown is
+        // /context's grid, which nothing here draws.
+        ...(e.breakdown !== undefined && usage.autoCompact !== undefined
+          ? {
+              breakdown: {
+                isAutoCompactEnabled: usage.autoCompact.enabled,
+                totalTokens: usage.breakdownTokens ?? usage.tokens,
+                ...(usage.autoCompact.threshold !== undefined
+                  ? { autoCompactThreshold: usage.autoCompact.threshold }
+                  : {}),
+              } as unknown as SessionContextBreakdown,
+            }
+          : {}),
       },
-      rateLimits: options.usage?.rateLimits ?? [],
-      cost: 'cost' in (options.usage ?? {}) ? options.usage?.cost : { usd: 1.53 },
+      rateLimits: usage.rateLimits ?? [],
+      cost: 'cost' in usage ? usage.cost : { usd: 1.53 },
     },
   }))
   on('session.model', () => ({ value: options.model ?? 'claude-opus-5[1m]' }))
@@ -496,6 +523,9 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     advance: ms => clock.advance(ms),
     moveRoot: to => {
       root = to
+    },
+    setUsage: over => {
+      usage = { ...usage, ...over }
     },
     notices,
     notifications,

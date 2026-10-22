@@ -8,7 +8,9 @@ import {
   formatSpan,
   gaugeSvg,
   hitRate,
+  nextDeltas,
   quotaPast,
+  runwayOf,
   shareLine,
   shareOf,
   shouldWriteSpend,
@@ -18,7 +20,7 @@ import {
   stripRows,
 } from '../desktop'
 import { BAND, BENEATH, DESKTOP_BAND, STAMP, bottom, isDesktopBandSpawn } from './harness'
-import type { Spawn } from './harness'
+import type { Recorder, Spawn, UsageOptions } from './harness'
 
 /**
  * The quiet desktop band: one thin strip of quota, cost and the branch, kept
@@ -548,5 +550,150 @@ describe('a long turn', () => {
     await $.turn.complete(turn(400_000))
     await seen.settle()
     expect(seen.notifications).toEqual([])
+  })
+})
+
+describe('the autocompact runway', () => {
+  const turn = { reason: 'answer' as const, answer: '', durationMs: 1000, isAborted: false, turnId: 'turn' }
+  const AUTO = { threshold: 160_000, enabled: true }
+
+  /** One main turn ending with the context at `tokens` of a 200k window. */
+  const endTurn = async (
+    $: { turn: { complete: (e: typeof turn) => Promise<unknown> } },
+    seen: Recorder,
+    tokens: number,
+    over: UsageOptions = {},
+  ) => {
+    seen.setUsage({ window: 200_000, tokens, percent: Math.round((tokens / 200_000) * 100), ...over })
+    await $.turn.complete(turn)
+    await seen.advance(1000)
+  }
+
+  /** The quiet band's own texts, the chain beneath left out. */
+  const drawnTexts = async (
+    $: { ui: { mount: (e: typeof DESKTOP_BAND) => Promise<{ findAll: (q: { type: string }) => Promise<{ text: string }[]>; unmount: () => Promise<void> }> } },
+  ) => {
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text).filter(text => text !== BENEATH)
+    const buttons = await ui.findAll({ type: 'Button' })
+    await ui.unmount()
+    return { texts, buttons: buttons.length }
+  }
+
+  test('each turn adds its growth, the last five kept; a shrink starts over', () => {
+    expect(nextDeltas(null, [], 100)).toEqual([])
+    expect(nextDeltas(100, [], 110)).toEqual([10])
+    expect(nextDeltas(160, [10, 10, 10, 10, 10], 170)).toEqual([10, 10, 10, 10, 10])
+    expect(nextDeltas(160, [1, 2, 3, 4, 5], 170)).toEqual([2, 3, 4, 5, 10])
+    expect(nextDeltas(120_000, [10_000, 10_000], 40_000)).toEqual([])
+  })
+
+  test('turns left at the average growth, floored', () => {
+    expect(runwayOf(120_000, [10_000, 10_000], 160_000)).toBe(4)
+    expect(runwayOf(125_000, [10_000, 12_000], 160_000)).toBe(3)
+    expect(runwayOf(165_000, [10_000, 10_000], 160_000)).toBe(0)
+  })
+
+  test('none with under two turns of growth, flat or falling growth, or no threshold', () => {
+    expect(runwayOf(120_000, [10_000], 160_000)).toBeNull()
+    expect(runwayOf(120_000, [0, 0], 160_000)).toBeNull()
+    expect(runwayOf(120_000, [10_000, -20_000], 160_000)).toBeNull()
+    expect(runwayOf(120_000, [10_000, 10_000], null)).toBeNull()
+  })
+
+  test('opens the context alert early, at five turns, and says how many are left', () => {
+    const at60 = usage({ context: { window: 200_000, percent: 60, tokens: 120_000 } })
+    expect(desktopAlerts(at60, null, 6)).toEqual([])
+    const alerts = desktopAlerts(at60, null, 4)
+    expect(alerts).toEqual([{ kind: 'ctx', percent: 60, used: 120_000, window: 200_000, runway: 4 }])
+    const row = alertRow(alerts[0]!)
+    expect(row.label).toBe('CTX 60%')
+    expect(row.detail).toBe('~4 turns to autocompact')
+    expect(row.compact).toBe(true)
+    // Past the limit, the runway is said however far it is.
+    const at73 = usage({ context: { window: 200_000, percent: 73, tokens: 146_000 } })
+    expect(alertRow(desktopAlerts(at73, null, 9)[0]!).detail).toBe('~9 turns to autocompact')
+    expect(alertRow({ kind: 'ctx', percent: 78, used: 1, window: 2, runway: 1 }).detail).toBe('~1 turn to autocompact')
+    expect(alertRow({ kind: 'ctx', percent: 79, used: 1, window: 2, runway: 0 }).detail).toBe('autocompact next turn')
+  })
+
+  test('the band shows it once two turns have grown the context', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    await endTurn($, seen, 100_000)
+    await endTurn($, seen, 110_000)
+    // One turn's growth is not a pace yet: under its limit, no alert.
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual([])
+
+    await endTurn($, seen, 120_000)
+    await seen.settle()
+    const drawn = await drawnTexts($)
+    expect(drawn.texts).toEqual(['CTX 60%', '~4 turns to autocompact'])
+    expect(drawn.buttons).toBe(1)
+  })
+
+  test('flat growth draws no runway', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    for (const tokens of [120_000, 120_000, 120_000]) await endTurn($, seen, tokens)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual([])
+  })
+
+  test('a compaction starts the series over', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    for (const tokens of [100_000, 110_000, 120_000]) await endTurn($, seen, tokens)
+    // Compacted: the context drops, and the alert closes.
+    await endTurn($, seen, 50_000)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual([])
+    // Two fast turns after it. Kept, the drop would average in and read `~1 turn`.
+    await endTurn($, seen, 100_000)
+    await endTurn($, seen, 150_000)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual(['CTX 75%', 'autocompact next turn'])
+  })
+
+  test('with autocompact off, the alert is as it was', async ($, on) => {
+    const off = { enabled: false }
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: off } })
+    for (const tokens of [100_000, 110_000, 120_000]) await endTurn($, seen, tokens)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual([])
+    await endTurn($, seen, 146_000)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual(['CTX 73%', '146.0k / 200.0k'])
+  })
+
+  test('a subagent turn is not a sample', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    await endTurn($, seen, 100_000)
+    await endTurn($, seen, 110_000)
+    // The main context, unchanged under a subagent's run: a zero would halve the pace.
+    seen.setUsage({ tokens: 110_000 })
+    await $.turn.complete({ ...turn, agentId: 'agent-1' } as typeof turn)
+    await endTurn($, seen, 120_000)
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual(['CTX 60%', '~4 turns to autocompact'])
+  })
+
+  test("runs on the breakdown's count, which its threshold is on", async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    // The last request's input lags the breakdown, which also counts the turn's
+    // own answer: the runway is 2 turns, not the 4 the input count reads.
+    for (const tokens of [100_000, 110_000, 120_000]) {
+      await endTurn($, seen, tokens, { breakdownTokens: tokens + 20_000 })
+    }
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual(['CTX 60%', '~2 turns to autocompact'])
+  })
+
+  test('the terminal band draws no runway', async ($, on) => {
+    const seen = bottom(on, { usage: { autoCompact: AUTO } })
+    for (const tokens of [100_000, 110_000, 120_000]) await endTurn($, seen, tokens)
+    await seen.settle()
+    const ui = await $.ui.mount(BAND)
+    expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+    expect(await ui.findAll({ type: 'Button' })).toEqual([])
+    await ui.unmount()
   })
 })

@@ -30,6 +30,15 @@ const QUOTA_MARKS = [50, 85]
 const CACHE_READ_UNDER = 0.4
 const CACHE_CREATION_AT = 0.5
 
+/**
+ * How near autocompact opens the context alert early, in turns: enough to
+ * finish the task at hand and compact at its end rather than mid-task.
+ */
+export const RUNWAY_TURNS = 5
+
+/** How many turns' growth the runway averages over. */
+const RUNWAY_SAMPLES = 5
+
 /** How long a turn runs before its end is worth a notification. */
 export const LONG_TURN_MS = 3 * 60_000
 
@@ -54,19 +63,46 @@ export function hitRate(tokens: Tokens | null): { read: number; creation: number
 }
 
 /**
+ * The growth series after a main turn ends with the context at `tokens`: its
+ * growth appended, the oldest dropped past `RUNWAY_SAMPLES`. A context that
+ * shrank was compacted (or cleared), so the series starts over from it.
+ */
+export function nextDeltas(last: number | null, deltas: readonly number[], tokens: number): number[] {
+  if (last === null || tokens < last) return []
+  return [...deltas, tokens - last].slice(-RUNWAY_SAMPLES)
+}
+
+/**
+ * Whole turns left before autocompact runs at `threshold`, at the recent
+ * turns' average growth; `null` with fewer than two turns' growth, growth
+ * that is flat or falling, or no threshold (autocompact off).
+ */
+export function runwayOf(current: number, deltas: readonly number[], threshold: number | null): number | null {
+  if (threshold === null || deltas.length < 2) return null
+  const average = deltas.reduce((sum, delta) => sum + delta, 0) / deltas.length
+  if (average <= 0) return null
+  return Math.max(0, Math.floor((threshold - current) / average))
+}
+
+/**
  * The alert rows for one reading, context first: it is the one with a button.
  * Quota has no row of its own; the strip draws it, and `quotaPast` notifies.
+ *
+ * The context's opens at its limit, or earlier once autocompact is
+ * `RUNWAY_TURNS` turns off.
  */
-export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null): Alert[] {
+export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null, runway: number | null = null): Alert[] {
   const alerts: Alert[] = []
 
   const ctx = usage.context.percent
-  if (ctx !== undefined && ctx >= LIMITS.ctx) {
+  const near = runway !== null && runway <= RUNWAY_TURNS
+  if (ctx !== undefined && (ctx >= LIMITS.ctx || near)) {
     alerts.push({
       kind: 'ctx',
       percent: ctx,
       used: usage.context.tokens ?? Math.round((usage.context.window * ctx) / 100),
       window: usage.context.window,
+      ...(runway !== null ? { runway } : {}),
     })
   }
 
@@ -278,7 +314,10 @@ export function alertRow(alert: Alert): AlertRow {
         gauge: { source: gaugeSvg(alert.percent, CTX_MARKS, AMBER), alt: `Context ${label}` },
         label,
         color: AMBER,
-        detail: `${formatTokens(alert.used)} / ${formatTokens(alert.window)}`,
+        detail:
+          alert.runway === undefined
+            ? `${formatTokens(alert.used)} / ${formatTokens(alert.window)}`
+            : runwayText(alert.runway),
         compact: true,
       }
     }
@@ -291,6 +330,12 @@ export function alertRow(alert: Alert): AlertRow {
         compact: false,
       }
   }
+}
+
+/** `~4 turns to autocompact`; under one turn's growth left, the next turn. */
+function runwayText(turns: number): string {
+  if (turns === 0) return 'autocompact next turn'
+  return `~${turns} turn${turns === 1 ? '' : 's'} to autocompact`
 }
 
 /** The notification a quota window raises once per reset. */

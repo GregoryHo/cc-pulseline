@@ -343,8 +343,21 @@ Under the strip, a row opens for each value past its limit:
 
 | alert | opens at | row | action |
 | --- | --- | --- | --- |
-| context | 70% (the binary's critical mark) | `Svg` gauge, `CTX 73%`, `146.0k / 200.0k` | a `/compact` button that fills an empty prompt, never sends; a draft is kept and a toast says why |
+| context | 70% (the binary's critical mark), or earlier at 5 turns or fewer before autocompact | `Svg` gauge, `CTX 78%`, `~4 turns to autocompact` (`autocompact next turn` under one turn's growth); `146.0k / 200.0k` when there is no runway | a `/compact` button that fills an empty prompt, never sends; a draft is kept and a toast says why |
 | cache | under 40% read with half or more written (the `C:%` "rebuilding" rung) | `cache 22%`, the share written | none |
+
+The runway is the turns left before autocompact runs, at the average
+growth of the last five main turns (at least two). On each main
+`turn.complete` the mod reads `$.session.usage({ breakdown: 'summary' })`,
+which counts locally and sends no request: the breakdown's `totalTokens` is
+the sample, and its `autoCompactThreshold` and `isAutoCompactEnabled` say
+where autocompact runs and whether it does. Not `context.tokens`: that is
+the last request's input alone, a different count from the one the
+threshold applies to, and it lags a turn that ended on a long answer. A subagent's turn and an errored
+one are not samples; a context that shrank (a compaction, `/clear`) starts
+the series over. With autocompact off, no threshold named, growth flat or
+falling, or under two turns of growth, there is no runway and the row is the
+70% one it always was.
 
 Quota has no row of its own: the strip draws it. A window at 85% raises one
 `$.ui.notify` per window and reset, kept in the atom so a reload does not
@@ -461,6 +474,7 @@ field, which the hooks module does not use.
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
 | Compaction count | `classic.PostCompact` — the end that means one happened. `PreCompact` can be blocked (`SessionCompactSkipped`: "Core answers it too, when a classic PreCompact hook blocks"), so counting there raised the badge over a compaction that never ran |
 | API error | `turn.complete` where `e.reason` is `'error'` |
+| Autocompact runway | `turn.complete` on the main loop: `$.session.usage({ breakdown: 'summary' })`'s breakdown, per turn: `totalTokens`, `autoCompactThreshold` / `isAutoCompactEnabled` |
 | Cumulative cache reads | summed from `turn.complete`'s usage, once per turn, and sent as a total — the binary cannot total it, since every refresh re-sends the same last-turn usage. Kept across compaction, as the transcript path keeps it |
 | MCP count, instruction counts | `$.tool.list()` and `classic.InstructionsLoaded` — what actually loaded, not what exists on disk |
 

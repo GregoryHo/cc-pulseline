@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, PluginOptions, Register, SessionUsage } from 'claude-code'
+import type { AgentInfo, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionUsage } from 'claude-code'
 
 import {
   PROBE_TIMEOUT_MS,
@@ -20,9 +20,11 @@ import {
   alertRow,
   desktopAlerts,
   longTurnNotice,
+  nextDeltas,
   quotaKey,
   quotaNotice,
   quotaPast,
+  runwayOf,
   shareLine,
   shareOf,
   shouldWriteSpend,
@@ -187,6 +189,9 @@ const sessionFacts = atom({ plugin: 'pulseline', key: 'session' } as const, {
   outputStyle: null,
   lastApiErrorMs: null,
   cacheReadTotal: 0,
+  ctxTokens: null,
+  ctxDeltas: [],
+  autoCompact: null,
 })
 
 const toolTotals = atom({ plugin: 'pulseline', key: 'tools' } as const, {
@@ -1257,7 +1262,16 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // window that newly passed its limit. Worked out here, never in the render
   // hook, which may not write state.
   const drawsQuiet = onDesktop && quiet
-  const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens) : []
+  // `?? null` / `?? []`: an atom written before the runway existed has neither.
+  // The last turn's sample, not this reading's `context.tokens`: the
+  // threshold is on the breakdown's count, and so is the series.
+  const ctxAt = facts.ctxTokens ?? null
+  const autoCompact = facts.autoCompact ?? null
+  const runway =
+    ctxAt === null || autoCompact === null || !autoCompact.enabled
+      ? null
+      : runwayOf(ctxAt, facts.ctxDeltas ?? [], autoCompact.threshold)
+  const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens, runway) : []
   let strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
   // Every desktop session says what it spends, whatever its layout, so a
   // quiet one counts the rest; only the quiet band draws the share.
@@ -1855,9 +1869,40 @@ export const register: Register = (on, options) => {
     // can see an API error; the binary drops a reading older than 30s, so
     // this is never cleared.
     const erroredAt = e.reason === 'error' ? await $.clock.now() : null
-    if (usage || erroredAt !== null) {
+    // The quiet desktop band's autocompact runway: where the context stands
+    // after each main turn, and where autocompact runs. A subagent's turn
+    // leaves the main context as it was, and an errored one may not have
+    // grown it, so neither is a sample.
+    let context: SessionContextUsage | null = null
+    if (e.agentId === undefined && e.reason !== 'error') {
+      try {
+        // `summary` counts locally and sends no request. The series is the
+        // breakdown's own total, the count its threshold applies to: the
+        // status line's `context.tokens` is the last request's input alone,
+        // which lags a turn that ended on a long answer or tool output.
+        context = (await $.session.usage({ breakdown: 'summary' })).context
+      } catch {
+        // Kept as it was: a runway one turn stale beats a turn that fails on
+        // the band's account. The hook observes, and the turn's result stands.
+      }
+    }
+    const breakdown = context?.breakdown
+    const sampled = breakdown?.totalTokens
+    if (usage || erroredAt !== null || context !== null) {
       await update($, sessionFacts, facts => ({
         ...facts,
+        // No breakdown, no sample. A compaction shows as a smaller total,
+        // which starts the series over.
+        ...(sampled !== undefined
+          ? {
+              ctxTokens: sampled,
+              ctxDeltas: nextDeltas(facts.ctxTokens ?? null, facts.ctxDeltas ?? [], sampled),
+            }
+          : {}),
+        autoCompact:
+          breakdown === undefined
+            ? (facts.autoCompact ?? null)
+            : { threshold: breakdown.autoCompactThreshold ?? null, enabled: breakdown.isAutoCompactEnabled },
         tokens: usage
           ? {
               input_tokens: usage.input_tokens,
