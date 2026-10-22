@@ -242,6 +242,12 @@ export type Strip = {
   /** Session cost so far, and per hour since the session began. */
   usd?: number
   usdPerHour?: number
+  /**
+   * This session's share of what every active desktop session has spent,
+   * 0 to 1, and how many others are active. Absent with no other session
+   * active, and from an atom an older version wrote, so read it as `?? null`.
+   */
+  share?: { share: number; others: number }
 }
 
 /**

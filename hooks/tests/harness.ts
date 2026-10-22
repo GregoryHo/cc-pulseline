@@ -111,6 +111,8 @@ export type Recorder = {
   toasts: string[]
   /** Every `$.prompt.fill` the mod made, by its text. */
   fills: string[]
+  /** What `$.store` holds now, by key. */
+  store: Map<string, unknown>
 }
 
 /**
@@ -262,6 +264,11 @@ export type BottomOptions = {
   notifySent?: boolean
   /** The draft `$.prompt.read()` answers; empty when not given. */
   draft?: string
+  /**
+   * What `$.store` holds at the start: other sessions' spends, say. Empty
+   * when not given. A case reads it back off the recorder's `store`.
+   */
+  store?: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -278,6 +285,19 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   const toasts: string[] = []
   const fills: string[] = []
   const clock = mock.clock(on, { now: options.startMs ?? STAMP })
+  // `$.store` in memory. Not `mock.store`, which answers the mod but leaves
+  // a case's own `$` with no store to read back from.
+  const store = new Map(Object.entries(options.store ?? {}))
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => {
+    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined }
+  })
+  on('store.delete', ($, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: [...store.keys()] }))
 
   // The Task API's two calls are answered the way the engine answers them,
   // because the mod reads the created task's id out of the *result* rather
@@ -481,6 +501,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     notifications,
     toasts,
     fills,
+    store,
     settle: () => clock.settle(),
   }
 }

@@ -9,6 +9,10 @@ import {
   gaugeSvg,
   hitRate,
   quotaPast,
+  shareLine,
+  shareOf,
+  shouldWriteSpend,
+  spendOf,
   stripCells,
   stripOf,
 } from '../desktop'
@@ -343,6 +347,130 @@ describe('the quiet band', () => {
     const ui = await $.ui.mount(BAND)
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
     await ui.unmount()
+  })
+})
+
+describe('the share of spend', () => {
+  const OWN = 'session.session-under-test'
+  /** Another session's spend, `ago` before the test clock. */
+  const spend = (usd: number, ago: number) => ({ usd, at: STAMP - ago })
+
+  test('is this session over every active one, with how many others', () => {
+    const share = shareOf(1, [spend(2, 60_000), spend(1, 9 * 60_000)], STAMP)
+    expect(share).toEqual({ share: 0.25, others: 2 })
+    expect(shareLine(share!)).toBe('this session ~25% of spend · 2 others active')
+    expect(shareLine({ share: 0.5, others: 1 })).toBe('this session ~50% of spend · 1 other active')
+  })
+
+  test('leaves out a session quiet for over ten minutes', () => {
+    expect(shareOf(1, [spend(1, 60_000), spend(5, 11 * 60_000)], STAMP)).toEqual({ share: 0.5, others: 1 })
+  })
+
+  test('is nothing for a lone session, or with nothing spent', () => {
+    expect(shareOf(4, [spend(5, 11 * 60_000)], STAMP)).toBeNull()
+    expect(shareOf(0, [spend(0, 60_000)], STAMP)).toBeNull()
+  })
+
+  test('is written again only when it moved or is going stale', () => {
+    expect(shouldWriteSpend(null, 1, STAMP)).toBe(true)
+    expect(shouldWriteSpend({ usd: 1, at: STAMP - 10_000 }, 1, STAMP)).toBe(false)
+    expect(shouldWriteSpend({ usd: 1, at: STAMP - 10_000 }, 1.2, STAMP)).toBe(true)
+    expect(shouldWriteSpend({ usd: 1, at: STAMP - 30_000 }, 1, STAMP)).toBe(true)
+  })
+
+  test('reads only a well-formed spend from the store', () => {
+    expect(spendOf({ usd: 1, at: 2 })).toEqual({ usd: 1, at: 2 })
+    expect(spendOf({ usd: '1', at: 2 })).toBeNull()
+    expect(spendOf(null)).toBeNull()
+    expect(spendOf(3)).toBeNull()
+  })
+
+  test('draws under the gauges, with the other active sessions', async ($, on) => {
+    const seen = bottom(on, {
+      surfaces: ['desktop'],
+      store: { 'session.a': spend(1.53, 60_000), 'session.b': spend(3.06, 2 * 60_000) },
+    })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    const texts = await ui.findAll({ type: 'Text' })
+    expect(texts.map(text => text.text)).toEqual([
+      '$1.53',
+      '$0.01/h',
+      'this session ~25% of spend · 2 others active',
+      BENEATH,
+    ])
+    expect(texts.filter(text => text.text !== BENEATH).every(text => text.props.mono === true)).toBe(true)
+    await ui.unmount()
+  })
+
+  test('leaves a stale session out of the count', async ($, on) => {
+    const seen = bottom(on, {
+      surfaces: ['desktop'],
+      store: { 'session.a': spend(1.53, 60_000), 'session.b': spend(9, 11 * 60_000) },
+    })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    expect(texts).toContain('this session ~50% of spend · 1 other active')
+    await ui.unmount()
+  })
+
+  test('a lone session draws no row', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], store: { 'session.a': spend(9, 11 * 60_000) } })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    expect(texts).toEqual(['$1.53', '$0.01/h', BENEATH])
+    await ui.unmount()
+  })
+
+  test("writes this session's own key, and again only once it goes stale", async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'] })
+    await warm($, 'first')
+    await seen.settle()
+    expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP })
+    // Unchanged ten seconds on: not rewritten.
+    await seen.advance(10_000)
+    await warm($, 'second')
+    await seen.settle()
+    expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP })
+    // Thirty seconds after the write: written again, to stay active.
+    await seen.advance(20_000)
+    await warm($, 'third')
+    await seen.settle()
+    expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP + 30_000 })
+  })
+
+  test('a desktop session on another layout still writes its own key', { options: { desktopLayout: 'rail' } }, async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'] })
+    await warm($)
+    await seen.settle()
+    expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP })
+  })
+
+  test('deletes a key over a day old, and one that is not a spend', async ($, on) => {
+    const seen = bottom(on, {
+      surfaces: ['desktop'],
+      store: {
+        'session.old': spend(2, 25 * 3_600_000),
+        'session.junk': 'not a spend',
+        'session.a': spend(1, 20 * 60_000),
+        unrelated: 1,
+      },
+    })
+    await warm($)
+    await seen.settle()
+    expect([...seen.store.keys()].sort()).toEqual([OWN, 'session.a', 'unrelated'].sort())
+  })
+
+  test('a terminal session writes nothing', async ($, on) => {
+    const seen = bottom(on, { store: { 'session.old': spend(2, 25 * 3_600_000) } })
+    await warm($)
+    await seen.settle()
+    expect([...seen.store.keys()]).toEqual(['session.old'])
   })
 })
 

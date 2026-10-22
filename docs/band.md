@@ -178,7 +178,7 @@ The tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), the quiet desktop band's strip,
-alerts, button and notifications (`desktop`), and what the band and pane actually
+share of spend, alerts, button and notifications (`desktop`), and what the band and pane actually
 draw (`render`) — colours, row clipping against `maxRows`, the width and the
 layout reaching the binary, when the band yields and when it speaks, the
 pane's switcher, and the desktop app's own runs (`the desktop app` in
@@ -314,6 +314,21 @@ a fill past it is a window used faster than it runs. Nothing is projected
 in the first 5% of a window (15 minutes of five hours, 8.4 hours of seven
 days), for a window of unknown length, or without a reset. The pace is an
 average, so a seven-day window reads it with the nights folded in.
+
+Quota is the account's, shared by every session at once, so a dim line
+under the gauges says which session is burning it:
+`this session ~40% of spend · 2 others active`. Each desktop session,
+whatever its layout, writes its own `$.store` key on the refresh path,
+`session.<id>` = `{ usd, at }` (the API-equivalent cost and `$.clock.now()`),
+when the cost moved or 30 seconds after its last write. One key per
+session, never a shared total: measured on 2.1.308 with four processes
+writing at once, per-session keys lost nothing, while a shared value
+updated by get-then-set lost a third to four fifths of its updates. The
+share is this session's cost over the sum of every session heard from in
+the last 10 minutes; with no other one active there is no line, since a
+lone session's 100% says nothing. A key a day old, or one that is not a
+spend, is deleted, so the store (4 MiB in all) cannot grow. A store that
+refuses is said in the run note, and the strip draws on without the line.
 
 With no quota reading it draws the cost alone. `G:`, `S:` and the activity
 rows are not drawn: the Code tab shows the branch and the turn, and the
