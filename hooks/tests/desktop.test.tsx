@@ -448,6 +448,8 @@ describe('the share of spend', () => {
     const seen = bottom(on, { surfaces: ['desktop'] })
     await warm($)
     await seen.settle()
+    // The binary drew the band, so this is `rail` and not the quiet default.
+    expect(renders(seen.spawns).filter(isDesktopBandSpawn).length).toBeGreaterThan(0)
     expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP })
   })
 
