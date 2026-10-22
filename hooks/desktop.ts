@@ -149,9 +149,15 @@ export function spendOf(value: unknown): SessionSpend | null {
   return typeof usd === 'number' && typeof at === 'number' ? { usd, at } : null
 }
 
-/** Whether to write the spend again: it moved, or the last write is going stale. */
+/**
+ * Whether to write the spend again: it moved, or the last write is going
+ * stale. Never over a newer one: refreshes overlap, and the one that read
+ * the clock first can reach the store last.
+ */
 export function shouldWriteSpend(last: SessionSpend | null, usd: number, now: number): boolean {
-  return last === null || last.usd !== usd || now - last.at >= SPEND_WRITE_MS
+  if (last === null) return true
+  if (last.at > now) return false
+  return last.usd !== usd || now - last.at >= SPEND_WRITE_MS
 }
 
 /**
@@ -336,6 +342,18 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
     })
   }
   return cells
+}
+
+/**
+ * How many rows the strip stands: its tallest cell (a label, then a pace and
+ * a reset under it), and the share line under them all.
+ */
+export function stripRows(cells: readonly StripCell[], share: boolean): number {
+  if (cells.length === 0) return 0
+  const tallest = Math.max(
+    ...cells.map(cell => 1 + (cell.pace !== null ? 1 : 0) + (cell.detail !== null ? 1 : 0)),
+  )
+  return tallest + (share ? 1 : 0)
 }
 
 /** The notification a long turn raises when it ends. */

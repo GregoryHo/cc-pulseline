@@ -29,6 +29,7 @@ import {
   spendOf,
   stripCells,
   stripOf,
+  stripRows,
 } from './desktop'
 import type { SessionSpend, StripCell } from './desktop'
 import { buildPayload } from './payload'
@@ -2048,8 +2049,11 @@ export const register: Register = (on, options) => {
       if (rows.length === 0) return below
       // Past `maxRows`, the strip goes before an alert: an alert asks for an
       // action, the strip is there to glance at.
+      // The strip is one box but stands several rows, so it is counted as tall
+      // as it draws: counted as one, it pushed an alert past the band's bottom.
       const room = Math.max(1, e.props.maxRows)
-      const shown = rows.length > room && cells.length > 0 ? rows.slice(1) : rows
+      const tall = stripRows(cells, share !== null) + alerts.length > room
+      const shown = tall && cells.length > 0 && alerts.length > 0 ? rows.slice(1) : rows
       return (
         <Box flexDirection="column">
           {shown.slice(0, room)}

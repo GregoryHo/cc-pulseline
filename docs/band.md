@@ -322,7 +322,9 @@ whatever its layout, writes its own `$.store` key on the refresh path,
 `session.<id>` = `{ usd, at }` (the API-equivalent cost and `$.clock.now()`),
 when the cost moved or 30 seconds after its last write. The throttle reads
 the key back rather than remembering the write, so a key another session's
-cleanup deleted after a fresh write is written again on the next refresh.
+cleanup deleted after a fresh write is written again on the next refresh,
+and a write never replaces a stored one with a later `at`: refreshes
+overlap, and the one that read the clock first can reach the store last.
 One key per
 session, never a shared total: measured on 2.1.308 with four processes
 writing at once, per-session keys lost nothing, while a shared value
@@ -347,7 +349,8 @@ Under the strip, a row opens for each value past its limit:
 Quota has no row of its own: the strip draws it. A window at 85% raises one
 `$.ui.notify` per window and reset, kept in the atom so a reload does not
 repeat it. When the band has fewer rows than it needs, the strip goes before
-an alert. Every path, the empty one too, stacks on what the mods beneath draw.
+an alert. The strip counts as tall as it draws: its tallest cell (label,
+pace, reset) plus the share line, up to four rows. Every path, the empty one too, stacks on what the mods beneath draw.
 
 A turn on the main loop that runs three minutes or more, not interrupted,
 raises a notification when it ends, wherever the desktop is attached. Where

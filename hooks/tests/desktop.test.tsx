@@ -15,6 +15,7 @@ import {
   spendOf,
   stripCells,
   stripOf,
+  stripRows,
 } from '../desktop'
 import { BAND, BENEATH, DESKTOP_BAND, STAMP, bottom, isDesktopBandSpawn } from './harness'
 import type { Spawn } from './harness'
@@ -376,6 +377,35 @@ describe('the share of spend', () => {
     expect(shouldWriteSpend({ usd: 1, at: STAMP - 10_000 }, 1, STAMP)).toBe(false)
     expect(shouldWriteSpend({ usd: 1, at: STAMP - 10_000 }, 1.2, STAMP)).toBe(true)
     expect(shouldWriteSpend({ usd: 1, at: STAMP - 30_000 }, 1, STAMP)).toBe(true)
+    // An older refresh landing after a newer one's write leaves it be.
+    expect(shouldWriteSpend({ usd: 1.2, at: STAMP + 5_000 }, 1, STAMP)).toBe(false)
+  })
+
+  test('the strip stands as tall as its tallest cell, and a row more with the share', () => {
+    const resetsAt = new Date(STAMP + (3 * 60 + 56) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 4, resetsAt }] }), STAMP),
+      STAMP,
+    )
+    expect(stripRows(cells, false)).toBe(3)
+    expect(stripRows(cells, true)).toBe(4)
+    expect(stripRows([], true)).toBe(0)
+  })
+
+  test('a strip four rows tall goes before an alert in a four-row band', async ($, on) => {
+    const resetsAt = new Date(STAMP + (3 * 60 + 56) * 60_000).toISOString()
+    const seen = bottom(on, {
+      surfaces: ['desktop'],
+      usage: { percent: 73, rateLimits: [{ kind: 'five_hour', percentUsed: 4, resetsAt }] },
+      store: { 'session.a': spend(1.53, 60_000) },
+    })
+    await warm($)
+    await seen.settle()
+    const ui = await $.ui.mount({ ...DESKTOP_BAND, props: { ...DESKTOP_BAND.props, maxRows: 4 } })
+    const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+    expect(texts[0]).toBe('CTX 73%')
+    expect(texts.some(text => text.startsWith('this session'))).toBe(false)
+    await ui.unmount()
   })
 
   test('reads only a well-formed spend from the store', () => {
