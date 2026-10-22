@@ -303,7 +303,19 @@ reads it.
 
 One thin strip stays on screen: a small `Svg` gauge per quota window with
 its percent and reset (red from 85%), the session cost and `$/h`, and
-`G:branch* ↑n ↓n`. With no quota reading it draws the cost alone; outside a
+`G:branch* ↑n ↓n`. A reset a day or more away reads in days (`6d10h`).
+
+Each window also carries its pace: the percent used divided by the share of
+the window gone, read off `resets_at` and the window's length (5h, 7d), so
+no history is kept. Under the limit it reads `→ ~19% at reset`; on pace to
+run out first, `full in ~3d2h` in amber, with the gauge and label amber too.
+A tick on the gauge, standing above and below the bar, marks the time gone:
+a fill past it is a window used faster than it runs. Nothing is projected
+in the first 5% of a window (15 minutes of five hours, 8.4 hours of seven
+days), for a window of unknown length, or without a reset. The pace is an
+average, so a seven-day window reads it with the nights folded in.
+
+With no quota reading it draws the cost alone; outside a
 repository it leaves `G:` out. The branch is read with `git status
 --porcelain=v2 --branch` at most once every 10 seconds per root, as the
 binary's own git cache does. `S:` and the activity rows are not drawn: the

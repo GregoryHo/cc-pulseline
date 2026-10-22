@@ -1994,16 +1994,23 @@ export const register: Register = (on, options) => {
         )
       })
       if (cells.length > 0) {
-        // A gauge cell is a column: its label line over its detail, so the
-        // detail never wraps beside the gauge. The branch takes a row below.
+        // A gauge cell is a column: its label line over its pace and its
+        // detail, so neither wraps beside the gauge. The branch takes a row below.
         const column = (cell: StripCell) => (
           <Box flexDirection="column">
             <Box flexDirection="row" gap={1} alignItems="center">
-              {cell.gauge !== null ? <Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={8} /> : null}
+              {cell.gauge !== null ? (
+                <Svg source={cell.gauge.source} alt={cell.gauge.alt} width={64} height={cell.gauge.height} />
+              ) : null}
               <Text color={cell.color} mono>
                 {cell.label}
               </Text>
             </Box>
+            {cell.pace !== null ? (
+              <Text color={cell.pace.color} dimColor={cell.pace.color === undefined} mono>
+                {cell.pace.text}
+              </Text>
+            ) : null}
             {cell.detail !== null ? (
               <Text dimColor mono>
                 {cell.detail}

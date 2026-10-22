@@ -160,11 +160,12 @@ export function windowLabel(window: string): string {
   return window
 }
 
-/** `6m 12s`, `2h 5m`, `47m`: the two largest units, a trailing zero dropped. */
+/** `6m 12s`, `2h 5m`, `6d 10h`: the two largest units, a trailing zero dropped. */
 export function formatSpan(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000))
   const parts: [number, string][] = [
-    [Math.floor(total / 3600), 'h'],
+    [Math.floor(total / 86_400), 'd'],
+    [Math.floor((total % 86_400) / 3600), 'h'],
     [Math.floor((total % 3600) / 60), 'm'],
     [total % 60, 's'],
   ]
@@ -188,6 +189,37 @@ function formatTokens(count: number): string {
 function resetsIn(resetsAt: number | undefined, now: number): string | null {
   if (resetsAt === undefined) return null
   return formatSpan(Math.round((resetsAt * 1000 - now) / 60_000) * 60_000)
+}
+
+/** How long each rate-limit window runs, so a reset says how far in it is. */
+const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3_600_000, seven_day: 7 * 86_400_000 }
+
+/**
+ * How far into a window a projection waits: before it, one burst reads as a
+ * whole window's pace. 15 minutes of five hours, 8.4 hours of seven days.
+ */
+const PACE_FROM = 0.05
+
+/** A window's average pace so far, carried to its reset. */
+type Pace = {
+  /** The share of the window gone, 0 to 1. */
+  elapsed: number
+  /** The percent used by the reset at this pace; 100 or more runs out first. */
+  projected: number
+  /** At or past 100: how long until the window runs out. */
+  fullInMs?: number
+}
+
+/** `null` for a window of unknown length, with no reset, too early in, or unused. */
+function paceOf(quota: QuotaWindow, now: number): Pace | null {
+  const length = WINDOW_MS[quota.window]
+  if (length === undefined || quota.resetsAt === undefined || quota.percent <= 0) return null
+  const gone = length - (quota.resetsAt * 1000 - now)
+  const elapsed = gone / length
+  if (elapsed < PACE_FROM || elapsed > 1) return null
+  const projected = quota.percent / elapsed
+  if (projected < 100) return { elapsed, projected }
+  return { elapsed, projected, fullInMs: ((100 - quota.percent) * gone) / quota.percent }
 }
 
 /** One alert as the band draws it: an optional gauge, a label, the detail. */
@@ -234,10 +266,13 @@ export function quotaNotice(quota: QuotaWindow, now: number): string {
 
 /** One cell of the strip: an optional small gauge, a label, a dim detail. */
 export type StripCell = {
-  gauge: { source: string; alt: string } | null
+  /** `height` is the image's: a paced gauge's tick stands above and below its bar. */
+  gauge: { source: string; alt: string; height: number } | null
   label: string
   /** The label's colour; absent, the surface's own text colour. */
   color?: string
+  /** Where the window's pace lands it, over the detail; amber when it runs out first. */
+  pace: { text: string; color?: string } | null
   detail: string | null
   /** A cell that takes a row of its own, not a column beside the gauges. */
   wide?: true
@@ -247,12 +282,23 @@ export type StripCell = {
 export function stripCells(strip: Strip, now: number): StripCell[] {
   const cells: StripCell[] = strip.quota.map(quota => {
     const label = `${windowLabel(quota.window)} ${Math.round(quota.percent)}%`
-    const fill = quota.percent >= QUOTA_MARKS[1]! ? RED : quota.percent >= QUOTA_MARKS[0]! ? AMBER : BLUE
+    const pace = paceOf(quota, now)
+    const runsOut = pace?.fullInMs !== undefined
+    const fill =
+      quota.percent >= QUOTA_MARKS[1]! ? RED : quota.percent >= QUOTA_MARKS[0]! || runsOut ? AMBER : BLUE
+    const color = quota.percent >= QUOTA_MARKS[1]! ? RED : runsOut ? AMBER : undefined
     const reset = resetsIn(quota.resetsAt, now)
+    const source = gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8, pace === null ? undefined : pace.elapsed * 100)
     return {
-      gauge: { source: gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8), alt: `Quota ${label}` },
+      gauge: { source, alt: `Quota ${label}`, height: pace === null ? 8 : 12 },
       label,
-      ...(quota.percent >= QUOTA_MARKS[1]! ? { color: RED } : {}),
+      ...(color !== undefined ? { color } : {}),
+      pace:
+        pace === null
+          ? null
+          : pace.fullInMs !== undefined
+            ? { text: `full in ~${formatSpan(Math.round(pace.fullInMs / 60_000) * 60_000).replace(' ', '')}`, color: AMBER }
+            : { text: `→ ~${Math.round(pace.projected)}% at reset` },
       // No space inside the span: the column is narrow, and `4h22m` stays on one line.
       detail: reset === null ? null : `resets ${reset.replace(' ', '')}`,
     }
@@ -260,11 +306,14 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
   if (strip.usd !== undefined) {
     cells.push({
       gauge: null,
+      pace: null,
       label: `$${strip.usd.toFixed(2)}`,
       detail: strip.usdPerHour !== undefined ? `$${strip.usdPerHour.toFixed(2)}/h` : null,
     })
   }
-  if (strip.git !== null) cells.push({ gauge: null, label: gitLabel(strip.git), detail: null, wide: true })
+  if (strip.git !== null) {
+    cells.push({ gauge: null, pace: null, label: gitLabel(strip.git), detail: null, wide: true })
+  }
   return cells
 }
 
@@ -277,6 +326,10 @@ export function longTurnNotice(durationMs: number): string {
  * A bar gauge as an SVG document: a track, the filled share, and a tick at
  * each threshold mark. Drawn as an image on the desktop, so its colours hold
  * on a light and a dark theme alike: the track is translucent.
+ *
+ * With `pace`, the share of the window gone, the image grows 2px above and
+ * below the bar for a tick there: a fill past it is a window used faster
+ * than it runs.
  */
 export function gaugeSvg(
   percent: number,
@@ -284,16 +337,23 @@ export function gaugeSvg(
   fill: string,
   width = 120,
   height = 10,
+  pace?: number,
 ): string {
   const at = (share: number) => Math.round((width * Math.min(100, Math.max(0, share))) / 100)
+  const inset = pace === undefined ? 0 : 2
+  const tall = height + 2 * inset
+  const y = inset === 0 ? '' : `y="${inset}" `
   const ticks = marks
-    .map(mark => `<rect x="${at(mark)}" width="1" height="${height}" fill="#ffffff" fill-opacity="0.7"/>`)
+    .map(mark => `<rect x="${at(mark)}" ${y}width="1" height="${height}" fill="#ffffff" fill-opacity="0.7"/>`)
     .join('')
+  const paceTick =
+    pace === undefined ? '' : `<rect x="${Math.min(width - 2, at(pace))}" width="2" height="${tall}" fill="#8a8578"/>`
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<rect width="${width}" height="${height}" rx="3" fill="#8a8578" fill-opacity="0.3"/>` +
-    `<rect width="${at(percent)}" height="${height}" rx="3" fill="${fill}"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${tall}" viewBox="0 0 ${width} ${tall}">` +
+    `<rect ${y}width="${width}" height="${height}" rx="3" fill="#8a8578" fill-opacity="0.3"/>` +
+    `<rect ${y}width="${at(percent)}" height="${height}" rx="3" fill="${fill}"/>` +
     ticks +
+    paceTick +
     `</svg>`
   )
 }
