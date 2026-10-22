@@ -16,9 +16,10 @@ import type { Todo, Tokens, ToolCount } from '../types'
  * One running tool call, keyed by its `tool_use_id`.
  *
  * Not in the `$.state` contract: running tools live in the module's closure,
- * since nothing is mid-flight at the moment a reload happens.
+ * since nothing is mid-flight at the moment a reload happens. `startedAt` is
+ * the call's start, in epoch milliseconds, for the terminal band's alert.
  */
-export type ActiveTool = { id: string; name: string; target?: string }
+export type ActiveTool = { id: string; name: string; target?: string; startedAt: number }
 
 /**
  * Everything one payload is built from: what the engine answered for this

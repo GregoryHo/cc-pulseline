@@ -4,11 +4,14 @@ import type { SessionUsage } from 'claude-code'
 import {
   COMPACT_KEY,
   alertRow,
+  alertsOf,
   desktopAlerts,
   formatSpan,
   gaugeSvg,
   hitRate,
   nextDeltas,
+  nextLongCheck,
+  nextStreak,
   quotaPast,
   runwayOf,
   shareLine,
@@ -65,7 +68,7 @@ describe('the alerts', () => {
   test('context at its limit opens one, with the tokens used', () => {
     const alerts = desktopAlerts(usage({ context: { window: 200_000, percent: 73 } }), null)
     expect(alerts).toEqual([{ kind: 'ctx', percent: 73, used: 146_000, window: 200_000 }])
-    const row = alertRow(alerts[0]!)
+    const row = alertRow(alerts[0]!, STAMP)
     expect(row.label).toBe('CTX 73%')
     expect(row.detail).toBe('146.0k / 200.0k')
     expect(row.compact).toBe(true)
@@ -82,7 +85,7 @@ describe('the alerts', () => {
     // Under 40% read with half or more written: the cache is being rebuilt.
     const rebuilding = desktopAlerts(usage(), tokens(220, 640, 140))
     expect(rebuilding.map(alert => alert.kind)).toEqual(['cache'])
-    expect(alertRow(rebuilding[0]!).detail).toBe('rebuilding · 64% of input is new cache')
+    expect(alertRow(rebuilding[0]!, STAMP).detail).toBe('rebuilding · 64% of input is new cache')
     // Under 40% read with little written is a cold start, not worth a line.
     expect(desktopAlerts(usage(), tokens(100, 100, 800))).toEqual([])
     expect(hitRate(tokens(0, 0, 0))).toBeNull()
@@ -337,18 +340,21 @@ describe('the quiet band', () => {
     expect(seen.toasts).toEqual(['7d quota at 92%.'])
   })
 
-  test('a terminal session has no strip, no alerts and no notifications', async ($, on) => {
+  test('a terminal session draws its alerts as text, with no strip and no notifications', async ($, on) => {
     const seen = bottom(on, {
       usage: { percent: 90, rateLimits: [{ kind: 'five_hour', percentUsed: 99 }] },
     })
     await warm($)
     await seen.settle()
     expect(seen.notifications).toEqual([])
-    // The terminal band runs as it always has: the activity layout.
-    const run = renders(seen.spawns).at(-1)
-    expect(run?.argv[run.argv.indexOf('--layout') + 1]).toBe('activity')
+    // The terminal band runs no binary: its statusline draws the rows.
+    expect(renders(seen.spawns)).toEqual([])
     const ui = await $.ui.mount(BAND)
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('CTX 90%')
+    expect(drawn).not.toContain('5h 99%')
+    expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
     await ui.unmount()
   })
 })
@@ -511,11 +517,15 @@ describe('the share of spend', () => {
     expect([...seen.store.keys()].sort()).toEqual([OWN, 'session.a', 'unrelated'].sort())
   })
 
-  test('a terminal session writes nothing', async ($, on) => {
-    const seen = bottom(on, { store: { 'session.old': spend(2, 25 * 3_600_000) } })
+  test('a terminal session says what it spends too, and draws no share', async ($, on) => {
+    // So a desktop session's share counts the terminal ones beside it.
+    const seen = bottom(on, { store: { 'session.old': spend(2, 25 * 3_600_000), 'session.a': spend(1, 60_000) } })
     await warm($)
     await seen.settle()
-    expect([...seen.store.keys()]).toEqual(['session.old'])
+    expect([...seen.store.keys()].sort()).toEqual([OWN, 'session.a'].sort())
+    const ui = await $.ui.mount(BAND)
+    expect(JSON.stringify(await ui.drawn())).not.toContain('of spend')
+    await ui.unmount()
   })
 })
 
@@ -606,15 +616,15 @@ describe('the autocompact runway', () => {
     expect(desktopAlerts(at60, null, 6)).toEqual([])
     const alerts = desktopAlerts(at60, null, 4)
     expect(alerts).toEqual([{ kind: 'ctx', percent: 60, used: 120_000, window: 200_000, runway: 4 }])
-    const row = alertRow(alerts[0]!)
+    const row = alertRow(alerts[0]!, STAMP)
     expect(row.label).toBe('CTX 60%')
     expect(row.detail).toBe('~4 turns to autocompact')
     expect(row.compact).toBe(true)
     // Past the limit, the runway is said however far it is.
     const at73 = usage({ context: { window: 200_000, percent: 73, tokens: 146_000 } })
-    expect(alertRow(desktopAlerts(at73, null, 9)[0]!).detail).toBe('~9 turns to autocompact')
-    expect(alertRow({ kind: 'ctx', percent: 78, used: 1, window: 2, runway: 1 }).detail).toBe('~1 turn to autocompact')
-    expect(alertRow({ kind: 'ctx', percent: 79, used: 1, window: 2, runway: 0 }).detail).toBe('autocompact next turn')
+    expect(alertRow(desktopAlerts(at73, null, 9)[0]!, STAMP).detail).toBe('~9 turns to autocompact')
+    expect(alertRow({ kind: 'ctx', percent: 78, used: 1, window: 2, runway: 1 }, STAMP).detail).toBe('~1 turn to autocompact')
+    expect(alertRow({ kind: 'ctx', percent: 79, used: 1, window: 2, runway: 0 }, STAMP).detail).toBe('autocompact next turn')
   })
 
   test('the band shows it once two turns have grown the context', async ($, on) => {
@@ -687,13 +697,97 @@ describe('the autocompact runway', () => {
     expect((await drawnTexts($)).texts).toEqual(['CTX 60%', '~2 turns to autocompact'])
   })
 
-  test('the terminal band draws no runway', async ($, on) => {
-    const seen = bottom(on, { usage: { autoCompact: AUTO } })
+  test('the terminal band draws the runway as text, with the button', async ($, on) => {
+    const seen = bottom(on, { usage: { cost: undefined, autoCompact: AUTO } })
     for (const tokens of [100_000, 110_000, 120_000]) await endTurn($, seen, tokens)
     await seen.settle()
     const ui = await $.ui.mount(BAND)
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
-    expect(await ui.findAll({ type: 'Button' })).toEqual([])
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain('CTX 60%')
+    expect(drawn).toContain('~4 turns to autocompact')
+    expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
     await ui.unmount()
+  })
+})
+
+describe('the terminal alerts', () => {
+  const tool = (startedAt: number, name = 'Bash', target?: string) => ({
+    id: name,
+    name,
+    startedAt,
+    ...(target !== undefined ? { target } : {}),
+  })
+
+  test('a run of failures grows on one tool, starts over on another, and ends on its success', () => {
+    const one = nextStreak(null, 'Bash', true, 'false')
+    expect(one).toEqual({ tool: 'Bash', count: 1, target: 'false' })
+    const two = nextStreak(one, 'Bash', true, 'cargo test')
+    expect(two).toEqual({ tool: 'Bash', count: 2, target: 'cargo test' })
+    // Another tool succeeding leaves the run be; failing starts its own.
+    expect(nextStreak(two, 'Read', false, undefined)).toBe(two)
+    expect(nextStreak(two, 'Read', true, '/n/a')).toEqual({ tool: 'Read', count: 1, target: '/n/a' })
+    expect(nextStreak(two, 'Bash', false, undefined)).toBeNull()
+  })
+
+  test('the run opens its alert at three', () => {
+    const at = (count: number) =>
+      alertsOf(usage(), null, null, { tool: 'Bash', count }, [], STAMP).filter(alert => alert.kind === 'fails')
+    expect(at(2)).toEqual([])
+    expect(at(3)).toEqual([{ kind: 'fails', tool: 'Bash', count: 3 }])
+    expect(alertRow(at(3)[0]!, STAMP).label).toBe('✘ Bash failed 3× in a row')
+  })
+
+  test('a call opens its alert after a minute, and the row counts its time', () => {
+    const long = (startedAt: number) => alertsOf(usage(), null, null, null, [tool(startedAt, 'Bash', 'sleep 90')], STAMP)
+    expect(long(STAMP - 59_000)).toEqual([])
+    const [alert] = long(STAMP - 130_000)
+    expect(alert).toEqual({ kind: 'long', tool: 'Bash', target: 'sleep 90', startedAt: STAMP - 130_000 })
+    expect(alertRow(alert!, STAMP)).toMatchObject({ label: '◷ Bash running 2m 10s', detail: 'sleep 90' })
+  })
+
+  test('the refresh for a long call is due when the oldest crosses the minute, then every 15s', () => {
+    expect(nextLongCheck([], STAMP)).toBeNull()
+    expect(nextLongCheck([tool(STAMP - 20_000), tool(STAMP - 5_000)], STAMP)).toBe(40_000)
+    expect(nextLongCheck([tool(STAMP - 59_900)], STAMP)).toBe(1000)
+    expect(nextLongCheck([tool(STAMP - 70_000)], STAMP)).toBe(15_000)
+  })
+
+  test('a quota opens its alert only on pace to run out before its reset', () => {
+    const at = (percentUsed: number) => {
+      const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
+      return alertsOf(usage({ rateLimits: [{ kind: 'seven_day', percentUsed, resetsAt }] }), null, null, null, [], STAMP)
+    }
+    // One day into seven: 10% is on pace for 70%, 50% for 350%.
+    expect(at(10)).toEqual([])
+    const [alert] = at(50)
+    expect(alert).toMatchObject({ kind: 'pace', window: 'seven_day', fullInMs: 86_400_000 })
+    expect(alertRow(alert!, STAMP)).toMatchObject({ label: '7d on pace to run out in ~1d', detail: 'resets 6d' })
+  })
+
+  test('they stand failures, long calls, context, pace, cache', () => {
+    const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
+    const kinds = alertsOf(
+      usage({ context: { window: 200_000, percent: 90 }, rateLimits: [{ kind: 'seven_day', percentUsed: 50, resetsAt }] }),
+      tokens(220, 640, 140),
+      null,
+      { tool: 'Bash', count: 4 },
+      [tool(STAMP - 120_000, 'Read')],
+      STAMP,
+    ).map(alert => alert.kind)
+    expect(kinds).toEqual(['fails', 'long', 'ctx', 'pace', 'cache'])
+  })
+
+  test('the desktop band draws none of the tool alerts', async ($, on) => {
+    const seen = bottom(on, { surfaces: ['terminal', 'desktop'], toolResult: { isError: true, result: 'boom' } })
+    for (const id of ['f1', 'f2', 'f3']) await warm($, id)
+    await seen.settle()
+    const ui = await $.ui.mount(DESKTOP_BAND)
+    expect(JSON.stringify(await ui.drawn())).not.toContain('failed')
+    await ui.unmount()
+    // While the terminal beside it does.
+    const terminal = await $.ui.mount(BAND)
+    expect(JSON.stringify(await terminal.drawn())).toContain('Read failed 3× in a row')
+    await terminal.unmount()
   })
 })

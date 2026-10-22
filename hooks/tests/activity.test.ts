@@ -1,6 +1,9 @@
-import { test, expect, describe } from 'claude-code/testing'
+import { test as base, expect, describe } from 'claude-code/testing'
+import type { On } from 'claude-code'
+import type { TestBody } from 'claude-code/testing'
 
 import { bottom, STAMP } from './harness'
+import type { BottomOptions } from './harness'
 
 /**
  * The hooks' side: what each event accumulates, read off the payload the mod
@@ -19,14 +22,25 @@ import { bottom, STAMP } from './harness'
  * completed tool *after* its hook has returned — so a case that reads the
  * payload of a completion calls `await seen.settle()` first. Without it the
  * read lands before the draw and sees the run before.
+ *
+ * The payload is read off the desktop `compact` band's spawn. The terminal
+ * band draws alerts alone and runs no binary, and the desktop's default band
+ * (`quiet`) runs none either, so `compact` is the band run every event drives.
  */
+const test = (name: string, body: TestBody) => base(name, { options: { desktopLayout: 'compact' } }, body)
+
+/** `bottom`, as the desktop app hosts the session. Mutates `options`: a case may change it later. */
+function watch(on: On, options: BottomOptions = {}) {
+  options.surfaces ??= ['desktop']
+  return bottom(on, options)
+}
 
 /** A tool call with no arguments worth showing. */
 const call = (id: string) => ({ tool: 'Read' as const, tool_use_id: id, file_path: `/n/${id}` })
 
 describe('tool calls', () => {
   test('a tool is running while it runs, and counted once it is done', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({ tool: 'Read', tool_use_id: 't1', file_path: '/work/src/main.rs' })
     await seen.settle()
 
@@ -38,7 +52,7 @@ describe('tool calls', () => {
   })
 
   test('a running tool reaches the band while it runs, and is gone once it returns', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('solo'))
     await seen.settle()
 
@@ -58,7 +72,7 @@ describe('tool calls', () => {
   })
 
   test('the tool result is the model’s before the band has drawn it', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const draws = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
     await $.tool.call(call('solo'))
 
@@ -74,7 +88,7 @@ describe('tool calls', () => {
   test('a finished tool is out of the running list before its draw settles', async ($, on) => {
     // The binary holds its answer, so the draw started for this tool is still
     // in flight when the tool itself is done.
-    const seen = bottom(on, { renderDelayMs: 5_000 })
+    const seen = watch(on, { renderDelayMs: 5_000 })
     const runningIn = () =>
       seen
         .payloads()
@@ -110,7 +124,7 @@ describe('tool calls', () => {
     // the 400ms window: the previous tool's own completion refresh stamped it
     // at this very instant, which is exactly what happens between two serial
     // calls in a real turn.
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('first'))
     await $.tool.call(call('second'))
     await seen.settle()
@@ -128,7 +142,7 @@ describe('tool calls', () => {
   })
 
   test('a failed tool call is counted as failed', async ($, on) => {
-    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
+    const seen = watch(on, { toolResult: { isError: true, result: 'boom' } })
     await $.tool.call({ tool: 'Bash', tool_use_id: 't2', command: 'false' })
     await seen.settle()
 
@@ -138,7 +152,7 @@ describe('tool calls', () => {
   })
 
   test('each tool kind carries when it last finished, not when it first did', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('first'))
     await seen.settle()
     await seen.advance(90_000)
@@ -157,7 +171,7 @@ describe('tool calls', () => {
     // A deny is its own `ToolCallResult` variant and carries no `isError`, so
     // reading that field alone put a refused call in the session totals as a
     // clean completion.
-    const seen = bottom(on, { toolResult: { deny: 'not in this directory' } })
+    const seen = watch(on, { toolResult: { deny: 'not in this directory' } })
     await $.tool.call({ tool: 'Bash', tool_use_id: 'd1', command: 'rm -rf /' })
     await seen.settle()
 
@@ -173,7 +187,7 @@ describe('tool calls', () => {
     // `finally` is what has to clear the entry — the band draws between
     // turns, so one left behind would be drawn as running for the rest of
     // the session, with no further event able to take it down.
-    const seen = bottom(on, { toolThrows: 'interrupted' })
+    const seen = watch(on, { toolThrows: 'interrupted' })
     await expect($.tool.call({ tool: 'Bash', tool_use_id: 'x1', command: 'sleep 9' })).rejects.toThrow()
     await seen.settle()
 
@@ -185,7 +199,7 @@ describe('tool calls', () => {
   })
 
   test('counts add up over many calls, per tool and in total', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('r1'))
     await $.tool.call(call('r2'))
     await $.tool.call(call('r3'))
@@ -203,7 +217,7 @@ describe('tool calls', () => {
 
 describe('what the person is told', () => {
   test('the mod pins no status and writes no log line', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     // A whole session's worth of the events that used to say something.
     await $.tool.call(call('one'))
     await $.classic.Stop({ stop_hook_active: false })
@@ -229,7 +243,7 @@ describe('what the person is told', () => {
   })
 
   test('a failure reaches the band rather than the status line', async ($, on) => {
-    const seen = bottom(on, { binaryVersion: null })
+    const seen = watch(on, { binaryVersion: null })
     await $.tool.call(call('one'))
     await seen.settle()
 
@@ -241,7 +255,7 @@ describe('what the person is told', () => {
 
 describe('what counts as tool activity', () => {
   test('the todo row\'s own calls and Agent are not tools', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 'b1',
@@ -276,7 +290,7 @@ describe('what counts as tool activity', () => {
 
 describe('TodoWrite', () => {
   test('becomes the todo row', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 't3',
@@ -302,7 +316,7 @@ describe('TodoWrite', () => {
   })
 
   test('a refused TodoWrite is not drawn as the current list', async ($, on) => {
-    const seen = bottom(on, { toolResult: { isError: true, result: 'refused' } })
+    const seen = watch(on, { toolResult: { isError: true, result: 'refused' } })
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 't6',
@@ -314,7 +328,7 @@ describe('TodoWrite', () => {
   })
 
   test('clearing the list clears the row, rather than drawing a list of nothing', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 'e1',
@@ -337,7 +351,7 @@ describe('TodoWrite', () => {
     // The sibling case above refuses with `isError`; this one refuses the way
     // a permission check or another plugin does, which carries no `isError`
     // at all and used to reach the todo row as though it had been applied.
-    const seen = bottom(on, { toolResult: { deny: 'the list is not yours' } })
+    const seen = watch(on, { toolResult: { deny: 'the list is not yours' } })
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 'd2',
@@ -349,7 +363,7 @@ describe('TodoWrite', () => {
   })
 
   test('a lone running todo is not reported as done', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 't5',
@@ -366,7 +380,7 @@ describe('TodoWrite', () => {
   })
 
   test('all done is marked as such', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TodoWrite',
       tool_use_id: 't4',
@@ -385,7 +399,7 @@ describe('TodoWrite', () => {
 
 describe('the Task API', () => {
   test('TaskCreate opens a pending item that reaches the payload', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -409,7 +423,7 @@ describe('the Task API', () => {
   })
 
   test('TaskUpdate names the running task by its active form', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -436,7 +450,7 @@ describe('the Task API', () => {
   })
 
   test('a completed task is counted, and the last one marks the row done', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -464,7 +478,7 @@ describe('the Task API', () => {
   })
 
   test('a refused TaskCreate leaves no task behind', async ($, on) => {
-    const seen = bottom(on, { toolResult: { isError: true, result: 'refused' } })
+    const seen = watch(on, { toolResult: { isError: true, result: 'refused' } })
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -480,7 +494,7 @@ describe('the Task API', () => {
   })
 
   test('two task calls in flight together both reach the row', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     // Issued together, as the model issues a block of calls. The row used to
     // be a second write built from each call's own return value, so whichever
     // committed the older snapshot wrote its fold last and the other task
@@ -503,7 +517,7 @@ describe('the Task API', () => {
   })
 
   test('a TaskUpdate carrying no status leaves the status alone', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -521,7 +535,7 @@ describe('the Task API', () => {
   })
 
   test('a deleted task leaves the row', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -542,7 +556,7 @@ describe('the Task API', () => {
   })
 
   test('the start is stamped once, so the elapsed time does not restart', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call({
       tool: 'TaskCreate',
       tool_use_id: 'k1',
@@ -568,7 +582,7 @@ describe('the Task API', () => {
 
 describe('classic events', () => {
   test('effort rides in on a classic hook input', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.classic.PostToolUse({
       tool_name: 'Read',
       tool_input: {},
@@ -583,7 +597,7 @@ describe('classic events', () => {
   })
 
   test('a turn that called no tool still records its effort', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     // `BaseHookInput.effort` is carried by the tool-use-context hooks, so a
     // turn with no tool in it has only its `Stop`. Without that hook the
     // level a person set in such a turn was never recorded at all.
@@ -595,7 +609,7 @@ describe('classic events', () => {
   })
 
   test('a compaction is counted once it has happened, not once it is asked for', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     // `PreCompact` is the wrong end: it can be blocked, and a vetoed or
     // failed compaction left the badge raised for the rest of the session.
     await $.classic.PreCompact({ trigger: 'auto', custom_instructions: null })
@@ -612,7 +626,7 @@ describe('classic events', () => {
   })
 
   test('instruction counts come from what the engine loaded, deduped', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const load = (file_path: string, load_reason: 'session_start' | 'compact') =>
       $.classic.InstructionsLoaded({ file_path, memory_type: 'Project', load_reason })
 
@@ -632,7 +646,7 @@ describe('classic events', () => {
   })
 
   test('a moved root takes the old project’s instruction counts with it', async ($, on) => {
-    const seen = bottom(on, { root: '/work', home: '/home/me' })
+    const seen = watch(on, { root: '/work', home: '/home/me' })
     const load = (file_path: string) =>
       $.classic.InstructionsLoaded({
         file_path,
@@ -667,7 +681,7 @@ describe('classic events', () => {
   })
 
   test('a Windows path is classified like any other', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const load = (file_path: string) =>
       $.classic.InstructionsLoaded({ file_path, memory_type: 'Project', load_reason: 'session_start' })
     await load('C:\\repo\\.claude\\rules\\testing.md')
@@ -683,7 +697,7 @@ describe('classic events', () => {
   })
 
   test('an AGENTS.md is counted in its own column, not as a CLAUDE.md', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const load = (file_path: string) =>
       $.classic.InstructionsLoaded({ file_path, memory_type: 'Project', load_reason: 'session_start' })
     await load('/work/CLAUDE.md')
@@ -703,7 +717,7 @@ describe('classic events', () => {
     // The still clock matters here, because the gate is what used to swallow
     // this: the `Agent` call's own refresh ran a moment earlier, before the
     // agent existed for `agent.list()`.
-    const seen = bottom(on, {
+    const seen = watch(on, {
       agents: [
         { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' },
       ],
@@ -716,7 +730,7 @@ describe('classic events', () => {
   })
 
   test('a subagent starts without waiting for the band to draw it', async ($, on) => {
-    const seen = bottom(on, {
+    const seen = watch(on, {
       agents: [
         { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' },
       ],
@@ -734,7 +748,7 @@ describe('classic events', () => {
   test('a completed agent keeps the stop time it was first given', async ($, on) => {
     // No SubagentStop for this one — the engine just stops calling it running,
     // which is the case where the time has to be inferred and then held.
-    const seen = bottom(on, {
+    const seen = watch(on, {
       agents: [
         { id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'completed' },
       ],
@@ -757,7 +771,7 @@ describe('classic events', () => {
   })
 
   test('an agent gets a real start and stop time', async ($, on) => {
-    const seen = bottom(on, {
+    const seen = watch(on, {
       agents: [{ id: 'a1', description: 'Map pain points', type: 'general-purpose', status: 'running' }],
     })
     await $.classic.SubagentStart({ agent_id: 'a1', agent_type: 'Explore' })
@@ -781,7 +795,7 @@ describe('classic events', () => {
   })
 
   test('a turn ends without waiting for the band to draw it', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const draws = () => seen.spawns.filter(run => run.argv[1] !== '--version').length
     await $.turn.complete({
       reason: 'answer',
@@ -799,7 +813,7 @@ describe('classic events', () => {
   })
 
   test('the cache-read total is summed over turns, not replaced', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const turn = (cacheRead: number) =>
       $.turn.complete({
         reason: 'answer',
@@ -827,7 +841,7 @@ describe('classic events', () => {
   })
 
   test('a turn with no usage leaves the cache-read total alone', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.turn.complete({
       reason: 'aborted',
       answer: '',
@@ -843,7 +857,7 @@ describe('classic events', () => {
   })
 
   test('a settings change refreshes without waiting out the binary cache', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     const before = seen.spawns.length
     await $.classic.ConfigChange({ source: 'project_settings', file_path: '/work/.claude/settings.json' })
     await seen.settle()
@@ -855,7 +869,7 @@ describe('classic events', () => {
 
 describe('the engine answers for the environment', () => {
   test('the MCP count is the servers serving tools, not the ones configured', async ($, on) => {
-    const seen = bottom(on, {
+    const seen = watch(on, {
       tools: [
         { name: 'Read', description: 'read a file', mcp: false },
         { name: 'mcp__linear__create_issue', description: '', mcp: true },
@@ -871,7 +885,7 @@ describe('the engine answers for the environment', () => {
   })
 
   test('no MCP tools is a count of zero, not a missing field', async ($, on) => {
-    const seen = bottom(on, { tools: [{ name: 'Read', description: 'read a file', mcp: false }] })
+    const seen = watch(on, { tools: [{ name: 'Read', description: 'read a file', mcp: false }] })
     await $.tool.call(call('after-none'))
     await seen.settle()
 
@@ -881,7 +895,7 @@ describe('the engine answers for the environment', () => {
 
 describe('the spawn itself', () => {
   test('the binary is told the box it draws into', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('r1'))
     await seen.settle()
 
@@ -891,7 +905,7 @@ describe('the spawn itself', () => {
   })
 
   test('the payload is valid JSON carrying the session', async ($, on) => {
-    const seen = bottom(on)
+    const seen = watch(on)
     await $.tool.call(call('r1'))
     await seen.settle()
 
@@ -907,7 +921,7 @@ describe("Claude Code's version", () => {
     // The desktop app runs a Claude Code of its own. Asking the CLI there
     // reported the person's terminal install — the harness's CLI answers
     // 2.1.296 — over the session's own engine.
-    const seen = bottom(on, { engineVersion: '2.1.299' })
+    const seen = watch(on, { engineVersion: '2.1.299' })
     await $.tool.call(call('one'))
     await seen.settle()
     expect(seen.lastPayload().version).toBe('2.1.299')
@@ -916,7 +930,7 @@ describe("Claude Code's version", () => {
   test('an engine that will not say leaves the version unknown on the tool path', async ($, on) => {
     // The CLI fallback is `session.start`'s alone, so a refresh never waits
     // on `claude --version`; the binary draws its unknown marker meanwhile.
-    const seen = bottom(on, { engineVersion: null })
+    const seen = watch(on, { engineVersion: null })
     await $.tool.call(call('one'))
     await seen.settle()
     expect(seen.lastPayload().version).toBeUndefined()
@@ -927,7 +941,7 @@ describe("Claude Code's version", () => {
     // A refusal is not cached: the next refresh asks again, and the engine's
     // answer is what the payload carries from then on.
     const options: { engineVersion: string | null } = { engineVersion: null }
-    const seen = bottom(on, options)
+    const seen = watch(on, options)
     await $.tool.call(call('one'))
     await seen.settle()
     expect(seen.lastPayload().version).toBeUndefined()

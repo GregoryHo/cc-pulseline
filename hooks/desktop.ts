@@ -1,6 +1,7 @@
 import type { SessionUsage } from 'claude-code'
 
-import type { Alert, Strip, Tokens } from '../types'
+import type { ActiveTool } from './payload'
+import type { Alert, FailStreak, Strip, Tokens } from '../types'
 
 /**
  * The quiet desktop band: what it draws, worked out from figures the module
@@ -11,6 +12,12 @@ import type { Alert, Strip, Tokens } from '../types'
  * does not show is where quota is heading, cost, and the cache. So the quiet
  * band keeps one thin strip of quota and cost, and adds a row only when the
  * context or the cache passes its limit.
+ *
+ * The terminal band is quieter still. Its statusline carries the quota, the
+ * cost and the context, and Claude Code's own transcript every tool, so it
+ * draws nothing at all until something needs the person: the same tool
+ * failing again and again, a tool running long, a quota on pace to run out,
+ * the context near autocompact, a cache rebuilding.
  */
 
 /**
@@ -38,6 +45,15 @@ export const RUNWAY_TURNS = 5
 
 /** How many turns' growth the runway averages over. */
 const RUNWAY_SAMPLES = 5
+
+/** How many failures in a row of one tool open the terminal band's alert. */
+export const FAIL_STREAK = 3
+
+/** How long one tool call runs before the terminal band says so. */
+export const LONG_TOOL_MS = 60_000
+
+/** How often a long call's row is redrawn, so its time moves. */
+export const LONG_TICK_MS = 15_000
 
 /** How long a turn runs before its end is worth a notification. */
 export const LONG_TURN_MS = 3 * 60_000
@@ -112,6 +128,72 @@ export function desktopAlerts(usage: SessionUsage, tokens: Tokens | null, runway
   }
 
   return alerts
+}
+
+/** Whether the desktop's quiet band draws an alert: its strip and transcript carry the rest. */
+export function onDesktopBand(alert: Alert): boolean {
+  return alert.kind === 'ctx' || alert.kind === 'cache'
+}
+
+/**
+ * The failure run after one main-loop tool call ends: a failure of the same
+ * tool adds to it, of another starts a new one; a success of the same tool
+ * ends it, and of another leaves it be.
+ */
+export function nextStreak(
+  streak: FailStreak | null,
+  tool: string,
+  failed: boolean,
+  target: string | undefined,
+): FailStreak | null {
+  const same = streak !== null && streak.tool === tool
+  if (!failed) return same ? null : streak
+  return { tool, count: same ? streak.count + 1 : 1, ...(target !== undefined ? { target } : {}) }
+}
+
+/**
+ * Every alert for one reading, in the order the terminal band draws them:
+ * what failed, what is running long, the context, the quota pace, the cache.
+ * The tools first, because they are this turn's and the rest can wait for
+ * its end. `now` is `$.clock.now()`.
+ */
+export function alertsOf(
+  usage: SessionUsage,
+  tokens: Tokens | null,
+  runway: number | null,
+  streak: FailStreak | null,
+  active: readonly ActiveTool[],
+  now: number,
+): Alert[] {
+  const alerts: Alert[] = []
+  if (streak !== null && streak.count >= FAIL_STREAK) alerts.push({ kind: 'fails', ...streak })
+  for (const tool of active) {
+    if (now - tool.startedAt < LONG_TOOL_MS) continue
+    const { name, target, startedAt } = tool
+    alerts.push({ kind: 'long', tool: name, startedAt, ...(target !== undefined ? { target } : {}) })
+  }
+  const desktop = desktopAlerts(usage, tokens, runway)
+  alerts.push(...desktop.filter(alert => alert.kind === 'ctx'))
+  for (const quota of quotaWindows(usage)) {
+    const fullInMs = paceOf(quota, now)?.fullInMs
+    if (fullInMs === undefined) continue
+    const { window, resetsAt } = quota
+    alerts.push({ kind: 'pace', window, fullInMs, ...(resetsAt !== undefined ? { resetsAt } : {}) })
+  }
+  alerts.push(...desktop.filter(alert => alert.kind === 'cache'))
+  return alerts
+}
+
+/**
+ * How long until the terminal band must refresh for a long call: when the
+ * oldest running one crosses `LONG_TOOL_MS`, then every `LONG_TICK_MS` so its
+ * time moves; `null` with nothing running. No event marks either moment.
+ */
+export function nextLongCheck(active: readonly ActiveTool[], now: number): number | null {
+  if (active.length === 0) return null
+  const oldest = Math.min(...active.map(tool => tool.startedAt))
+  const left = LONG_TOOL_MS - (now - oldest)
+  return left > 0 ? Math.max(1000, left) : LONG_TICK_MS
 }
 
 /** One quota window as the strip holds it. */
@@ -276,7 +358,7 @@ type Pace = {
 }
 
 /** `null` for a window of unknown length, with no reset, too early in, or unused. */
-function paceOf(quota: QuotaWindow, now: number): Pace | null {
+export function paceOf(quota: QuotaWindow, now: number): Pace | null {
   const length = WINDOW_MS[quota.window]
   if (length === undefined || quota.resetsAt === undefined || quota.percent <= 0) return null
   const gone = length - (quota.resetsAt * 1000 - now)
@@ -306,8 +388,39 @@ export type AlertRow = {
   compact: boolean
 }
 
-export function alertRow(alert: Alert): AlertRow {
+/**
+ * `now` moves a long call's time on: the render passes the last refresh's
+ * clock, and the refresh timer keeps that within `LONG_TICK_MS`.
+ */
+export function alertRow(alert: Alert, now: number): AlertRow {
   switch (alert.kind) {
+    case 'fails':
+      return {
+        gauge: null,
+        label: `✘ ${alert.tool} failed ${alert.count}× in a row`,
+        color: RED,
+        detail: alert.target ?? '',
+        compact: false,
+      }
+    case 'long':
+      return {
+        gauge: null,
+        label: `◷ ${alert.tool} running ${formatSpan(Math.max(0, now - alert.startedAt))}`,
+        color: AMBER,
+        detail: alert.target ?? '',
+        compact: false,
+      }
+    case 'pace': {
+      const span = formatSpan(Math.round(alert.fullInMs / 60_000) * 60_000).replace(' ', '')
+      const reset = resetsIn(alert.resetsAt, now)
+      return {
+        gauge: null,
+        label: `${windowLabel(alert.window)} on pace to run out in ~${span}`,
+        color: AMBER,
+        detail: reset === null ? '' : `resets ${reset.replace(' ', '')}`,
+        compact: false,
+      }
+    }
     case 'ctx': {
       const label = `CTX ${Math.round(alert.percent)}%`
       return {

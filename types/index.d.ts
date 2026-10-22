@@ -160,7 +160,17 @@ export type ToolTotals = {
   counts: Record<string, ToolCount>
   completedTotal: number
   failedTotal: number
+  /**
+   * The main loop's run of failures of one tool, for the terminal band's
+   * alert: `count` failures in a row, the last one's target. A failure of
+   * another tool starts a new run; a success of this one ends it. Absent
+   * from an atom an older version wrote, so read it as `?? null`.
+   */
+  failStreak?: FailStreak | null
 }
+
+/** One tool failing again and again, as `ToolTotals.failStreak` holds it. */
+export type FailStreak = { tool: string; count: number; target?: string }
 
 /** Agent timings and resolved types, by agent id. */
 export type AgentTimings = {
@@ -216,9 +226,9 @@ export type BinaryChoice =
  * How the last band run ended, which is not the same question as whether
  * there are rows.
  *
- * The band asks the binary for the `activity` layout, whose output is empty
- * whenever nothing is running — so zero rows is the ordinary state between
- * turns, not a fault. Only `'failed'` is worth saying out loud, and it has
+ * A quiet band draws nothing until something passes a limit, and the
+ * binary-drawn layouts can draw nothing too — so zero rows is the ordinary
+ * state, not a fault. Only `'failed'` is worth saying out loud, and it has
  * to be said whether or not a turn is running: a missing binary raises no
  * event, and an install line nobody sees fixes nothing.
  *
@@ -229,14 +239,38 @@ export type BinaryChoice =
 export type BandRun = 'never' | 'ok' | 'failed'
 
 /**
- * One alert row the quiet desktop band draws: a value past its limit.
+ * One alert row a quiet band draws: something past its limit.
  *
- * Worked out in `refresh` from `$.session.usage()` and the last turn's
- * tokens (`hooks/desktop.ts`), and published with the rows, because the
- * render hook may read state but never write it. Quota has no row here: the
- * strip draws it, and a window past its limit is notified instead.
+ * Worked out in `refresh` from `$.session.usage()`, the last turn's tokens,
+ * the running tools and the failure run (`hooks/desktop.ts`), and published
+ * with the rows, because the render hook may read state but never write it.
+ * The terminal band draws every kind. The desktop's draws `ctx` and `cache`
+ * only: its strip carries the quota pace, and its transcript every tool.
  */
 export type Alert =
+  | {
+      kind: 'fails'
+      tool: string
+      /** Failures in a row, `FAIL_STREAK` or more. */
+      count: number
+      target?: string
+    }
+  | {
+      kind: 'long'
+      tool: string
+      target?: string
+      /** When the call started, in epoch milliseconds. */
+      startedAt: number
+    }
+  | {
+      kind: 'pace'
+      /** The rate-limit window as the engine names it: `five_hour`, `seven_day`. */
+      window: string
+      /** How long until the window runs out at its pace so far. */
+      fullInMs: number
+      /** Epoch seconds; absent when the engine named no reset. */
+      resetsAt?: number
+    }
   | {
       kind: 'ctx'
       percent: number
@@ -272,7 +306,7 @@ export type Strip = {
   usd?: number
   usdPerHour?: number
   /**
-   * This session's share of what every active desktop session has spent,
+   * This session's share of what every active session has spent,
    * 0 to 1, and how many others are active. Absent with no other session
    * active, and from an atom an older version wrote, so read it as `?? null`.
    */
@@ -282,16 +316,15 @@ export type Strip = {
 /**
  * The binary's last output, kept so a reload redraws rather than blanks.
  *
- * `rows` is the terminal band's, `desktopRows` the desktop app's: the two ask
- * for different layouts, so one set of rows cannot serve both. `bandRun` and
- * `runNote` are shared — a failing run on either surface is said on both.
+ * `desktopRows` is the desktop app's band, when its layout is one the binary
+ * draws; the terminal band draws `alerts` alone and runs no binary. `bandRun`
+ * and `runNote` are shared — a failing run on either surface is said on both.
  */
 export type DrawnOutput = {
-  rows: Span[][]
   desktopRows: Span[][]
   /**
-   * The quiet desktop band's alerts. Absent from an atom an older version
-   * wrote, so read it as `?? []`.
+   * The quiet bands' alerts, every kind; each surface picks its own. Absent
+   * from an atom an older version wrote, so read it as `?? []`.
    */
   alerts?: Alert[]
   /**

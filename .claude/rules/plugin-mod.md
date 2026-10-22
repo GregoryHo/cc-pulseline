@@ -10,14 +10,15 @@ plugin's full reference; this file is the contract to hold changes to.
 
 | Surface | Statusline | Band (`AbovePrompt`) | Pane (`/pulseline`) |
 | --- | --- | --- | --- |
-| terminal (Claude Code CLI) | yes, the identity and budget rows | `--layout activity`: the turn in flight only, empty until something runs | switchable: ledger / budgets / compact / rail |
-| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting. `quiet` (default) runs no binary: one thin strip kept on screen (`Svg` quota gauges with their pace and reset, cost and `$/h`, and under them this session's share of what the active desktop sessions spend; cost alone with no quota reading; no `G:`, which the Code tab shows itself), plus a row when context or the cache passes its limit, with a `/compact` button for context; the context row opens early at 5 turns or fewer before autocompact and says how many are left (`hooks/desktop.ts`). Every path stacks on what the mods beneath draw. `compact` alone, or `rail` / `anchor` as a powerline head with `activity` stacked under it, are the binary's rows, always with `--no-icons` and drawn idle as well | same switcher, `--no-icons` while the desktop shows it |
+| terminal (Claude Code CLI) | yes, the identity and budget rows | alerts only, no binary run: a row when the same tool fails 3 times in a row, a tool runs past a minute, a quota is on pace to run out before its reset, the context is near autocompact (with a `/compact` button) or the cache is rebuilding; nothing otherwise. Monospaced `Text`, no `Svg` | switchable: ledger / budgets / compact / rail |
+| desktop (Claude Code Desktop, Code tab) | **no**: the Code tab does not run `statusLine` | the `desktopLayout` setting. `quiet` (default) runs no binary: one thin strip kept on screen (`Svg` quota gauges with their pace and reset, cost and `$/h`, and under them this session's share of what the active sessions spend, terminal ones included; cost alone with no quota reading; no `G:`, which the Code tab shows itself), plus a row when context or the cache passes its limit (the tool and pace alerts are the terminal's), with a `/compact` button for context; the context row opens early at 5 turns or fewer before autocompact and says how many are left (`hooks/desktop.ts`). Every path stacks on what the mods beneath draw. `compact` alone, or `rail` / `anchor` as a powerline head with `activity` stacked under it, are the binary's rows, always with `--no-icons` and drawn idle as well | same switcher, `--no-icons` while the desktop shows it |
 | mobile | — | yields: the app draws no `Input`/`Select` | yields |
 | vscode | — | yields: Claude Code for VS Code attaches no surface yet | yields |
 | `-p` / SDK | runs if configured | nothing to draw into | nothing to draw into |
 
 The terminal split is a division of labour: the statusline owns identity
-and budget, the band owns activity, and neither draws the other's rows. The
+and budget, Claude Code's own transcript owns the tools, and the band draws
+only what needs the person, none of the others' rows. The
 desktop has no statusline, and its own UI already shows the model, the
 effort, a context ring and every tool, so its default band draws only what
 passes a limit; the binary-drawn desktop layouts carry both. A change that moves

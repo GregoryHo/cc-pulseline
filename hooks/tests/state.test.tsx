@@ -13,8 +13,10 @@ import { BAND, BENEATH, PANE, STAMP, USER_COMMAND, bottom, isPaneSpawn } from '.
  * render hook read draws it again with nobody calling `$.ui.invalidate`.
  */
 
-test('an atom-backed count adds up over the session', async ($, on) => {
-  const seen = bottom(on)
+// The payload is read off the desktop `compact` band's spawn: the terminal
+// band draws alerts alone and runs no binary.
+test('an atom-backed count adds up over the session', { options: { desktopLayout: 'compact' } }, async ($, on) => {
+  const seen = bottom(on, { surfaces: ['desktop'] })
 
   // Three calls, two of one tool: what reaches the payload must be the
   // running sum, which is what a closure field would lose on every reload.
@@ -32,22 +34,24 @@ test('an atom-backed count adds up over the session', async ($, on) => {
 })
 
 test('writing the output atom draws the band again', async ($, on) => {
-  const seen = bottom(on, { stdout: 'T:Read: .../three' })
+  const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
   const ui = await $.ui.mount(BAND)
 
-  // Nothing run yet, so there are no rows and the band yields: what is drawn
-  // here is the bottom's own.
+  // Nothing needs the person yet, so the band yields: what is drawn here is
+  // the bottom's own.
   const first = JSON.stringify(await ui.drawn())
   expect(first).toContain(BENEATH)
 
-  // A tool call drives a refresh, whose single write to the output atom is
-  // the only thing that can redraw the band: every `$.ui.invalidate` call
-  // was removed in A3.
-  await $.tool.call({ tool: 'Read', tool_use_id: 'r3', file_path: '/nowhere/three' })
+  // Each call drives a refresh, whose single write to the output atom is the
+  // only thing that can redraw the band: every `$.ui.invalidate` call was
+  // removed in A3. The third failure in a row opens an alert.
+  for (const id of ['r1', 'r2', 'r3']) {
+    await $.tool.call({ tool: 'Read', tool_use_id: id, file_path: '/nowhere/three' })
+  }
   await seen.settle()
 
   const second = JSON.stringify(await ui.drawn())
-  expect(second).toContain('T:Read: .../three')
+  expect(second).toContain('Read failed 3× in a row')
   expect(second).toContain(BENEATH)
 
   await ui.unmount()
