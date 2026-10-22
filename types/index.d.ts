@@ -227,15 +227,6 @@ export type Alert =
       creation: number
     }
 
-/** The branch as `git status --porcelain=v2 --branch` reports it. */
-export type GitHead = {
-  branch: string
-  /** Whether the tree has any change, staged, unstaged or untracked. */
-  dirty: boolean
-  ahead: number
-  behind: number
-}
-
 /**
  * The thin strip the quiet desktop band keeps on screen: what the Code tab
  * does not show. Each part is left out when there is no reading for it.
@@ -251,8 +242,6 @@ export type Strip = {
   /** Session cost so far, and per hour since the session began. */
   usd?: number
   usdPerHour?: number
-  /** `null` outside a git repository. */
-  git: GitHead | null
 }
 
 /**

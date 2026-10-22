@@ -7,9 +7,7 @@ import {
   desktopAlerts,
   formatSpan,
   gaugeSvg,
-  gitLabel,
   hitRate,
-  parseGitStatus,
   quotaPast,
   stripCells,
   stripOf,
@@ -31,7 +29,7 @@ const warm = ($: { tool: { call: (e: never) => Promise<unknown> } }, id = 'warm'
 
 const renders = (spawns: Spawn[]) =>
   spawns.filter(
-    run => run.argv[1] !== '--version' && run.argv[0] !== 'claude' && run.argv[0] !== 'git',
+    run => run.argv[1] !== '--version' && run.argv[0] !== 'claude',
   )
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
@@ -51,15 +49,6 @@ const tokens = (read: number, creation: number, input: number) => ({
 
 /** A reset 47 minutes after the test clock, as the engine names one. */
 const RESETS_AT = new Date(STAMP + 47 * 60_000).toISOString()
-
-/** `git status --porcelain=v2 --branch` on `main`, two ahead, one file changed. */
-const GIT_STATUS = [
-  '# branch.oid 0123456789abcdef',
-  '# branch.head main',
-  '# branch.upstream origin/main',
-  '# branch.ab +2 -0',
-  '1 .M N... 100644 100644 100644 0123 4567 hooks/register.tsx',
-].join('\n')
 
 describe('the alerts', () => {
   test('none while the context and the cache are under their limits', () => {
@@ -97,6 +86,15 @@ describe('the alerts', () => {
     expect(formatSpan(47 * 60_000)).toBe('47m')
     expect(formatSpan(7_500_000)).toBe('2h 5m')
     expect(formatSpan(0)).toBe('0s')
+    expect(formatSpan((154 * 60 + 46) * 60_000)).toBe('6d 10h')
+    expect(formatSpan(2 * 86_400_000)).toBe('2d')
+  })
+
+  test('a paced gauge stands a tick taller than its bar at the time gone', () => {
+    const svg = gaugeSvg(15, [50, 85], '#7a9cc6', 64, 8, 25)
+    expect(svg).toContain('height="12"')
+    expect(svg).toContain('<rect x="16" width="2" height="12"')
+    expect(svg).toContain('<rect y="2" width="10" height="8" rx="3" fill="#7a9cc6"/>')
   })
 
   test('the gauge fills its share and ticks each mark', () => {
@@ -109,7 +107,7 @@ describe('the alerts', () => {
 })
 
 describe('the strip', () => {
-  test('draws each quota window, the cost and its rate, then the branch', () => {
+  test('draws each quota window, then the cost and its rate', () => {
     const strip = stripOf(
       usage({
         rateLimits: [
@@ -117,7 +115,6 @@ describe('the strip', () => {
           { kind: 'seven_day', percentUsed: 22 },
         ],
       }),
-      parseGitStatus(GIT_STATUS),
       STAMP,
     )
     const cells = stripCells(strip, STAMP)
@@ -125,37 +122,81 @@ describe('the strip', () => {
       ['5h 41%', 'resets 47m'],
       ['7d 22%', null],
       ['$3.50', '$1.75/h'],
-      ['G:main* ↑2', null],
     ])
     expect(cells.slice(0, 2).every(cell => cell.gauge?.source.startsWith('<svg'))).toBe(true)
-    // Only the branch takes a row of its own; the rest sit side by side.
-    expect(cells.map(cell => cell.wide === true)).toEqual([false, false, false, true])
   })
 
   test('the reset reads tight, with no space in the span', () => {
     const resetsAt = new Date(STAMP + (4 * 60 + 22) * 60_000).toISOString()
     const cells = stripCells(
-      stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 15, resetsAt }] }), null, STAMP),
+      stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 15, resetsAt }] }), STAMP),
       STAMP,
     )
     expect(cells[0]?.detail).toBe('resets 4h22m')
   })
 
+  test('a reset days away reads in days', () => {
+    const resetsAt = new Date(STAMP + (154 * 60 + 46) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(usage({ rateLimits: [{ kind: 'seven_day', percentUsed: 15, resetsAt }] }), STAMP),
+      STAMP,
+    )
+    expect(cells[0]?.detail).toBe('resets 6d10h')
+  })
+
+  test('a window on pace to stay under its limit projects its share at reset', () => {
+    // 64 minutes into five hours, 4% used: about 19% by the reset.
+    const resetsAt = new Date(STAMP + (3 * 60 + 56) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 4, resetsAt }] }), STAMP),
+      STAMP,
+    )
+    expect(cells[0]?.pace).toEqual({ text: '→ ~19% at reset' })
+    expect(cells[0]?.color).toBeUndefined()
+    expect(cells[0]?.gauge?.height).toBe(12)
+  })
+
+  test('a window on pace to run out says when, in amber', () => {
+    // 13h14m into seven days, 15% used: the rest is gone in about 3d 2h,
+    // long before the reset.
+    const resetsAt = new Date(STAMP + (154 * 60 + 46) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(usage({ rateLimits: [{ kind: 'seven_day', percentUsed: 15, resetsAt }] }), STAMP),
+      STAMP,
+    )
+    expect(cells[0]?.pace).toEqual({ text: 'full in ~3d2h', color: '#d7875f' })
+    expect(cells[0]?.color).toBe('#d7875f')
+    expect(cells[0]?.gauge?.source).toContain('fill="#d7875f"')
+  })
+
+  test('projects nothing too early in a window, or without a reset to measure from', () => {
+    // 10 minutes into five hours is under the 5% a projection waits for.
+    const early = new Date(STAMP + (4 * 60 + 50) * 60_000).toISOString()
+    const cells = stripCells(
+      stripOf(
+        usage({
+          rateLimits: [
+            { kind: 'five_hour', percentUsed: 3, resetsAt: early },
+            { kind: 'seven_day', percentUsed: 22 },
+            { kind: 'monthly', percentUsed: 10, resetsAt: early },
+          ],
+        }),
+        STAMP,
+      ),
+      STAMP,
+    )
+    expect(cells.slice(0, 3).map(cell => cell.pace)).toEqual([null, null, null])
+    expect(cells[0]?.gauge?.height).toBe(8)
+  })
+
   test('with no quota reading, draws the cost alone', () => {
-    const cells = stripCells(stripOf(usage(), null, STAMP), STAMP)
+    const cells = stripCells(stripOf(usage(), STAMP), STAMP)
     expect(cells.map(cell => cell.label)).toEqual(['$3.50'])
   })
 
   test('a window past its limit draws red', () => {
-    const strip = stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 89 }] }), null, STAMP)
+    const strip = stripOf(usage({ rateLimits: [{ kind: 'five_hour', percentUsed: 89 }] }), STAMP)
     expect(stripCells(strip, STAMP)[0]?.color).toBe('#d75f5f')
-  })
-
-  test('reads the branch, its changes and its distance from upstream', () => {
-    expect(parseGitStatus(GIT_STATUS)).toEqual({ branch: 'main', dirty: true, ahead: 2, behind: 0 })
-    const clean = parseGitStatus('# branch.head feat\n# branch.ab +0 -3\n')
-    expect(clean && gitLabel(clean)).toBe('G:feat ↓3')
-    expect(parseGitStatus('')).toBeNull()
   })
 })
 
@@ -171,7 +212,6 @@ describe('the quiet band', () => {
   test('keeps the strip on screen, above what the mods beneath draw', async ($, on) => {
     const seen = bottom(on, {
       surfaces: ['desktop'],
-      gitStatus: GIT_STATUS,
       usage: { rateLimits: [{ kind: 'five_hour', percentUsed: 41, resetsAt: RESETS_AT }] },
     })
     await warm($)
@@ -181,9 +221,18 @@ describe('the quiet band', () => {
     const svgs = await ui.findAll({ type: 'Svg' })
     expect(svgs.map(svg => svg.props.alt)).toEqual(['Quota 5h 41%'])
     const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
-    expect(texts).toEqual(['5h 41%', 'resets 47m', '$1.53', '$0.01/h', 'G:main* ↑2', BENEATH])
+    expect(texts).toEqual([
+      '5h 41%',
+      '→ ~49% at reset',
+      'resets 47m',
+      '$1.53',
+      '$0.01/h',
+      BENEATH,
+    ])
     // No button while nothing asks for an action.
     expect(await ui.findAll({ type: 'Button' })).toEqual([])
+    // The Code tab shows the branch itself, so the strip never reads one.
+    expect(seen.spawns.some(run => run.argv[0] === 'git')).toBe(false)
     await ui.unmount()
   })
 
@@ -283,13 +332,11 @@ describe('the quiet band', () => {
 
   test('a terminal session has no strip, no alerts and no notifications', async ($, on) => {
     const seen = bottom(on, {
-      gitStatus: GIT_STATUS,
       usage: { percent: 90, rateLimits: [{ kind: 'five_hour', percentUsed: 99 }] },
     })
     await warm($)
     await seen.settle()
     expect(seen.notifications).toEqual([])
-    expect(seen.spawns.some(run => run.argv[0] === 'git')).toBe(false)
     // The terminal band runs as it always has: the activity layout.
     const run = renders(seen.spawns).at(-1)
     expect(run?.argv[run.argv.indexOf('--layout') + 1]).toBe('activity')

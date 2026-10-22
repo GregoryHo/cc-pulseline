@@ -285,7 +285,7 @@ there are not the terminal's, and each changes what the band asks for:
 | statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
 | band layout | `activity` | the `desktopLayout` setting: `quiet` (default — no binary run; a strip and alerts, see below), `compact` (identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
 | glyphs | Nerd Font icons | Unicode (`--no-icons`): no Private Use Area glyphs, which the app's face lacks — icons become ASCII labels and powerline seams half blocks `▐▌`; braille, gauges and `✓✘` stay |
-| idle band | yields until something has run | always draws: `quiet` its strip of quota, cost and branch (only what the mods beneath draw when it has no reading at all); the others their head row, the only place context and cost show |
+| idle band | yields until something has run | always draws: `quiet` its strip of quota and cost (only what the mods beneath draw when it has no reading at all); the others their head row, the only place context and cost show |
 
 The split in **What it draws** above is a terminal fact. On the desktop it
 would leave context, cost and quota nowhere at all, so the desktop band draws
@@ -294,20 +294,30 @@ they are missing from the band anywhere (**Known gaps**).
 
 ### The quiet band
 
-The Code tab already shows the model and effort, the permission mode, a
-context ring, and every tool in the transcript, so `compact` drew most of
-its row twice. `quiet` draws only what the Code tab lacks. `refresh` works it
-out from `$.session.usage()`, the last turn's tokens and one `git status`
+The Code tab already shows the model and effort, the permission mode, the
+branch, a context ring, and every tool in the transcript, so `compact` drew
+most of its row twice. `quiet` draws only what the Code tab lacks. `refresh`
+works it out from `$.session.usage()` and the last turn's tokens
 (`hooks/desktop.ts`) and publishes it with the rows; the render hook only
 reads it.
 
 One thin strip stays on screen: a small `Svg` gauge per quota window with
-its percent and reset (red from 85%), the session cost and `$/h`, and
-`G:branch* ↑n ↓n`. With no quota reading it draws the cost alone; outside a
-repository it leaves `G:` out. The branch is read with `git status
---porcelain=v2 --branch` at most once every 10 seconds per root, as the
-binary's own git cache does. `S:` and the activity rows are not drawn: the
-Code tab shows the turn, and the pane keeps the rest.
+its percent and reset (red from 85%), then the session cost and `$/h`. A
+reset a day or more away reads in days (`6d10h`).
+
+Each window also carries its pace: the percent used divided by the share of
+the window gone, read off `resets_at` and the window's length (5h, 7d), so
+no history is kept. Under the limit it reads `→ ~19% at reset`; on pace to
+run out first, `full in ~3d2h` in amber, with the gauge and label amber too.
+A tick on the gauge, standing above and below the bar, marks the time gone:
+a fill past it is a window used faster than it runs. Nothing is projected
+in the first 5% of a window (15 minutes of five hours, 8.4 hours of seven
+days), for a window of unknown length, or without a reset. The pace is an
+average, so a seven-day window reads it with the nights folded in.
+
+With no quota reading it draws the cost alone. `G:`, `S:` and the activity
+rows are not drawn: the Code tab shows the branch and the turn, and the
+pane keeps the rest.
 
 Under the strip, a row opens for each value past its limit:
 

@@ -13,7 +13,7 @@
     "desktopLayout": {
       "type": "string",
       "title": "Desktop band layout",
-      "description": "The band's layout in the Claude Code desktop app, which runs no statusline: quiet (one thin strip of quota gauges, cost and $/h and the branch, plus a gauge and a /compact button when context passes 70%), compact (identity and budget above the activity row), or the powerline rail or anchor with the activity rows under the bar.",
+      "description": "The band's layout in the Claude Code desktop app, which runs no statusline: quiet (one thin strip of quota gauges with each window's pace, and cost and $/h, plus a gauge and a /compact button when context passes 70%), compact (identity and budget above the activity row), or the powerline rail or anchor with the activity rows under the bar.",
       "options": ["quiet", "compact", "rail", "anchor"],
       "default": "quiet"
     }

@@ -1,16 +1,16 @@
 import type { SessionUsage } from 'claude-code'
 
-import type { Alert, GitHead, Strip, Tokens } from '../types'
+import type { Alert, Strip, Tokens } from '../types'
 
 /**
  * The quiet desktop band: what it draws, worked out from figures the module
  * already holds. Pure, so the tests reach it without the engine.
  *
- * The Code tab already shows the model, the effort, the permission mode and a
- * context ring, and its transcript lists every tool. What it does not show is
- * quota, cost, the branch and the cache. So the quiet band keeps one thin
- * strip of the first three, and adds a row only when the context or the
- * cache passes its limit.
+ * The Code tab already shows the model, the effort, the permission mode, the
+ * branch and a context ring, and its transcript lists every tool. What it
+ * does not show is where quota is heading, cost, and the cache. So the quiet
+ * band keeps one thin strip of quota and cost, and adds a row only when the
+ * context or the cache passes its limit.
  */
 
 /**
@@ -105,10 +105,10 @@ export function quotaKey(quota: QuotaWindow): string {
 
 /**
  * The strip the quiet band keeps on screen: every quota window, the session
- * cost and its rate, and the branch. `now` is `$.clock.now()`, the clock
+ * cost and its rate. `now` is `$.clock.now()`, the clock
  * `usage.startedAt` is on.
  */
-export function stripOf(usage: SessionUsage, git: GitHead | null, now: number): Strip {
+export function stripOf(usage: SessionUsage, now: number): Strip {
   const usd = usage.cost?.usd
   const hours = (now - usage.startedAt) / 3_600_000
   // A rate over the first minute is noise: one turn's cost read as an hour's.
@@ -117,40 +117,7 @@ export function stripOf(usage: SessionUsage, git: GitHead | null, now: number): 
     quota: quotaWindows(usage),
     ...(usd !== undefined ? { usd } : {}),
     ...(usdPerHour !== undefined ? { usdPerHour } : {}),
-    git,
   }
-}
-
-/**
- * The branch out of `git status --porcelain=v2 --branch`: its name, whether
- * the tree has changes, and how far it is ahead of and behind its upstream.
- * `null` for output that names no branch, as outside a repository.
- */
-export function parseGitStatus(stdout: string): GitHead | null {
-  let branch: string | null = null
-  let ahead = 0
-  let behind = 0
-  let dirty = false
-  for (const line of stdout.split('\n')) {
-    if (line.startsWith('# branch.head ')) branch = line.slice('# branch.head '.length).trim()
-    else if (line.startsWith('# branch.ab ')) {
-      const [plus, minus] = line.slice('# branch.ab '.length).trim().split(' ')
-      ahead = Math.abs(Number.parseInt(plus ?? '0', 10)) || 0
-      behind = Math.abs(Number.parseInt(minus ?? '0', 10)) || 0
-    } else if (line.length > 0 && !line.startsWith('#')) dirty = true
-  }
-  return branch === null ? null : { branch, dirty, ahead, behind }
-}
-
-/** `G:main* ↑2 ↓1`, as the statusline's identity row draws it. */
-export function gitLabel(git: GitHead): string {
-  return [
-    `G:${git.branch}${git.dirty ? '*' : ''}`,
-    git.ahead > 0 ? `↑${git.ahead}` : null,
-    git.behind > 0 ? `↓${git.behind}` : null,
-  ]
-    .filter((part): part is string => part !== null)
-    .join(' ')
 }
 
 /** `five_hour` → `5h`, `seven_day` → `7d`; any other window as the engine names it. */
@@ -160,11 +127,12 @@ export function windowLabel(window: string): string {
   return window
 }
 
-/** `6m 12s`, `2h 5m`, `47m`: the two largest units, a trailing zero dropped. */
+/** `6m 12s`, `2h 5m`, `6d 10h`: the two largest units, a trailing zero dropped. */
 export function formatSpan(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000))
   const parts: [number, string][] = [
-    [Math.floor(total / 3600), 'h'],
+    [Math.floor(total / 86_400), 'd'],
+    [Math.floor((total % 86_400) / 3600), 'h'],
     [Math.floor((total % 3600) / 60), 'm'],
     [total % 60, 's'],
   ]
@@ -188,6 +156,44 @@ function formatTokens(count: number): string {
 function resetsIn(resetsAt: number | undefined, now: number): string | null {
   if (resetsAt === undefined) return null
   return formatSpan(Math.round((resetsAt * 1000 - now) / 60_000) * 60_000)
+}
+
+/** How long each rate-limit window runs, so a reset says how far in it is. */
+const WINDOW_MS: Record<string, number> = { five_hour: 5 * 3_600_000, seven_day: 7 * 86_400_000 }
+
+/**
+ * How far into a window a projection waits: before it, one burst reads as a
+ * whole window's pace. 15 minutes of five hours, 8.4 hours of seven days.
+ */
+const PACE_FROM = 0.05
+
+/** A window's average pace so far, carried to its reset. */
+type Pace = {
+  /** The share of the window gone, 0 to 1. */
+  elapsed: number
+  /** The percent used by the reset at this pace; 100 or more runs out first. */
+  projected: number
+  /** At or past 100: how long until the window runs out. */
+  fullInMs?: number
+}
+
+/** `null` for a window of unknown length, with no reset, too early in, or unused. */
+function paceOf(quota: QuotaWindow, now: number): Pace | null {
+  const length = WINDOW_MS[quota.window]
+  if (length === undefined || quota.resetsAt === undefined || quota.percent <= 0) return null
+  const gone = length - (quota.resetsAt * 1000 - now)
+  const elapsed = gone / length
+  if (elapsed < PACE_FROM || elapsed > 1) return null
+  const projected = quota.percent / elapsed
+  if (projected < 100) return { elapsed, projected }
+  return { elapsed, projected, fullInMs: ((100 - quota.percent) * gone) / quota.percent }
+}
+
+/** A pace as the strip's line under the label: tight, as the reset is. */
+function paceLine(pace: Pace): { text: string; color?: string } {
+  if (pace.fullInMs === undefined) return { text: `→ ~${Math.round(pace.projected)}% at reset` }
+  const span = formatSpan(Math.round(pace.fullInMs / 60_000) * 60_000).replace(' ', '')
+  return { text: `full in ~${span}`, color: AMBER }
 }
 
 /** One alert as the band draws it: an optional gauge, a label, the detail. */
@@ -234,25 +240,33 @@ export function quotaNotice(quota: QuotaWindow, now: number): string {
 
 /** One cell of the strip: an optional small gauge, a label, a dim detail. */
 export type StripCell = {
-  gauge: { source: string; alt: string } | null
+  /** `height` is the image's: a paced gauge's tick stands above and below its bar. */
+  gauge: { source: string; alt: string; height: number } | null
   label: string
   /** The label's colour; absent, the surface's own text colour. */
   color?: string
+  /** Where the window's pace lands it, over the detail; amber when it runs out first. */
+  pace: { text: string; color?: string } | null
   detail: string | null
-  /** A cell that takes a row of its own, not a column beside the gauges. */
-  wide?: true
 }
 
 /** The strip as cells, in the order drawn; empty when it has nothing to say. */
 export function stripCells(strip: Strip, now: number): StripCell[] {
   const cells: StripCell[] = strip.quota.map(quota => {
     const label = `${windowLabel(quota.window)} ${Math.round(quota.percent)}%`
-    const fill = quota.percent >= QUOTA_MARKS[1]! ? RED : quota.percent >= QUOTA_MARKS[0]! ? AMBER : BLUE
+    const pace = paceOf(quota, now)
+    const runsOut = pace?.fullInMs !== undefined
+    const fill =
+      quota.percent >= QUOTA_MARKS[1]! ? RED : quota.percent >= QUOTA_MARKS[0]! || runsOut ? AMBER : BLUE
+    const color = quota.percent >= QUOTA_MARKS[1]! ? RED : runsOut ? AMBER : undefined
     const reset = resetsIn(quota.resetsAt, now)
+    const tick = pace === null ? undefined : pace.elapsed * 100
+    const source = gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8, tick)
     return {
-      gauge: { source: gaugeSvg(quota.percent, QUOTA_MARKS, fill, 64, 8), alt: `Quota ${label}` },
+      gauge: { source, alt: `Quota ${label}`, height: pace === null ? 8 : 12 },
       label,
-      ...(quota.percent >= QUOTA_MARKS[1]! ? { color: RED } : {}),
+      ...(color !== undefined ? { color } : {}),
+      pace: pace === null ? null : paceLine(pace),
       // No space inside the span: the column is narrow, and `4h22m` stays on one line.
       detail: reset === null ? null : `resets ${reset.replace(' ', '')}`,
     }
@@ -260,11 +274,11 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
   if (strip.usd !== undefined) {
     cells.push({
       gauge: null,
+      pace: null,
       label: `$${strip.usd.toFixed(2)}`,
       detail: strip.usdPerHour !== undefined ? `$${strip.usdPerHour.toFixed(2)}/h` : null,
     })
   }
-  if (strip.git !== null) cells.push({ gauge: null, label: gitLabel(strip.git), detail: null, wide: true })
   return cells
 }
 
@@ -277,6 +291,10 @@ export function longTurnNotice(durationMs: number): string {
  * A bar gauge as an SVG document: a track, the filled share, and a tick at
  * each threshold mark. Drawn as an image on the desktop, so its colours hold
  * on a light and a dark theme alike: the track is translucent.
+ *
+ * With `pace`, the share of the window gone, the image grows 2px above and
+ * below the bar for a tick there: a fill past it is a window used faster
+ * than it runs.
  */
 export function gaugeSvg(
   percent: number,
@@ -284,16 +302,25 @@ export function gaugeSvg(
   fill: string,
   width = 120,
   height = 10,
+  pace?: number,
 ): string {
   const at = (share: number) => Math.round((width * Math.min(100, Math.max(0, share))) / 100)
+  const inset = pace === undefined ? 0 : 2
+  const tall = height + 2 * inset
+  const y = inset === 0 ? '' : `y="${inset}" `
   const ticks = marks
-    .map(mark => `<rect x="${at(mark)}" width="1" height="${height}" fill="#ffffff" fill-opacity="0.7"/>`)
+    .map(mark => `<rect x="${at(mark)}" ${y}width="1" height="${height}" fill="#ffffff" fill-opacity="0.7"/>`)
     .join('')
+  const paceTick =
+    pace === undefined
+      ? ''
+      : `<rect x="${Math.min(width - 2, at(pace))}" width="2" height="${tall}" fill="#8a8578"/>`
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<rect width="${width}" height="${height}" rx="3" fill="#8a8578" fill-opacity="0.3"/>` +
-    `<rect width="${at(percent)}" height="${height}" rx="3" fill="${fill}"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${tall}" viewBox="0 0 ${width} ${tall}">` +
+    `<rect ${y}width="${width}" height="${height}" rx="3" fill="#8a8578" fill-opacity="0.3"/>` +
+    `<rect ${y}width="${at(percent)}" height="${height}" rx="3" fill="${fill}"/>` +
     ticks +
+    paceTick +
     `</svg>`
   )
 }
