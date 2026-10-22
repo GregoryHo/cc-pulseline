@@ -15,16 +15,23 @@ import {
   COMPACT_KEY,
   LONG_TURN_MS,
   QUIET,
+  SPEND_EXPIRE_MS,
+  SPEND_PREFIX,
   alertRow,
   desktopAlerts,
   longTurnNotice,
   quotaKey,
   quotaNotice,
   quotaPast,
+  shareLine,
+  shareOf,
+  shouldWriteSpend,
+  spendOf,
   stripCells,
   stripOf,
+  stripRows,
 } from './desktop'
-import type { StripCell } from './desktop'
+import type { SessionSpend, StripCell } from './desktop'
 import { buildPayload } from './payload'
 import type { ActiveTool } from './payload'
 import { shouldRefresh } from './throttle'
@@ -1055,6 +1062,39 @@ async function notifyOrToast(engine: EngineInterface, text: string): Promise<voi
   }
 }
 
+/**
+ * Writes this desktop session's spend to `$.store` and reads every other's,
+ * deleting what has expired. Each session owns its key, so nothing here is a
+ * read-then-write of a value another process writes too.
+ *
+ * Returns the other sessions' spends, or `null` when this one has no cost to
+ * say.
+ */
+async function syncSpend(
+  engine: EngineInterface,
+  sessionId: string,
+  usd: number | undefined,
+  now: number,
+): Promise<SessionSpend[] | null> {
+  if (usd === undefined) return null
+  const own = `${SPEND_PREFIX}${sessionId}`
+  // Throttled against what the store holds, not a remembered write: another
+  // process's cleanup can read this key stale, and delete it after a fresh
+  // write lands. Read back, a deleted key is written again on the next refresh.
+  if (shouldWriteSpend(spendOf(await engine.store.get(own)), usd, now)) {
+    await engine.store.set(own, { usd, at: now })
+  }
+  const keys = (await engine.store.keys()).filter(key => key.startsWith(SPEND_PREFIX) && key !== own)
+  const others: SessionSpend[] = []
+  for (const key of keys) {
+    const spend = spendOf(await engine.store.get(key))
+    // Malformed is deleted too: nothing this module writes looks like that.
+    if (spend === null || now - spend.at > SPEND_EXPIRE_MS) await engine.store.delete(key)
+    else others.push(spend)
+  }
+  return others
+}
+
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Each refresh claims a number and only the newest may publish. Several can
   // be in flight at once — parallel tool calls, a turn event landing beside
@@ -1218,7 +1258,21 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // hook, which may not write state.
   const drawsQuiet = onDesktop && quiet
   const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens) : []
-  const strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
+  let strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
+  // Every desktop session says what it spends, whatever its layout, so a
+  // quiet one counts the rest; only the quiet band draws the share.
+  let spendFault: string | null = null
+  if (onDesktop) {
+    const usd = collected.usage.cost?.usd
+    try {
+      const others = await syncSpend(engine, collected.sessionId, usd, collected.now)
+      const share = others === null || usd === undefined ? null : shareOf(usd, others, collected.now)
+      if (strip !== null && share !== null) strip = { ...strip, share }
+    } catch (error) {
+      // The band draws on without the share; the note says why it is missing.
+      spendFault = `share: store refused — ${noteText(String(error)).slice(0, 80)}`
+    }
+  }
   state.notified ??= new Set(held.notified ?? [])
   const toNotify: string[] = []
   for (const quota of drawsQuiet ? quotaPast(collected.usage) : []) {
@@ -1270,6 +1324,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
       done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
     } else faults.push(terminalRun.fault)
   }
+  if (spendFault !== null) done.push(spendFault)
   if (drawsQuiet) {
     done.push(`strip + ${alerts.length} alert(s) desktop quiet`)
   } else if (desktopRun !== null) {
@@ -1926,6 +1981,7 @@ export const register: Register = (on, options) => {
       // has neither field.
       const alerts = held.alerts ?? []
       const cells = stripCells(held.strip ?? { quota: [] }, state.lastRunMs)
+      const share = held.strip?.share ?? null
       const { Box, Text, Button, Svg } = $.ui.resolve(e)
       const rows = alerts.map(alert => {
         const row = alertRow(alert)
@@ -1975,17 +2031,29 @@ export const register: Register = (on, options) => {
             ) : null}
           </Box>
         )
+        // The share of spend sits under the gauges, part of the strip: it
+        // goes when the strip does.
         rows.unshift(
-          <Box flexDirection="row" gap={2} alignItems="flex-start">
-            {cells.map(column)}
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={2} alignItems="flex-start">
+              {cells.map(column)}
+            </Box>
+            {share !== null ? (
+              <Text dimColor mono>
+                {shareLine(share)}
+              </Text>
+            ) : null}
           </Box>,
         )
       }
       if (rows.length === 0) return below
       // Past `maxRows`, the strip goes before an alert: an alert asks for an
       // action, the strip is there to glance at.
+      // The strip is one box but stands several rows, so it is counted as tall
+      // as it draws: counted as one, it pushed an alert past the band's bottom.
       const room = Math.max(1, e.props.maxRows)
-      const shown = rows.length > room && cells.length > 0 ? rows.slice(1) : rows
+      const tall = stripRows(cells, share !== null) + alerts.length > room
+      const shown = tall && cells.length > 0 && alerts.length > 0 ? rows.slice(1) : rows
       return (
         <Box flexDirection="column">
           {shown.slice(0, room)}

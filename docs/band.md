@@ -178,7 +178,7 @@ The tests cover: the stdin payload's shape (`payload`), the ANSI and
 argument readers (`parse`), the refresh gate (`throttle`), what each event
 accumulates (`activity`), the binary ladder and version gate (`binary`),
 `$.state` surviving a reload (`state`), the quiet desktop band's strip,
-alerts, button and notifications (`desktop`), and what the band and pane actually
+share of spend, alerts, button and notifications (`desktop`), and what the band and pane actually
 draw (`render`) — colours, row clipping against `maxRows`, the width and the
 layout reaching the binary, when the band yields and when it speaks, the
 pane's switcher, and the desktop app's own runs (`the desktop app` in
@@ -315,6 +315,26 @@ in the first 5% of a window (15 minutes of five hours, 8.4 hours of seven
 days), for a window of unknown length, or without a reset. The pace is an
 average, so a seven-day window reads it with the nights folded in.
 
+Quota is the account's, shared by every session at once, so a dim line
+under the gauges says which session is burning it:
+`this session ~40% of spend · 2 others active`. Each desktop session,
+whatever its layout, writes its own `$.store` key on the refresh path,
+`session.<id>` = `{ usd, at }` (the API-equivalent cost and `$.clock.now()`),
+when the cost moved or 30 seconds after its last write. The throttle reads
+the key back rather than remembering the write, so a key another session's
+cleanup deleted after a fresh write is written again on the next refresh,
+and a write never replaces a stored one with a later `at`: refreshes
+overlap, and the one that read the clock first can reach the store last.
+One key per
+session, never a shared total: measured on 2.1.308 with four processes
+writing at once, per-session keys lost nothing, while a shared value
+updated by get-then-set lost a third to four fifths of its updates. The
+share is this session's cost over the sum of every session heard from in
+the last 10 minutes; with no other one active there is no line, since a
+lone session's 100% says nothing. A key a day old, or one that is not a
+spend, is deleted, so the store (4 MiB in all) cannot grow. A store that
+refuses is said in the run note, and the strip draws on without the line.
+
 With no quota reading it draws the cost alone. `G:`, `S:` and the activity
 rows are not drawn: the Code tab shows the branch and the turn, and the
 pane keeps the rest.
@@ -329,7 +349,8 @@ Under the strip, a row opens for each value past its limit:
 Quota has no row of its own: the strip draws it. A window at 85% raises one
 `$.ui.notify` per window and reset, kept in the atom so a reload does not
 repeat it. When the band has fewer rows than it needs, the strip goes before
-an alert. Every path, the empty one too, stacks on what the mods beneath draw.
+an alert. The strip counts as tall as it draws: its tallest cell (label,
+pace, reset) plus the share line, up to four rows. Every path, the empty one too, stacks on what the mods beneath draw.
 
 A turn on the main loop that runs three minutes or more, not interrupted,
 raises a notification when it ends, wherever the desktop is attached. Where

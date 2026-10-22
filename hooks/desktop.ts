@@ -120,6 +120,68 @@ export function stripOf(usage: SessionUsage, now: number): Strip {
   }
 }
 
+/**
+ * What one desktop session keeps in `$.store` so the others can see it: its
+ * cost so far, and when it last said so. Quota is the account's, shared by
+ * every session, so only the sessions' own costs can say which one burns it.
+ *
+ * One key per session, never a shared total: the store is one file across
+ * processes, and a read-then-write of a shared value loses updates.
+ */
+export type SessionSpend = { usd: number; at: number }
+
+/** The store key a session's spend is kept under. */
+export const SPEND_PREFIX = 'session.'
+
+/** A session that has not said anything for this long is not active. */
+export const SPEND_ACTIVE_MS = 10 * 60_000
+
+/** A key this old is deleted, so the store (4 MiB in all) cannot grow forever. */
+export const SPEND_EXPIRE_MS = 24 * 3_600_000
+
+/** How often an unchanged spend is written again, to stay active. */
+export const SPEND_WRITE_MS = 30_000
+
+/** A store value as a spend, or `null` for anything else: never cast. */
+export function spendOf(value: unknown): SessionSpend | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { usd, at } = value as Record<string, unknown>
+  return typeof usd === 'number' && typeof at === 'number' ? { usd, at } : null
+}
+
+/**
+ * Whether to write the spend again: it moved, or the last write is going
+ * stale. Never over a newer one: refreshes overlap, and the one that read
+ * the clock first can reach the store last.
+ */
+export function shouldWriteSpend(last: SessionSpend | null, usd: number, now: number): boolean {
+  if (last === null) return true
+  if (last.at > now) return false
+  return last.usd !== usd || now - last.at >= SPEND_WRITE_MS
+}
+
+/**
+ * This session's share of what the active sessions have spent, with how many
+ * others are active; `null` with none, or nothing spent, since a lone
+ * session's 100% says nothing. `others` are the other sessions' spends.
+ */
+export function shareOf(
+  usd: number,
+  others: readonly SessionSpend[],
+  now: number,
+): NonNullable<Strip['share']> | null {
+  const active = others.filter(other => now - other.at <= SPEND_ACTIVE_MS)
+  const total = active.reduce((sum, other) => sum + other.usd, usd)
+  if (active.length === 0 || total <= 0) return null
+  return { share: usd / total, others: active.length }
+}
+
+/** `this session ~40% of spend · 2 others active` */
+export function shareLine(share: NonNullable<Strip['share']>): string {
+  const others = share.others === 1 ? '1 other' : `${share.others} others`
+  return `this session ~${Math.round(share.share * 100)}% of spend · ${others} active`
+}
+
 /** `five_hour` → `5h`, `seven_day` → `7d`; any other window as the engine names it. */
 export function windowLabel(window: string): string {
   if (window === 'five_hour') return '5h'
@@ -280,6 +342,18 @@ export function stripCells(strip: Strip, now: number): StripCell[] {
     })
   }
   return cells
+}
+
+/**
+ * How many rows the strip stands: its tallest cell (a label, then a pace and
+ * a reset under it), and the share line under them all.
+ */
+export function stripRows(cells: readonly StripCell[], share: boolean): number {
+  if (cells.length === 0) return 0
+  const tallest = Math.max(
+    ...cells.map(cell => 1 + (cell.pace !== null ? 1 : 0) + (cell.detail !== null ? 1 : 0)),
+  )
+  return tallest + (share ? 1 : 0)
 }
 
 /** The notification a long turn raises when it ends. */

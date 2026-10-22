@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 cc-pulseline is a high-performance CLI tool that renders a multi-line statusline for Claude Code. It reads JSON from stdin (the Claude Code statusline payload) and outputs formatted text lines to stdout. The binary is designed to be called repeatedly by the Claude Code statusline hook.
 
-The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline; its default band (`quiet`) keeps one thin strip of `Svg` quota gauges with each window's pace, and cost and `$/h`, plus alert rows for context (with a `/compact` button) and a cold cache; the `compact` / `rail` / `anchor` layouts carry the identity and budget rows. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
+The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline; its default band (`quiet`) keeps one thin strip of `Svg` quota gauges with each window's pace, and cost and `$/h`, with this session's share of what the active desktop sessions spend (each writes its own `$.store` key), plus alert rows for context (with a `/compact` button) and a cold cache; the `compact` / `rail` / `anchor` layouts carry the identity and budget rows. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
 
 ## Build & Test Commands
 
@@ -25,7 +25,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 179 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 194 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
