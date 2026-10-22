@@ -135,6 +135,23 @@ export type SessionFacts = {
    * resetting here would make the two paths disagree.
    */
   cacheReadTotal: number
+  /**
+   * The context's input tokens at the end of the last main turn, for the
+   * quiet desktop band's autocompact runway. Absent from an atom an older
+   * version wrote, so read it as `?? null`.
+   */
+  ctxTokens?: number | null
+  /**
+   * How much each of the last few main turns grew the context, oldest
+   * first; cleared when the context shrinks, as a compaction makes it. Read
+   * as `?? []`.
+   */
+  ctxDeltas?: number[]
+  /**
+   * Where autocompact runs, as the engine's `/context` breakdown last said:
+   * `threshold` in tokens, `null` when it named none. Read as `?? null`.
+   */
+  autoCompact?: { threshold: number | null; enabled: boolean } | null
 }
 
 /** What the tool-call hook has counted this session. */
@@ -219,7 +236,18 @@ export type BandRun = 'never' | 'ok' | 'failed'
  * strip draws it, and a window past its limit is notified instead.
  */
 export type Alert =
-  | { kind: 'ctx'; percent: number; used: number; window: number }
+  | {
+      kind: 'ctx'
+      percent: number
+      used: number
+      window: number
+      /**
+       * Whole turns left before autocompact runs, at the recent turns'
+       * growth; absent when there is no reading for it, or from an alert an
+       * older version wrote.
+       */
+      runway?: number
+    }
   | {
       kind: 'cache'
       /** Shares of the last turn's input: read from cache, written to it. */
