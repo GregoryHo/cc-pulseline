@@ -320,7 +320,10 @@ under the gauges says which session is burning it:
 `this session ~40% of spend · 2 others active`. Each desktop session,
 whatever its layout, writes its own `$.store` key on the refresh path,
 `session.<id>` = `{ usd, at }` (the API-equivalent cost and `$.clock.now()`),
-when the cost moved or 30 seconds after its last write. One key per
+when the cost moved or 30 seconds after its last write. The throttle reads
+the key back rather than remembering the write, so a key another session's
+cleanup deleted after a fresh write is written again on the next refresh.
+One key per
 session, never a shared total: measured on 2.1.308 with four processes
 writing at once, per-session keys lost nothing, while a shared value
 updated by get-then-set lost a third to four fifths of its updates. The

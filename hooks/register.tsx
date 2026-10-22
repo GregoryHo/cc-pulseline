@@ -435,11 +435,6 @@ type State = {
    * `await` between, so two refreshes in flight cannot both notify.
    */
   notified: Set<string> | null
-  /**
-   * This session's last write to `$.store`, so an unchanged spend is not
-   * rewritten on every tool call. A reload starting over costs one write.
-   */
-  lastSpend: SessionSpend | null
 }
 
 /**
@@ -1076,17 +1071,17 @@ async function notifyOrToast(engine: EngineInterface, text: string): Promise<voi
  */
 async function syncSpend(
   engine: EngineInterface,
-  state: State,
   sessionId: string,
   usd: number | undefined,
   now: number,
 ): Promise<SessionSpend[] | null> {
   if (usd === undefined) return null
   const own = `${SPEND_PREFIX}${sessionId}`
-  if (shouldWriteSpend(state.lastSpend, usd, now)) {
-    const spend = { usd, at: now }
-    await engine.store.set(own, spend)
-    state.lastSpend = spend
+  // Throttled against what the store holds, not a remembered write: another
+  // process's cleanup can read this key stale, and delete it after a fresh
+  // write lands. Read back, a deleted key is written again on the next refresh.
+  if (shouldWriteSpend(spendOf(await engine.store.get(own)), usd, now)) {
+    await engine.store.set(own, { usd, at: now })
   }
   const keys = (await engine.store.keys()).filter(key => key.startsWith(SPEND_PREFIX) && key !== own)
   const others: SessionSpend[] = []
@@ -1269,7 +1264,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   if (onDesktop) {
     const usd = collected.usage.cost?.usd
     try {
-      const others = await syncSpend(engine, state, collected.sessionId, usd, collected.now)
+      const others = await syncSpend(engine, collected.sessionId, usd, collected.now)
       const share = others === null || usd === undefined ? null : shareOf(usd, others, collected.now)
       if (strip !== null && share !== null) strip = { ...strip, share }
     } catch (error) {
@@ -1499,7 +1494,6 @@ export const register: Register = (on, options) => {
     versionFromEngine: false,
     options,
     notified: null,
-    lastSpend: null,
   }
 
   on('session.start', async ($, e, next) => {

@@ -444,6 +444,17 @@ describe('the share of spend', () => {
     expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP + 30_000 })
   })
 
+  test("writes its key again at once when another session's cleanup deleted it", async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'] })
+    await warm($, 'first')
+    await seen.settle()
+    seen.store.delete(OWN)
+    await seen.advance(10_000)
+    await warm($, 'second')
+    await seen.settle()
+    expect(seen.store.get(OWN)).toEqual({ usd: 1.53, at: STAMP + 10_000 })
+  })
+
   test('a desktop session on another layout still writes its own key', { options: { desktopLayout: 'rail' } }, async ($, on) => {
     const seen = bottom(on, { surfaces: ['desktop'] })
     await warm($)
