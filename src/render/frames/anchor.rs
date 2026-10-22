@@ -20,8 +20,8 @@ use crate::render::color::{colorize, extract_ansi_code, visible_width, ThemePale
 use crate::render::fmt::{format_number, format_reset_duration};
 use crate::render::frames::powerline::{self, CapStyle, SeamTier};
 use crate::render::icons::{
-    fail_mark, glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA,
-    ICON_TODO, ICON_TOOL, PL_TICK,
+    glyph, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT, ICON_QUOTA, ICON_TODO,
+    PL_TICK,
 };
 use crate::render::layout;
 use crate::render::pane::LayoutStyle;
@@ -231,12 +231,11 @@ fn row_context(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalett
     assemble(&hero, trail, config, palette)
 }
 
-/// Append the traceability trail cells (task progress + tool-use volume) at the
-/// trail tail, so they shed FIRST under width pressure (volatile activity, like
-/// rail's drop-tier-1). Gated on the same `show_todo`/`show_tools` toggles as
-/// the flat activity rows; colour stays structural except `✘M` failures light
-/// `alert_red` (anchor's shape=subject / colour=state grammar). Honest counts:
-/// `completed_tool_total` / `failed_tool_total` are the uncapped frame totals.
+/// Append the traceability trail cell (task progress) at the trail tail, so it
+/// sheds FIRST under width pressure (volatile activity, like rail's
+/// drop-tier-1). Gated on the same `show_todo` toggle as the flat activity
+/// rows. No tool-use count: Claude Code's own transcript and turn summary
+/// already count the tool calls.
 ///
 /// Note: anchor rides traceability on the CONTEXT row, so it shares that row's
 /// lifecycle — absent until the first API call lands a context%. (rail's
@@ -259,21 +258,6 @@ fn push_traceability(
                 palette,
             ));
         }
-    }
-    if config.show_tools && frame.completed_tool_total > 0 {
-        let failed = frame.failed_tool_total;
-        let text = if failed > 0 {
-            format!(
-                "{} {}{}",
-                frame.completed_tool_total,
-                fail_mark(config.glyph_mode),
-                failed
-            )
-        } else {
-            frame.completed_tool_total.to_string()
-        };
-        let lit = (failed > 0).then_some(palette.alert_red.as_str());
-        trail.push(cell(ICON_TOOL, &text, lit, config, palette));
     }
 }
 

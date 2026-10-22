@@ -1943,6 +1943,10 @@ fn rail_tools_cell_surfaces_a_failure_ranked_below_the_cap() {
         max_completed_tools: 4,
         glyph_mode: cc_pulseline::config::GlyphMode::Icon,
         pane_style: cc_pulseline::render::pane::LayoutStyle::Rail,
+        // The tools cell is out of the default usage row; place it.
+        rail_usage_order: ["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"]
+            .map(String::from)
+            .to_vec(),
         ..RenderConfig::default()
     };
 
