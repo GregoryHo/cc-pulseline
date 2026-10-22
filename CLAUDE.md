@@ -44,8 +44,8 @@ cc-pulseline --select-theme   # Interactively select and apply a theme
 cc-pulseline --palette-map    # Show palette field → UI element mapping
 cc-pulseline --layout rail    # Render with this layout
                               # (none|compact|budgets|console|ledger|rail|anchor|activity)
-                              # activity = activity rows only, empty when idle — the
-                              # plugin band's layout, not a statusline one
+                              # activity = activity rows only, empty when idle — what the
+                              # desktop band stacks under a rail/anchor head, not a statusline one
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
 cc-pulseline --no-icons       # No Nerd Font glyphs (GlyphMode::Unicode): ASCII labels, half-block seams, braille kept
@@ -113,9 +113,9 @@ Full layout × visual reference: `docs/layouts.md`.
 
 > **L1 and L3 always render, except under `--layout activity`** — the one
 > layout that draws no core rows, so its output is activity only and empty
-> when nothing is running. It exists for the plugin's above-the-prompt band
-> (`docs/band.md`), which sits beside the statusline rather than replacing
-> it. Everything below describes the statusline's own rows.
+> when nothing is running. It exists for the plugin's desktop band, which
+> stacks it under a `rail` / `anchor` head (`docs/band.md`); the terminal
+> band runs no binary. Everything below describes the statusline's own rows.
 
 - **L1**: `M:{model} | E:{effort} | [T] | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 1 AGENTS.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)

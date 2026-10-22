@@ -64,13 +64,14 @@ describe('the band', () => {
   })
 
   test('the same tool failing three times in a row draws its row', async ($, on) => {
-    bottom(on, { toolResult: { isError: true, result: 'boom' } })
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
     const ui = await $.ui.mount(BAND)
     await $.tool.call({ tool: 'Bash', tool_use_id: 'f1', command: 'cargo test --release' } as never)
     await $.tool.call({ tool: 'Bash', tool_use_id: 'f2', command: 'cargo test --release' } as never)
     expect(await drawnOf(ui)).not.toContain('failed')
 
     await $.tool.call({ tool: 'Bash', tool_use_id: 'f3', command: 'cargo test --release' } as never)
+    await seen.settle()
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.find(text => text.text === '✘ Bash failed 3× in a row')?.props.color).toBe('#d75f5f')
     expect(texts.some(text => text.text === 'cargo test --release')).toBe(true)
@@ -81,10 +82,11 @@ describe('the band', () => {
   })
 
   test("a subagent's failures are not the person's run", async ($, on) => {
-    bottom(on, { toolResult: { isError: true, result: 'boom' } })
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
     for (const id of ['a1', 'a2', 'a3']) {
       await $.tool.call({ tool: 'Bash', tool_use_id: id, command: 'false', agentId: 'agent-1' } as never)
     }
+    await seen.settle()
     const ui = await $.ui.mount(BAND)
     expect(await drawnOf(ui)).not.toContain('failed')
     await ui.unmount()
