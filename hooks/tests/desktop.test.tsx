@@ -676,6 +676,17 @@ describe('the autocompact runway', () => {
     expect((await drawnTexts($)).texts).toEqual(['CTX 60%', '~4 turns to autocompact'])
   })
 
+  test("runs on the breakdown's count, which its threshold is on", async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], usage: { cost: undefined, autoCompact: AUTO } })
+    // The last request's input lags the breakdown, which also counts the turn's
+    // own answer: the runway is 2 turns, not the 4 the input count reads.
+    for (const tokens of [100_000, 110_000, 120_000]) {
+      await endTurn($, seen, tokens, { breakdownTokens: tokens + 20_000 })
+    }
+    await seen.settle()
+    expect((await drawnTexts($)).texts).toEqual(['CTX 60%', '~2 turns to autocompact'])
+  })
+
   test('the terminal band draws no runway', async ($, on) => {
     const seen = bottom(on, { usage: { autoCompact: AUTO } })
     for (const tokens of [100_000, 110_000, 120_000]) await endTurn($, seen, tokens)

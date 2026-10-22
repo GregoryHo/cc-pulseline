@@ -184,6 +184,8 @@ export type UsageOptions = {
    * is too, as with no session bound.
    */
   autoCompact?: { threshold?: number; enabled: boolean }
+  /** The breakdown's `totalTokens`; absent, the same as `tokens`. */
+  breakdownTokens?: number
 }
 
 export type BottomOptions = {
@@ -353,12 +355,13 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
         window: usage.window ?? 1_000_000,
         percent: usage.percent ?? 43,
         ...(usage.tokens !== undefined ? { tokens: usage.tokens } : {}),
-        // Only the two fields the mod reads: the rest of a breakdown is
+        // Only the fields the mod reads: the rest of a breakdown is
         // /context's grid, which nothing here draws.
         ...(e.breakdown !== undefined && usage.autoCompact !== undefined
           ? {
               breakdown: {
                 isAutoCompactEnabled: usage.autoCompact.enabled,
+                totalTokens: usage.breakdownTokens ?? usage.tokens,
                 ...(usage.autoCompact.threshold !== undefined
                   ? { autoCompactThreshold: usage.autoCompact.threshold }
                   : {}),

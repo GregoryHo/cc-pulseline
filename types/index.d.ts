@@ -136,8 +136,9 @@ export type SessionFacts = {
    */
   cacheReadTotal: number
   /**
-   * The context's input tokens at the end of the last main turn, for the
-   * quiet desktop band's autocompact runway. Absent from an atom an older
+   * The context's tokens at the end of the last main turn, as the engine's
+   * `/context` breakdown totals them, for the quiet desktop band's
+   * autocompact runway. Absent from an atom an older
    * version wrote, so read it as `?? null`.
    */
   ctxTokens?: number | null

@@ -1263,12 +1263,14 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // hook, which may not write state.
   const drawsQuiet = onDesktop && quiet
   // `?? null` / `?? []`: an atom written before the runway existed has neither.
-  const ctxNow = collected.usage.context.tokens
+  // The last turn's sample, not this reading's `context.tokens`: the
+  // threshold is on the breakdown's count, and so is the series.
+  const ctxAt = facts.ctxTokens ?? null
   const autoCompact = facts.autoCompact ?? null
   const runway =
-    ctxNow === undefined || autoCompact === null || !autoCompact.enabled
+    ctxAt === null || autoCompact === null || !autoCompact.enabled
       ? null
-      : runwayOf(ctxNow, facts.ctxDeltas ?? [], autoCompact.threshold)
+      : runwayOf(ctxAt, facts.ctxDeltas ?? [], autoCompact.threshold)
   const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens, runway) : []
   let strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
   // Every desktop session says what it spends, whatever its layout, so a
@@ -1874,22 +1876,23 @@ export const register: Register = (on, options) => {
     let context: SessionContextUsage | null = null
     if (e.agentId === undefined && e.reason !== 'error') {
       try {
-        // `summary` counts locally and sends no request. Its threshold is the
-        // engine's own token count, the series below the status line's input
-        // side: the two differ by a near-constant offset, not a drift.
+        // `summary` counts locally and sends no request. The series is the
+        // breakdown's own total, the count its threshold applies to: the
+        // status line's `context.tokens` is the last request's input alone,
+        // which lags a turn that ended on a long answer or tool output.
         context = (await $.session.usage({ breakdown: 'summary' })).context
       } catch {
         // Kept as it was: a runway one turn stale beats a turn that fails on
         // the band's account. The hook observes, and the turn's result stands.
       }
     }
-    const sampled = context?.tokens
     const breakdown = context?.breakdown
+    const sampled = breakdown?.totalTokens
     if (usage || erroredAt !== null || context !== null) {
       await update($, sessionFacts, facts => ({
         ...facts,
-        // No reading right after a compaction, until the next response: no
-        // sample, and the next one starts the series over.
+        // No breakdown, no sample. A compaction shows as a smaller total,
+        // which starts the series over.
         ...(sampled !== undefined
           ? {
               ctxTokens: sampled,

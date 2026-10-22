@@ -349,9 +349,11 @@ Under the strip, a row opens for each value past its limit:
 The runway is the turns left before autocompact runs, at the average
 growth of the last five main turns (at least two). On each main
 `turn.complete` the mod reads `$.session.usage({ breakdown: 'summary' })`,
-which counts locally and sends no request: `context.tokens` is the sample,
-and the breakdown's `autoCompactThreshold` and `isAutoCompactEnabled` say
-where autocompact runs and whether it does. A subagent's turn and an errored
+which counts locally and sends no request: the breakdown's `totalTokens` is
+the sample, and its `autoCompactThreshold` and `isAutoCompactEnabled` say
+where autocompact runs and whether it does. Not `context.tokens`: that is
+the last request's input alone, a different count from the one the
+threshold applies to, and it lags a turn that ended on a long answer. A subagent's turn and an errored
 one are not samples; a context that shrank (a compaction, `/clear`) starts
 the series over. With autocompact off, no threshold named, growth flat or
 falling, or under two turns of growth, there is no runway and the row is the
@@ -472,7 +474,7 @@ field, which the hooks module does not use.
 | Agent start and stop times | `classic.SubagentStart` / `classic.SubagentStop` |
 | Compaction count | `classic.PostCompact` — the end that means one happened. `PreCompact` can be blocked (`SessionCompactSkipped`: "Core answers it too, when a classic PreCompact hook blocks"), so counting there raised the badge over a compaction that never ran |
 | API error | `turn.complete` where `e.reason` is `'error'` |
-| Autocompact runway | `turn.complete` on the main loop: `$.session.usage({ breakdown: 'summary' })`'s `context.tokens` per turn, and its breakdown's `autoCompactThreshold` / `isAutoCompactEnabled` |
+| Autocompact runway | `turn.complete` on the main loop: `$.session.usage({ breakdown: 'summary' })`'s breakdown, per turn: `totalTokens`, `autoCompactThreshold` / `isAutoCompactEnabled` |
 | Cumulative cache reads | summed from `turn.complete`'s usage, once per turn, and sent as a total — the binary cannot total it, since every refresh re-sends the same last-turn usage. Kept across compaction, as the transcript path keeps it |
 | MCP count, instruction counts | `$.tool.list()` and `classic.InstructionsLoaded` — what actually loaded, not what exists on disk |
 
