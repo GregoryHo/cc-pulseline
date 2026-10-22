@@ -262,11 +262,6 @@ export type BottomOptions = {
   notifySent?: boolean
   /** The draft `$.prompt.read()` answers; empty when not given. */
   draft?: string
-  /**
-   * What `git status --porcelain=v2 --branch` prints for the quiet band's
-   * `G:` cell. Left out, the run fails as it does outside a repository.
-   */
-  gitStatus?: string
 }
 
 /**
@@ -363,11 +358,6 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     // Four different spawns reach here. Claude Code's own version probe,
     // which asks the CLI by name:
     if (argv[0] === 'claude') return answer(0, '2.1.296 (Claude Code)')
-
-    // The quiet desktop band's branch reading:
-    if (argv[0] === 'git') {
-      return options.gitStatus === undefined ? answer(128, '') : answer(0, options.gitStatus)
-    }
 
     // The binary ladder, probing one candidate:
     if (argv[1] === '--version') {
@@ -467,7 +457,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   on('ui.render', () => ({ type: 'Text', props: {}, children: [BENEATH] }))
 
   const binaryRuns = () =>
-    spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'git')
+    spawns.filter(run => run.argv[1] !== '--version')
 
   const parse = (run: Spawn | undefined, what: string): PayloadShape => {
     if (run === undefined) throw new Error(`the binary was never run ${what}`)

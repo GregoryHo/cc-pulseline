@@ -18,7 +18,6 @@ import {
   alertRow,
   desktopAlerts,
   longTurnNotice,
-  parseGitStatus,
   quotaKey,
   quotaNotice,
   quotaPast,
@@ -32,7 +31,6 @@ import { shouldRefresh } from './throttle'
 import type {
   Alert,
   BandRun,
-  GitHead,
   BinaryChoice,
   DrawnOutput,
   Span,
@@ -431,11 +429,6 @@ type State = {
    * `await` between, so two refreshes in flight cannot both notify.
    */
   notified: Set<string> | null
-  /**
-   * The strip's branch, read at most once per `GIT_TTL_MS` for one root: a
-   * `git status` on every tool call is a spawn the strip does not need.
-   */
-  git: { at: number; root: string; head: GitHead | null } | null
 }
 
 /**
@@ -1062,39 +1055,6 @@ async function notifyOrToast(engine: EngineInterface, text: string): Promise<voi
   }
 }
 
-/** How long a branch reading stands, as the binary's own git cache does. */
-const GIT_TTL_MS = 10_000
-
-/**
- * The branch for the strip's `G:` cell, or `null` outside a repository.
- *
- * Cached in the closure for `GIT_TTL_MS` per root. A failed or refused run is
- * a `null` too: the strip then leaves the cell out, which is what it does
- * outside a repository, and the rest of the band is not worth blanking for it.
- */
-async function gitHead(
-  engine: EngineInterface,
-  state: State,
-  root: string,
-  now: number,
-): Promise<GitHead | null> {
-  const held = state.git
-  if (held !== null && held.root === root && now - held.at < GIT_TTL_MS) return held.head
-  let head: GitHead | null = null
-  try {
-    const run = await engine.process.run(['git', '-C', root, 'status', '--porcelain=v2', '--branch'], {
-      stdin: '',
-      timeoutMs: 1000,
-    })
-    head = run.exitCode === 0 ? parseGitStatus(run.stdout) : null
-  } catch {
-    // Refused or timed out: no branch to show, as outside a repository.
-    head = null
-  }
-  state.git = { at: now, root, head }
-  return head
-}
-
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Each refresh claims a number and only the newest may publish. Several can
   // be in flight at once — parallel tool calls, a turn event landing beside
@@ -1258,9 +1218,7 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // hook, which may not write state.
   const drawsQuiet = onDesktop && quiet
   const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens) : []
-  const strip = drawsQuiet
-    ? stripOf(collected.usage, await gitHead(engine, state, facts.cwd, collected.now), collected.now)
-    : null
+  const strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
   state.notified ??= new Set(held.notified ?? [])
   const toNotify: string[] = []
   for (const quota of drawsQuiet ? quotaPast(collected.usage) : []) {
@@ -1482,7 +1440,6 @@ export const register: Register = (on, options) => {
     versionFromEngine: false,
     options,
     notified: null,
-    git: null,
   }
 
   on('session.start', async ($, e, next) => {
@@ -1968,7 +1925,7 @@ export const register: Register = (on, options) => {
       // `?? []` / `?? null`: an atom written before the quiet band existed
       // has neither field.
       const alerts = held.alerts ?? []
-      const cells = stripCells(held.strip ?? { quota: [], git: null }, state.lastRunMs)
+      const cells = stripCells(held.strip ?? { quota: [] }, state.lastRunMs)
       const { Box, Text, Button, Svg } = $.ui.resolve(e)
       const rows = alerts.map(alert => {
         const row = alertRow(alert)
@@ -1995,7 +1952,7 @@ export const register: Register = (on, options) => {
       })
       if (cells.length > 0) {
         // A gauge cell is a column: its label line over its pace and its
-        // detail, so neither wraps beside the gauge. The branch takes a row below.
+        // detail, so neither wraps beside the gauge.
         const column = (cell: StripCell) => (
           <Box flexDirection="column">
             <Box flexDirection="row" gap={1} alignItems="center">
@@ -2018,20 +1975,9 @@ export const register: Register = (on, options) => {
             ) : null}
           </Box>
         )
-        const gauges = cells.filter(cell => cell.wide !== true)
-        const wide = cells.filter(cell => cell.wide === true)
         rows.unshift(
-          <Box flexDirection="column">
-            {gauges.length > 0 ? (
-              <Box flexDirection="row" gap={2} alignItems="flex-start">
-                {gauges.map(column)}
-              </Box>
-            ) : null}
-            {wide.map(cell => (
-              <Text color={cell.color} mono>
-                {cell.label}
-              </Text>
-            ))}
+          <Box flexDirection="row" gap={2} alignItems="flex-start">
+            {cells.map(column)}
           </Box>,
         )
       }
