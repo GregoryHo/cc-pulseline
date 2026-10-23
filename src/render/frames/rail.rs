@@ -37,7 +37,9 @@
 
 use crate::config::{ColorBudget, GlyphMode, Headline, RenderConfig};
 use crate::render::color::{colorize, extract_ansi_code, fg_code, visible_width, ThemePalette};
-use crate::render::fmt::{burn_rate_per_hour, format_number, format_reset_duration};
+use crate::render::fmt::{
+    burn_rate_per_hour, format_duration, format_number, format_reset_duration,
+};
 use crate::render::frames::powerline::{self, RampLevel, SeamTier, Segment};
 use crate::render::icons::{
     fail_mark, glyph, ICON_COMPACT, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT,
@@ -49,6 +51,11 @@ use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
 
 const CTX_TINT_AT: u64 = 55; // first ctx_marks() mark
 const QUOTA_TINT_AT: f64 = 50.0; // first quota mark
+/// Quota window lengths, for the pace after each reset.
+const FIVE_HOUR_MIN: u64 = 5 * 60;
+const SEVEN_DAY_MIN: u64 = 7 * 24 * 60;
+/// No pace before 5% of a window has gone: the band's `PACE_FROM`.
+const PACE_FROM_PERMILLE: u64 = 50;
 /// Cache lights its EFFICIENCY band only on genuinely good reuse — the same
 /// boundary `color_for_cache_hit_pct` uses for its green band. Below it the
 /// cache cell stays a quiet Context ramp (a cold cache is never lit, never red).
@@ -580,24 +587,12 @@ fn build_cell(
                 code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
             RailCell::flag("", "", format!("${cost:.2}"), band, true)
         }),
-        "5h" => q.five_hour_pct.map(|pct| {
-            RailCell::flag(
-                ICON_QUOTA,
-                "",
-                quota_text("5H", pct, q.five_hour_reset_minutes),
-                code(palette.color_for_quota_pct(pct)),
-                pct >= QUOTA_TINT_AT,
-            )
-        }),
-        "7d" => q.seven_day_pct.map(|pct| {
-            RailCell::flag(
-                ICON_QUOTA,
-                "",
-                quota_text("7D", pct, q.seven_day_reset_minutes),
-                code(palette.color_for_quota_pct(pct)),
-                pct >= QUOTA_TINT_AT,
-            )
-        }),
+        "5h" => q
+            .five_hour_pct
+            .map(|pct| quota_cell("5H", pct, q.five_hour_reset_minutes, FIVE_HOUR_MIN, palette)),
+        "7d" => q
+            .seven_day_pct
+            .map(|pct| quota_cell("7D", pct, q.seven_day_reset_minutes, SEVEN_DAY_MIN, palette)),
         _ => None,
     }
 }
@@ -734,12 +729,63 @@ fn assemble(
     (left, right)
 }
 
-fn quota_text(label: &str, pct: f64, reset_min: Option<u64>) -> String {
+/// A quota window as a SATURATION Flag, with its pace after the reset. A
+/// window on pace to run out before its reset lights at least the warn band,
+/// whatever its percent, because that is the one that needs the person.
+fn quota_cell(
+    label: &str,
+    pct: f64,
+    reset_min: Option<u64>,
+    window_min: u64,
+    palette: &ThemePalette,
+) -> RailCell {
+    let pace = reset_min.and_then(|m| pace_of(pct, m, window_min));
     let pct_u = pct.round() as u64;
     let reset = reset_min
         .map(|m| format!(" {}", format_reset_duration(m)))
         .unwrap_or_default();
-    format!("{label} {pct_u}%{reset}")
+    let pace_text = match pace {
+        Some(Pace::FullIn(min)) => format!(" → full ~{}", format_duration(min).replace(' ', "")),
+        Some(Pace::AtReset(projected)) => format!(" →{projected}%"),
+        None => String::new(),
+    };
+    let short = matches!(pace, Some(Pace::FullIn(_)));
+    let band = if short && pct < QUOTA_TINT_AT {
+        palette.ctx_warn()
+    } else {
+        palette.color_for_quota_pct(pct)
+    };
+    RailCell::flag(
+        ICON_QUOTA,
+        "",
+        format!("{label} {pct_u}%{reset}{pace_text}"),
+        code(band),
+        short || pct >= QUOTA_TINT_AT,
+    )
+}
+
+/// Where a quota window is heading at its current rate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Pace {
+    /// It runs out this many minutes from now, before its reset.
+    FullIn(u64),
+    /// It stays under the limit and ends near this percent.
+    AtReset(u64),
+}
+
+/// The band's `paceOf` (`hooks/desktop.ts`) over minutes: no projection
+/// before `PACE_FROM_PERMILLE` of the window has gone, or with nothing used.
+fn pace_of(pct: f64, reset_min: u64, window_min: u64) -> Option<Pace> {
+    let gone = window_min.checked_sub(reset_min)?;
+    if pct <= 0.0 || gone * 1000 < window_min * PACE_FROM_PERMILLE {
+        return None;
+    }
+    let projected = pct * window_min as f64 / gone as f64;
+    if projected < 100.0 {
+        return Some(Pace::AtReset(projected.round() as u64));
+    }
+    let full_in = ((100.0 - pct).max(0.0) * gone as f64 / pct).round() as u64;
+    Some(Pace::FullIn(full_in))
 }
 
 /// CTX cell as a SATURATION Flag: the *whole* value lights `color_for_ctx_pct`

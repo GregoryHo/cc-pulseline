@@ -799,6 +799,59 @@ fn quota_row_renders_with_only_seven_day() {
     assert!(!joined.contains("5H"), "5h absent");
 }
 
+fn quota_row(f: &RenderFrame, c: &RenderConfig) -> String {
+    let lines = render(f, c);
+    lines.last().map(|l| strip_ansi(l)).unwrap_or_default()
+}
+
+#[test]
+fn quota_cell_shows_when_a_window_runs_out_before_reset() {
+    // 40% used with 5d 11h 51m left of 7d: 40% in 1d 12h 9m, so full in ~2d 6h.
+    let mut f = frame("high", 43, 30.0, 40.0, false, true);
+    f.quota.seven_day_reset_minutes = Some(5 * 1440 + 11 * 60 + 51);
+    let row = quota_row(&f, &rail_config());
+    assert!(row.contains("7D 40% 5d 11h 51m → full ~2d6h"), "{row}");
+}
+
+#[test]
+fn quota_cell_shows_the_projection_when_a_window_stays_under() {
+    // 20% used with 4d left of 7d (3d gone): ~47% at reset.
+    let f = frame("high", 43, 30.0, 20.0, false, true);
+    let row = quota_row(&f, &rail_config());
+    assert!(row.contains("7D 20% 4d 0h 0m →47%"), "{row}");
+}
+
+#[test]
+fn quota_cell_draws_no_pace_early_in_a_window() {
+    // 10 minutes into the 5h window is under the 5% floor (15 minutes).
+    let mut f = frame("high", 43, 30.0, 20.0, false, true);
+    f.quota.five_hour_reset_minutes = Some(290);
+    let row = quota_row(&f, &rail_config());
+    let five = row.split("7D").next().unwrap_or_default();
+    assert!(five.contains("5H 30% 4h 50m"), "{row}");
+    assert!(!five.contains('→'), "no pace yet: {row}");
+}
+
+#[test]
+fn quota_cell_lights_warn_when_running_out_below_the_tint_mark() {
+    let p = rail_config().palette;
+    // 40% used 100 minutes into 5h: on pace for 120%.
+    let mut f = frame("high", 43, 40.0, 10.0, false, true);
+    f.quota.five_hour_reset_minutes = Some(200);
+    let lines = render(&f, &rail_config());
+    let row = lines.last().expect("quota row");
+    assert!(
+        whole_lit(row, p.ctx_warn(), "5H 40%"),
+        "running out lights warn: {row}"
+    );
+
+    // The same 40% before the pace floor stays unlit.
+    f.quota.five_hour_reset_minutes = Some(290);
+    let lines = render(&f, &rail_config());
+    let row = lines.last().expect("quota row");
+    assert!(!row.contains(p.ctx_warn()), "no pace, no warn: {row}");
+}
+
 // ── traceability cells (todo · tools) ───────────────────────────────────────
 
 /// Attach task + tool-use activity to a frame (honest uncapped totals).
