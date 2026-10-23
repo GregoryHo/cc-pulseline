@@ -13,11 +13,11 @@ import type { Alert, FailStreak, Strip, Tokens } from '../types'
  * band keeps one thin strip of quota and cost, and adds a row only when the
  * context or the cache passes its limit.
  *
- * The terminal band is quieter still. Its statusline carries the quota, the
- * cost and the context, and Claude Code's own transcript every tool, so it
- * draws nothing at all until something needs the person: the same tool
- * failing again and again, a tool running long, a quota on pace to run out,
- * the context near autocompact, a cache rebuilding.
+ * The terminal band is quieter still. Its statusline carries the quota and
+ * its pace, the cost, the context and the cache, and Claude Code's own
+ * transcript every tool, so it draws nothing at all until something needs
+ * the person: the same tool failing again and again, a tool running long,
+ * the turns left before autocompact.
  */
 
 /**
