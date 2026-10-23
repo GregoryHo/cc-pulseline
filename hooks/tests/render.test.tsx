@@ -42,6 +42,22 @@ const thrice = async ($: { tool: { call: (e: never) => Promise<unknown> } }, too
   }
 }
 
+/** Autocompact on, at 160k of a 200k window. */
+const AUTO = { threshold: 160_000, enabled: true }
+const TURN = { reason: 'answer' as const, answer: '', durationMs: 1000, isAborted: false, turnId: 'turn' }
+
+/** Three main turns growing 10k each from 100k: about 4 turns to autocompact. */
+const nearAutocompact = async (
+  $: { turn: { complete: (e: typeof TURN) => Promise<unknown> } },
+  seen: ReturnType<typeof bottom>,
+) => {
+  for (const tokens of [100_000, 110_000, 120_000]) {
+    seen.setUsage({ window: 200_000, tokens, percent: Math.round((tokens / 200_000) * 100) })
+    await $.turn.complete(TURN)
+    await seen.advance(1000)
+  }
+}
+
 /** The text a mounted band drew, the chain's beneath it included. */
 const drawnOf = async (ui: { drawn: () => Promise<unknown> }) => JSON.stringify(await ui.drawn())
 
@@ -116,45 +132,56 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('the context near its limit draws a row with the /compact button and no Svg', async ($, on) => {
-    bottom(on, { usage: { percent: 90 } })
-    await warm($)
+  test('near autocompact it draws the runway alone, with the /compact button and no Svg', async ($, on) => {
+    const seen = bottom(on, { usage: { autoCompact: AUTO } })
+    await nearAutocompact($, seen)
+    await seen.settle()
     const ui = await $.ui.mount(BAND)
-    expect(await drawnOf(ui)).toContain('CTX 90%')
+    const drawn = await drawnOf(ui)
+    expect(drawn).toContain('~4 turns to autocompact')
+    // The statusline carries the percent.
+    expect(drawn).not.toContain('CTX')
     expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
     // The terminal draws no `Svg`: the gauge is the desktop's.
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
     await ui.unmount()
   })
 
-  test('a quota on pace to run out before its reset draws its row', async ($, on) => {
-    // Seven days in a window of seven, half used one day in: on pace for 350%.
+  test('what the statusline shows draws no row: context percent, quota pace, cache', async ($, on) => {
+    // Half of seven days used one day in: on pace for 350%. 90% context with
+    // no runway yet, and a cold cache rebuilding.
     const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
-    bottom(on, { usage: { rateLimits: [{ kind: 'seven_day', percentUsed: 50, resetsAt }] } })
+    bottom(on, { usage: { percent: 90, rateLimits: [{ kind: 'seven_day', percentUsed: 50, resetsAt }] } })
     await warm($)
     const ui = await $.ui.mount(BAND)
     const drawn = await drawnOf(ui)
-    expect(drawn).toContain('7d on pace to run out in ~1d')
-    expect(drawn).toContain('resets 6d')
+    expect(drawn).not.toContain('on pace')
+    expect(drawn).not.toContain('CTX')
+    expect(drawn).not.toContain('rebuilding')
+    expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   })
 
   test('alerts stand most pressing first, clipped to maxRows', async ($, on) => {
-    bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { percent: 90 } })
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { autoCompact: AUTO } })
     await thrice($)
+    await nearAutocompact($, seen)
+    await seen.settle()
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 1 } })
     const drawn = await drawnOf(ui)
     expect(drawn).toContain('Bash failed 3× in a row')
-    expect(drawn).not.toContain('CTX 90%')
+    expect(drawn).not.toContain('to autocompact')
     await ui.redraw({ ...BAND.props, maxRows: 4 })
     const both = await drawnOf(ui)
-    expect(both.indexOf('failed 3×')).toBeLessThan(both.indexOf('CTX 90%'))
+    expect(both.indexOf('failed 3×')).toBeLessThan(both.indexOf('to autocompact'))
     await ui.unmount()
   })
 
   test('every alert span is monospaced', async ($, on) => {
-    bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { percent: 90 } })
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { autoCompact: AUTO } })
     await thrice($)
+    await nearAutocompact($, seen)
+    await seen.settle()
     const ui = await $.ui.mount(BAND)
     const texts = (await ui.findAll({ type: 'Text' })).filter(text => text.text !== BENEATH)
     expect(texts.length).toBeGreaterThan(0)
@@ -194,13 +221,13 @@ describe('the band', () => {
   })
 
   test('what the mods beneath draw stays, under the band, on both surfaces', COMPACT, async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], usage: { percent: 90 } })
-    await warm($)
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], toolResult: { isError: true, result: 'boom' } })
+    await thrice($)
 
     // Answering with its own tree alone, the band took the whole chain's:
     // another mod's `AbovePrompt` content vanished whenever this one had rows,
     // which on the desktop is always. The bottom stands in for that mod.
-    for (const [band, own] of [[BAND, 'CTX 90%'], [DESKTOP_BAND, 'M:Opus 5']] as const) {
+    for (const [band, own] of [[BAND, 'Bash failed 3×'], [DESKTOP_BAND, 'M:Opus 5']] as const) {
       const ui = await $.ui.mount(band)
       const drawn = JSON.stringify(await ui.drawn())
       expect(drawn, band.surface).toContain(own)
@@ -616,8 +643,8 @@ describe('the desktop app', () => {
   })
 
   test('every span is monospaced, on both surfaces', COMPACT, async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], usage: { percent: 90 } })
-    await warm($)
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], toolResult: { isError: true, result: 'boom' } })
+    await thrice($)
 
     // The desktop draws a Text in a proportional face unless told otherwise,
     // and the binary packed its columns for a monospaced one.

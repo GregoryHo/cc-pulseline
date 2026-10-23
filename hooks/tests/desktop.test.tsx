@@ -12,6 +12,7 @@ import {
   nextDeltas,
   nextLongCheck,
   nextStreak,
+  onTerminalBand,
   quotaPast,
   runwayOf,
   shareLine,
@@ -21,6 +22,7 @@ import {
   stripCells,
   stripOf,
   stripRows,
+  terminalRow,
 } from '../desktop'
 import { BAND, BENEATH, DESKTOP_BAND, STAMP, bottom, isDesktopBandSpawn } from './harness'
 import type { Recorder, Spawn, UsageOptions } from './harness'
@@ -340,7 +342,7 @@ describe('the quiet band', () => {
     expect(seen.toasts).toEqual(['7d quota at 92%.'])
   })
 
-  test('a terminal session draws its alerts as text, with no strip and no notifications', async ($, on) => {
+  test('a terminal session leaves the context percent and the quota to its statusline', async ($, on) => {
     const seen = bottom(on, {
       usage: { percent: 90, rateLimits: [{ kind: 'five_hour', percentUsed: 99 }] },
     })
@@ -352,9 +354,9 @@ describe('the quiet band', () => {
     const ui = await $.ui.mount(BAND)
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('CTX 90%')
+    expect(drawn).not.toContain('CTX 90%')
     expect(drawn).not.toContain('5h 99%')
-    expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
+    expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   })
 })
@@ -704,7 +706,7 @@ describe('the autocompact runway', () => {
     const ui = await $.ui.mount(BAND)
     expect(await ui.findAll({ type: 'Svg' })).toEqual([])
     const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('CTX 60%')
+    expect(drawn).not.toContain('CTX 60%')
     expect(drawn).toContain('~4 turns to autocompact')
     expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
     await ui.unmount()
@@ -753,19 +755,16 @@ describe('the terminal alerts', () => {
     expect(nextLongCheck([tool(STAMP - 70_000)], STAMP)).toBe(15_000)
   })
 
-  test('a quota opens its alert only on pace to run out before its reset', () => {
-    const at = (percentUsed: number) => {
-      const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
-      return alertsOf(usage({ rateLimits: [{ kind: 'seven_day', percentUsed, resetsAt }] }), null, null, null, [], STAMP)
-    }
-    // One day into seven: 10% is on pace for 70%, 50% for 350%.
-    expect(at(10)).toEqual([])
-    const [alert] = at(50)
-    expect(alert).toMatchObject({ kind: 'pace', window: 'seven_day', fullInMs: 86_400_000 })
-    expect(alertRow(alert!, STAMP)).toMatchObject({ label: '7d on pace to run out in ~1d', detail: 'resets 6d' })
+  test('the terminal keeps the context alert only with a runway, and draws it as the runway', () => {
+    const near = usage({ context: { window: 200_000, percent: 90 } })
+    const [none] = alertsOf(near, null, null, null, [], STAMP)
+    expect(onTerminalBand(none!)).toBe(false)
+    const [ctx] = alertsOf(near, null, 4, null, [], STAMP)
+    expect(onTerminalBand(ctx!)).toBe(true)
+    expect(terminalRow(ctx!, STAMP)).toMatchObject({ gauge: null, label: '~4 turns to autocompact', detail: '', compact: true })
   })
 
-  test('they stand failures, long calls, context, pace, cache', () => {
+  test('they stand failures, long calls, context, cache; the terminal drops the cache', () => {
     const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
     const kinds = alertsOf(
       usage({ context: { window: 200_000, percent: 90 }, rateLimits: [{ kind: 'seven_day', percentUsed: 50, resetsAt }] }),
@@ -774,8 +773,9 @@ describe('the terminal alerts', () => {
       { tool: 'Bash', count: 4 },
       [tool(STAMP - 120_000, 'Read')],
       STAMP,
-    ).map(alert => alert.kind)
-    expect(kinds).toEqual(['fails', 'long', 'ctx', 'pace', 'cache'])
+    )
+    expect(kinds.map(alert => alert.kind)).toEqual(['fails', 'long', 'ctx', 'cache'])
+    expect(kinds.filter(onTerminalBand).map(alert => alert.kind)).toEqual(['fails', 'long'])
   })
 
   test('the desktop band draws none of the tool alerts', async ($, on) => {

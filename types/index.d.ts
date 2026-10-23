@@ -263,15 +263,6 @@ export type Alert =
       startedAt: number
     }
   | {
-      kind: 'pace'
-      /** The rate-limit window as the engine names it: `five_hour`, `seven_day`. */
-      window: string
-      /** How long until the window runs out at its pace so far. */
-      fullInMs: number
-      /** Epoch seconds; absent when the engine named no reset. */
-      resetsAt?: number
-    }
-  | {
       kind: 'ctx'
       percent: number
       used: number

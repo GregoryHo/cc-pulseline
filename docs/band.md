@@ -211,15 +211,17 @@ fullscreen, what lies beneath can start scrolled out of view.
 **The terminal band draws only what needs you.** The statusline draws the
 identity and the budget, and Claude Code's own transcript, spinner and turn
 summary show every tool, so a band of activity rows (`✓ 12 tools`) said it
-all twice. What is left is one row per alert, most pressing first:
+all twice. The statusline also reads the context percent, the cache and the
+rate limits from its own payload, and `rail`'s `5H` / `7D` cells carry each
+window's pace (`7D 40% 5d 11h 51m → full ~2d6h`, or `→47%` when it stays
+under). What is left is what only the mod knows, one row per alert, most
+pressing first:
 
 | alert | opens at | row | action |
 | --- | --- | --- | --- |
 | failures | the same tool failing 3 times in a row on the main loop | `✘ Bash failed 3× in a row` in red, the last target dim | none |
 | long call | one call running a minute | `◷ Bash running 2m 10s` in amber, its target dim | none |
-| context | as on the desktop: 70%, or 5 turns or fewer before autocompact | `CTX 78%`, `~4 turns to autocompact` | the `/compact` button |
-| quota pace | a window on pace to run out before its reset (see **The quiet band**) | `7d on pace to run out in ~3d2h`, `resets 6d9h` | none |
-| cache | the `C:%` "rebuilding" rung | `cache 22%`, the share written | none |
+| autocompact runway | as on the desktop, and only once there is a runway to read (`autoCompact` on, two turns sampled) | `~4 turns to autocompact` in amber, no percent | the `/compact` button |
 
 A failure of another tool starts the run over at one, a success of the
 failing tool ends it, and a success of another tool leaves it be. A
