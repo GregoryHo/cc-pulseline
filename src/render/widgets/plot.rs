@@ -7,7 +7,7 @@
 //! absolute range is small (a 30→43% climb fills the cell height instead of
 //! collapsing into the sparkline's global 0–100 buckets).
 //!
-//! Icon-only: returns `""` under `GlyphMode::Ascii` (braille has no ascii
+//! Unicode tier: returns `""` only under `GlyphMode::Ascii` (braille has no ascii
 //! equivalent) — the caller's delta-time tail (the `plot+text` recipe)
 //! carries the trend in that mode, exactly as the ledger sparkline does.
 

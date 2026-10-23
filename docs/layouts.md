@@ -117,8 +117,8 @@ With `show_cache_trend = true` (`[segments.budget]`, default off) the
 budget row appends an opt-in C-cell trend sparkline — a 6-cell braille
 strip of the cache hit-rate history — right after the TOK cell. It packs
 as an Optional cell, so under width pressure it drops FIRST (before TOK,
-never instead of the Required CTX/cost/quota cells). Icon-only: empty
-under `display.icons = false`.
+never instead of the Required CTX/cost/quota cells). Unicode tier: empty
+only under Ascii (`display.icons = false`); kept under `--no-icons`.
 
 ```
 M:Opus 4.7 | S:concise | CC:2.2.0 | P:~/proj | G:feat/x *
@@ -410,7 +410,7 @@ The default order and the hero (filled) cell of each row are overridable per row
 [layout]
 # cells left→right; [] (default) = built-in order; omitted cells are hidden.
 rail_identity_order = ["model", "effort", "cwd", "git", "version"]
-rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+rail_usage_order    = ["ctx", "compact", "tokens", "cache", "todo", "cost"]
 rail_quota_order    = ["5h", "7d"]
 # which cell is the filled hero; "" (default) = built-in (model / cost / 7d).
 rail_identity_hero  = "model"
@@ -439,15 +439,17 @@ today's layout byte-for-byte.
 
 #### Traceability: `todo` / `tools`
 
-rail/anchor surface tool-use and task progress as a single quiet signal folded
-into existing-row whitespace — never a new row (that detail lives in `ledger` /
-`console`). On rail they ride the **usage row** to the left of the `$cost` hero
-and shed first under width pressure; on anchor they trail the **context row**.
+rail/anchor surface task progress as a single quiet signal folded into
+existing-row whitespace — never a new row (that detail lives in `ledger` /
+`console`). On rail it rides the **usage row** to the left of the `$cost` hero
+and sheds first under width pressure; on anchor it trails the **context row**.
+The tool-use count is off by default — Claude Code's own transcript already
+counts the tool calls — and only rail can place it, through `rail_*_order`.
 
 | Cell | Shows | Colour |
 |---|---|---|
 | `todo` | task progress `c/t` from the todo state | quiet `Context` — progress never lights |
-| `tools` | uncapped session tool-use total `N`, plus `✘M` when failures occurred | quiet until `M > 0`, then lights `alert_red` |
+| `tools` | rail only, opt-in via `rail_*_order`: uncapped session tool-use total `N`, plus `✘M` when failures occurred | quiet until `M > 0`, then lights `alert_red` |
 
 The `tools` total is the **honest uncapped** count (`completed_tool_total` /
 `failed_tool_total`): summing the capped `completed_tools` vector undercounts
@@ -590,7 +592,7 @@ context_visual = ""                 # = layout default
 
 | Segment | Widgets | Visual contract |
 |---------|---------|-----------------|
-| `context_visual` | `gauge`, `sparkline`, `plot`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` icon, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is icon-only — empty under `display.icons = false`. `plot` is a normalized braille **line** plot (`widgets::plot`): one dot per column at the sample's height, rescaled to the window's own min→max so the trend *shape* shows even for a small range — distinct from `sparkline`'s bottom-up bars. It carries a `30→43% in 5m` delta-time tail (text, so the trend survives ascii where the braille drops out) and is filled by CTX consumption velocity. Also icon-only. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
+| `context_visual` | `gauge`, `sparkline`, `plot`, `text` | `gauge` is bracketless (`▰▰▰▰▰▰···──·──` unicode, `======:::--:--` ascii) with threshold marks at the percentages where colour transitions. CTX marks are fixed at `[55, 70]` (`ThemePalette::ctx_marks()`); the bar's fill colour matches `color_for_ctx_pct` so the chroma escalates through good/warn/critical at the same points the marks call out. `sparkline` is Unicode tier — empty only under Ascii (`display.icons = false`); kept under `--no-icons`. `plot` is a normalized braille **line** plot (`widgets::plot`): one dot per column at the sample's height, rescaled to the window's own min→max so the trend *shape* shows even for a small range — distinct from `sparkline`'s bottom-up bars. It carries a `30→43% in 5m` delta-time tail (text, so the trend survives ascii where the braille drops out) and is filled by CTX consumption velocity. Also Unicode tier — empty only under Ascii; kept under `--no-icons`. `text` is the standard `<glyph>43% (86.0k/200.0k)` form. |
 | `quota_visual` | `gauge`, `text` | Same widget as CTX, with quota's fixed marks `[50, 85]`. `gauge` adds the bar before the percentage. `text` produces no bar — caller renders the existing `5h: 62% (resets ...)` text only. |
 | `tools_visual` | `counts`, `targets`, `ticker` | Row-selection atoms parsed by `ToolsVisualSpec` (`activity/builder.rs`). `counts` = completed-tool count rows (`✓ Bash ×12`, capped by `max_completed_lines`, ` +N` fold). `targets` = the running/recent tools row (`T:Bash: cargo test`). `ticker` subsumes both: grand total + running tools fused into ONE row (`✓ 25 tools \| T:Bash: cargo test`). All text — ascii-safe. |
 | `todo_visual` | `text`, `bar` | Parsed by `TodoVisualSpec` (`activity/builder.rs`). `text` = item text / task summary (current form). `bar` = 5-cell progress gauge of completed/total slotted after the TODO prefix (`▰▰───` icon, `==---` ascii; no threshold marks). `bar` alone keeps the `(c/t)` counts. The celebration and legacy-text rows ignore `bar` (nothing to gauge). |

@@ -3,9 +3,6 @@
 //! portion only — a mark landing on a filled cell is hidden by fill).
 //! Ascii mode swaps to `=` / `-` / `:`. Caller owns thresholds:
 //! quota passes `[50, 85]`; CTX passes `ThemePalette::ctx_marks()`.
-//!
-//! See `designs/quota-gauge-revival/draft-F.md` for the design
-//! rationale (why bracketless, why no rainbow zones).
 
 use crate::config::GlyphMode;
 use crate::render::color::{colorize, ThemePalette};
