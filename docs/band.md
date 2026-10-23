@@ -277,8 +277,9 @@ there are not the terminal's, and each changes what the band asks for:
 
 The split in **What it draws** above is a terminal fact. On the desktop it
 would leave context, cost and quota nowhere at all, so the desktop band draws
-them itself. Of the terminal's alerts it keeps the context and the cache: its
-strip carries the quota pace, and its transcript every tool. TOK/s and the cache sparkline stay missing there, for the reason
+them itself. It draws the context alert, from 70% as well as at 5 turns or fewer before
+autocompact, and the cache alert, which the terminal leaves to its
+statusline; its strip carries the quota pace, and its transcript every tool. TOK/s and the cache sparkline stay missing there, for the reason
 they are missing from the band anywhere (**Known gaps**).
 
 ### The quiet band

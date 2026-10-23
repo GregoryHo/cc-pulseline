@@ -9,7 +9,7 @@
     {
       "name": "pulseline",
       "description": "cc-pulseline: a multi-line statusline plus an above-the-prompt activity band, with setup commands and diagnostics",
-      "version": "1.9.0",
+      "version": "1.10.0",
       "source": ".",
       "category": "productivity"
     }

@@ -200,8 +200,8 @@ Q: 5h: ▰▰▰▰▰▰▰▰▰───·─ 62% (resets 1h 59m)
 The `plot` widget is a normalized braille **line**, distinct from the
 ledger's bottom-up `sparkline`: it rescales the window to its own min→max
 so a shallow 30→43% climb fills the cell height instead of collapsing into
-the global 0–100 buckets. It's icon-only, so under `display.icons = false`
-the plot glyph drops and the `30→43% in 5m` delta-time tail carries the
+the global 0–100 buckets. It's Unicode tier (braille), so only under `display.icons = false`
+(Ascii) does the plot glyph drop (`--no-icons` keeps it), and the `30→43% in 5m` delta-time tail carries the
 trend (the same axis-and-tail honesty the ledger sparkline keeps). Setting
 `name = "velocity"` now warns and falls back to `none` — use the recipe
 above.

@@ -191,7 +191,7 @@ name = "console"
 visual = "text"
 ```
 
-Recognized context/quota widgets: `gauge`, `sparkline`, `plot`, `text` (context); `gauge`, `text` (quota). Combine with `+` (e.g. `"gauge+sparkline"`). Other segments compose too — `tools_visual` (counts/targets/ticker), `todo_visual` (text/bar), `effort_visual` (word/ramp), `agents_visual` (name/description/model). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
+Recognized context/quota widgets: `gauge`, `sparkline`, `plot`, `text` (context); `gauge`, `text` (quota). Combine with `+` (e.g. `"gauge+sparkline"`). Other segments compose too — `[segments.tools] visual` (counts/targets/ticker), `[segments.todo] visual` (text/bar), `[segments.identity] effort_visual` (word/ramp), `[segments.agents] visual` (name/description/model). Empty string defers to the layout default. Full reference: [`docs/layouts.md`](docs/layouts.md).
 
 ## CLI Usage
 

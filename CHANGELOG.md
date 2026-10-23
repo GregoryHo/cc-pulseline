@@ -7,20 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-23
+
+Minor release that gives each metric on the terminal to whichever side
+already knows it. The statusline reads the context percent, the cache and the
+rate limits from its own payload. So `rail`'s `5H` / `7D` cells now carry
+each quota window's pace, and the terminal band drops the rows that repeated
+the statusline. The band keeps only what the mod alone can know: the same
+tool failing three times in a row, a call running past a minute, and how many
+turns are left before autocompact (with a `/compact` button). It draws
+nothing otherwise.
+
+No config key or layout is renamed or removed. One default render changes:
+`rail`'s quota cells gain pace text after the reset. The quiet desktop band,
+the pane, the other layouts and `--layout activity` are unchanged. The
+plugin's binary floor stays at 1.7.0 (`MIN_VERSION` is unchanged), because
+the band passes no new flag. A 1.9.0 binary under the 1.10.0 plugin just
+draws `rail` without the pace. 711 Rust tests (was 705) and 216 hook tests
+(unchanged; five were rewritten for the narrower terminal band).
+
+### Added
+
+- **Quota pace on `rail`'s `5H` / `7D` cells.** After the reset, a cell shows
+  `→ full ~2d6h` when the window runs out before its reset, or `→47%` for
+  where it ends when it stays under: `7D 40% 5d 11h 51m → full ~2d6h`. A
+  window on pace to run out lights at least the warn band, whatever its
+  percent. Nothing is projected before 5% of the window has gone, with
+  nothing used, or without a reset. The math matches the quiet desktop
+  strip's `paceOf`. Under width pressure the pace text is the quota row's
+  first shed, before any cell drops and under `mono` too, so the row never
+  outgrows its target.
+
 ### Changed
 
-- **`rail`'s `5H` / `7D` cells carry each window's pace.** After the reset,
-  `→ full ~2d6h` when the window runs out before its reset (the cell lights
-  at least the warn band, whatever its percent), or `→47%` for where it ends
-  when it stays under; nothing before 5% of the window has gone. The math is
-  the quiet desktop strip's. Under width pressure the pace text is the row's
-  first shed, before any cell drops and under `mono` too, so the quota row
-  never outgrows its target.
-- **The terminal band keeps only what the statusline cannot know:** the
-  failure run, the long call, and the autocompact runway. The quota pace row
-  and the cache row are gone, and the context row is the runway alone
-  (`~4 turns to autocompact` with its `/compact` button), opening only once
-  there is a runway to read. The desktop's quiet band is unchanged.
+- **The terminal band's context row is the autocompact runway alone**:
+  `~4 turns to autocompact` in amber, with its `/compact` button and no
+  percent. It opens only at 5 turns or fewer before autocompact, once there
+  is a runway to read (autocompact on and two turns sampled). It no longer
+  opens at 70% on the percent alone, which the statusline already shows. The
+  desktop's context alert still opens at 70% or on the runway, as in 1.9.0.
+
+### Removed
+
+- **The quota pace and cache alert rows from the terminal band.** The pace
+  now lives in `rail`'s quota cells, and the statusline's `C:%` ladder
+  already shows a rebuilding cache. The quiet desktop band keeps its cache
+  alert and its strip's pace. A row of either kind that a 1.9.0 session saved
+  is filtered out on load, so it is not drawn after the upgrade.
+
+### Internal
+
+- `hooks/desktop.ts`: `alertsOf` builds one shared list, and each band
+  filters it. The terminal uses the new `onTerminalBand` filter and
+  `terminalRow` builder, and the desktop uses `onDesktopBand`. `paceOf` is no
+  longer exported.
+- `types/index.d.ts`: the `pace` kind of `Alert` is gone. Nothing new is
+  versioned, and a state written by 1.9.0 still loads.
+- `src/render/frames/rail.rs`: a `quota_cell` builder and a `Pace`
+  projection, plus a fit rung for the pace that runs ahead of every cell
+  drop. New `tests/rail_layout.rs` cases cover the projection, the warn
+  lighting and the pace's shed order, `mono` included. The hook tests for the
+  terminal alerts are rewritten for the runway-only context row and the
+  dropped pace and cache rows.
+- `docs/band.md`, `docs/layouts.md`, the README, `CLAUDE.md` and
+  `.claude/rules/plugin-mod.md` describe the terminal split: the pace, the
+  context percent and the cache belong to the statusline, and the band shows
+  the failure run, the long call and the runway.
 
 ## [1.9.0] - 2026-10-23
 
@@ -1492,6 +1544,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.10.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.6.0...v1.7.0
