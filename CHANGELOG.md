@@ -7,6 +7,123 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-23
+
+Minor release that makes the plugin's terminal band draw only what needs the
+person. In 1.8.0 the terminal band ran `--layout activity` and kept the
+turn's tool, agent and todo rows above the prompt for the whole session.
+Claude Code's own transcript, spinner and turn summary already show every
+tool, so those rows said it all twice. The terminal band now runs no binary.
+It opens one row per alert and draws nothing otherwise: the same tool failing
+three times in a row, a call running past a minute, a quota on pace to run
+out before its reset, the context near autocompact (with a `/compact`
+button), or a cache that is rebuilding. The quiet desktop strip gains each
+quota window's pace, this session's share of the account's spend, and an
+autocompact runway on its context alert. It no longer draws `G:`, which the
+Code tab shows itself.
+
+No config key or layout is renamed or removed. Two default renders change.
+`rail`'s usage row no longer places the `tools` cell (`rail_usage_order` can
+still place it), and `anchor` drops its tool-call count. The pane, the
+statusline's other rows and the binary-drawn desktop layouts (`compact`,
+`rail`, `anchor`) are unchanged, and `--layout activity` stays in the binary
+for the desktop `rail` / `anchor` band. The plugin's binary floor stays at
+1.7.0 (`MIN_VERSION` is unchanged). 705 Rust tests (unchanged) and 216 hook
+tests (was 175).
+
+### Added
+
+- **Alert rows on the terminal band.** `refresh` works them out in
+  `hooks/desktop.ts` and publishes them with the rows, so the render hook
+  only reads. The rows are monospaced `Text` (no `Svg`), most pressing
+  first:
+
+  | alert | opens at | row | action |
+  | --- | --- | --- | --- |
+  | failures | the same tool failing 3 times in a row on the main loop | `✘ Bash failed 3× in a row`, the last target dim | none |
+  | long call | one call running past a minute | `◷ Bash running 2m 10s`, its target dim | none |
+  | context | 70%, or 5 turns or fewer before autocompact | `CTX 78% ~4 turns to autocompact` | the `/compact` button |
+  | quota pace | a window on pace to run out before its reset | `7d on pace to run out in ~3d2h`, `resets 6d9h` | none |
+  | cache | the `C:%` "rebuilding" rung | `cache 22%`, the share written | none |
+
+  A failure of another tool starts the run over, and a success of the
+  failing tool ends it. A subagent's calls are not counted. The run is held
+  in the `tools` atom, so a reload keeps it. While a tool runs, `refresh`
+  keeps one `$.clock.after` pending, so the long-call row moves on its own:
+  first when the oldest call crosses the minute, then every 15 seconds. A
+  target is truncated rather than wrapped, and past `maxRows` the last
+  alerts are dropped.
+- **Quota pace on the quiet desktop strip.** Each window carries
+  `→ ~19% at reset`, or `full in ~3d2h` in amber (label and gauge too) when
+  it runs out before its reset. A tick on the gauge marks the share of the
+  window gone. The pace is the percent used over the share of the window
+  gone, read off `resets_at` and the window's length (5h, 7d), so no history
+  is kept. Nothing is projected in a window's first 5%, for a window of
+  unknown length, or without a reset.
+- **This session's share of spend**, a dim line under the quiet strip's
+  gauges: `this session ~40% of spend · 2 others active`. Every session,
+  terminal or desktop and whatever its layout, writes its own `$.store` key
+  `session.<id>` = `{ usd, at }`, when the cost moved or 30 seconds after its
+  last write. There is one key per session, never a shared total: on 2.1.308
+  a shared get-then-set value lost a third to four fifths of its updates. The
+  share counts the sessions heard from in the last 10 minutes, and a lone
+  session draws no line. Keys a day old, or ones that are not a spend, are
+  deleted, so the store (4 MiB cap) cannot grow.
+- **Autocompact runway on the context alert**, on both surfaces:
+  `~4 turns to autocompact` (`autocompact next turn` under one turn's
+  growth). The row opens at 70% as before, or earlier once autocompact is 5
+  turns or fewer away. The threshold is the engine's own, read on each main
+  `turn.complete` from `$.session.usage({ breakdown: 'summary' })`, which
+  counts locally and sends no request. The runway uses the average growth of
+  the last five main turns. There is none with under two turns of growth,
+  with flat or falling growth, or with autocompact off. A context that
+  shrinks (a compaction, `/clear`) starts the series over.
+
+### Changed
+
+- **The terminal band runs no binary.** It used to spawn `--layout
+  activity` on every refresh. It now draws only its alerts, and with none
+  open it takes no rows and draws only what the mods beneath draw. A
+  missing binary still shows its install line in their place. The pane on
+  `/pulseline` still runs the binary.
+- **Resets a day or more away read in days**: `resets 6d10h` rather than
+  `154h46m`.
+- `--help` and the plugin's description now describe `activity` as the
+  desktop band's rows under a `rail` / `anchor` head, and the band as an
+  alert band.
+
+### Removed
+
+- **The tool-call count from `rail`'s and `anchor`'s default rows.** Claude
+  Code's transcript and turn summary already count tool calls. On `rail`,
+  `tools` stays in the cell vocabulary, so `rail_usage_order` can still
+  place it. `show_tools` keeps its default, because it also gates the
+  activity rows and the ledger.
+- **`G:` from the quiet desktop strip.** The Code tab shows the branch
+  itself, so the quiet band no longer runs `git status`.
+- **Activity rows on the terminal band** (running tools, completed counts,
+  agents, todo). The pane keeps them.
+
+### Internal
+
+- `types/index.d.ts`: `Alert` gains the `fails`, `long` and `pace` kinds,
+  the `ctx` alert gains `runway`, `ToolTotals` gains `failStreak` (the new
+  `FailStreak` type), `SessionFacts` gains `ctxTokens`, `ctxDeltas` and
+  `autoCompact`, and `Strip` gains `share`. `Strip.git` and `GitHead` are
+  gone. Every new field is optional and read with `?? default`, so a state
+  written by 1.8.0 loads.
+- Terminal sessions now write their `$.store` spend key, so the desktop
+  share counts them. The harness's `$.store` lives in memory, and the
+  recorder exposes it so a test can read writes back.
+- New hook tests cover the alert rows and their order, the failure run, the
+  long-call clock, pace projections, day spans, the share line and its store
+  hygiene, and the runway math and its resets. The Rust test for the
+  anchor's failure mark is replaced by one that checks the rail's default
+  usage row draws no `tools` cell.
+- `docs/band.md` (now titled **The band**), `docs/layouts.md`, the README,
+  `CLAUDE.md` and the `.claude/rules/` surface tables describe the terminal
+  band as alerts-only.
+
 ## [1.8.0] - 2026-10-20
 
 Minor release that rethinks what the plugin draws in the Code tab of the
@@ -1360,6 +1477,7 @@ collision on L1 is fixed in every built-in theme.
 - **Context alert thresholds** at 70%/55% — warnings appear before Claude Code's ~80% auto-compact triggers
 - **Steel blue completed checkmarks** — distinct from plan-mode green to avoid visual collision
 
+[1.9.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/GregoryHo/cc-pulseline/compare/v1.5.1...v1.6.0

@@ -25,8 +25,7 @@ pub mod shared;
 use super::pane::LayoutStyle;
 
 /// The set of per-segment visual specs a layout proposes when the user TOML
-/// leaves a `*_visual` field empty. Variation B from
-/// `designs/composable-redesign.md`: each layout asserts a tasteful default,
+/// leaves a `*_visual` field empty: each layout asserts a tasteful default,
 /// but users can override per segment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegmentVisualDefaults {
@@ -117,7 +116,7 @@ pub const fn default_visuals_for(layout: LayoutStyle) -> SegmentVisualDefaults {
         // existing rows as dedicated `todo`/`tools` cells (NOT the activity
         // `*_visual` hubs), so these visual defaults stay inert (like
         // `budgets`). The effort ramp would double the rail's own colour
-        // signal, so effort stays `word`. See `designs/powerline-rail-anchor.md`.
+        // signal, so effort stays `word`.
         LayoutStyle::Rail | LayoutStyle::Anchor => SegmentVisualDefaults {
             context_visual: "text",
             quota_visual: "text",

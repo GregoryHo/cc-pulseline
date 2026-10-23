@@ -117,9 +117,9 @@ The strata tier tints the `|` separator on a per-row basis when
 Strata is **chrome, not value** — these colors live below the emphasis
 tiers and never render data. Theme authors hand-pick both values per
 variant; a CI lint enforces `|state − activity| ≥ 3` on the ansi256
-scale so no shipped theme can collapse the contract. See
-`designs/tonal-strata-redesign.md` for the full spec and per-theme
-rationale.
+scale so no shipped theme can collapse the contract. The lint is
+`tests/theme_strata_contrast.rs`; the fields are `strata_state` /
+`strata_activity` in `src/render/color.rs`.
 
 **Custom themes that omit the fields** fall back to `separator` /
 `structural` and emit a one-time warning pointing at the missing field

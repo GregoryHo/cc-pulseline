@@ -786,7 +786,7 @@ headline = "column"
 #   [segments.todo]/[segments.tools]). Insert "|" to split a row into an explicit
 #   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
 # rail_identity_order = ["model", "effort", "cwd", "git", "version"]
-# rail_usage_order    = ["ctx", "tokens", "cache", "cost"]
+# rail_usage_order    = ["ctx", "compact", "tokens", "cache", "todo", "cost"]
 # rail_quota_order    = ["5h", "7d"]
 # rail_identity_hero  = "model"
 # rail_usage_hero     = "cost"
@@ -1392,7 +1392,7 @@ pub fn default_project_config_toml() -> &'static str {
 #   cells (global vocab — any cell on any row): model effort cwd git version ctx
 #   compact tokens cache todo tools cost 5h 7d. Insert "|" to split a row into a
 #   left / right-hugged cluster, e.g. rail_quota_order = ["5h","7d","|","todo","tools"].
-# rail_usage_order  = ["ctx", "tokens", "cache", "cost"]   # reorder / omit to hide
+# rail_usage_order  = ["ctx", "compact", "tokens", "cache", "todo", "cost"]   # reorder / omit to hide
 # rail_usage_hero   = "ctx"                                # which cell is the filled headline
 # max_total_lines = 6       # hard cap on total rows (or "auto" = ~25% of terminal);
 #                           # ladder ends at fuse-core (identity+budget on one row)

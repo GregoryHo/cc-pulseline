@@ -49,7 +49,7 @@ cc-pulseline --layout rail    # Render with this layout
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
 cc-pulseline --no-icons       # No Nerd Font glyphs (GlyphMode::Unicode): ASCII labels, half-block seams, braille kept
-                              # (only lowers Icon; display.icons = false stays ASCII) — the desktop band's
+                              # (only lowers Icon; display.icons = false stays ASCII) — what every desktop band spawn passes
 ```
 
 Full reference: `print_help()` in `src/main.rs`.
@@ -97,7 +97,7 @@ stdin JSON → StdinPayload (deserialize)
   - `fmt.rs` — Number formatting (`format_number`), duration formatting (`format_duration`), speed formatting (`format_speed`), reset duration formatting (`format_reset_duration`), and agent/todo elapsed formatting (`format_agent_elapsed`)
   - `icons.rs` — Nerd Font icon constants and `glyph()` helper for icon/ascii mode switching
 
-- **`hooks/`** — The plugin's function-hooks module (TypeScript): `register.tsx` holds the hooks, the `$.state` atoms and the binary resolver; `payload.ts`, `binary.ts` and `throttle.ts` are pure helpers; `tests/` runs against the engine via `claude plugin test .`. It feeds the same binary through `activity` on the stdin payload and draws the result above the prompt (band) and in a pane. See `docs/band.md`.
+- **`hooks/`** — The plugin's function-hooks module (TypeScript): `register.tsx` holds the hooks, the `$.state` atoms and the binary resolver; the other `hooks/*.ts` files are helpers (`desktop.ts` holds the quiet desktop band); `tests/` runs against the engine via `claude plugin test .`. It feeds the same binary through `activity` on the stdin payload and draws the result above the prompt (band) and in a pane. See `docs/band.md`.
 
 - **`lib.rs`** — Orchestrates the pipeline: `PulseLineRunner` manages sessions, calls providers, assembles the `RenderFrame`, and delegates to the renderer. Also exposes `run_from_str()` as a stateless convenience.
 
