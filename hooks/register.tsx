@@ -1,5 +1,13 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, PluginOptions, Register, SessionContextUsage, SessionUsage } from 'claude-code'
+import type {
+  AgentInfo,
+  EngineInterface,
+  PluginOptions,
+  Register,
+  SessionContextUsage,
+  SessionUsage,
+  Timer,
+} from 'claude-code'
 
 import {
   PROBE_TIMEOUT_MS,
@@ -18,9 +26,12 @@ import {
   SPEND_EXPIRE_MS,
   SPEND_PREFIX,
   alertRow,
-  desktopAlerts,
+  alertsOf,
   longTurnNotice,
   nextDeltas,
+  nextLongCheck,
+  nextStreak,
+  onDesktopBand,
   quotaKey,
   quotaNotice,
   quotaPast,
@@ -133,9 +144,8 @@ const LAYOUTS = ['ledger', 'budgets', 'compact', 'rail']
  * `Svg` gauge and a line (see `hooks/desktop.ts`). Empty otherwise.
  *
  * The others are the binary's rows. The desktop's Code tab does not run the
- * `statusLine` command, so the split the terminal band relies on — identity
- * and budget on the statusline, the turn in flight above the prompt — leaves
- * the desktop with no context, cost or quota anywhere. Each of these carries
+ * `statusLine` command, which carries identity and budget on the terminal,
+ * so without them the desktop has no context, cost or quota anywhere. Each of these carries
  * all of them in a few rows:
  * `compact` fuses identity and budget into one head row over the activity;
  * `rail` and `anchor` draw them as a powerline bar, on half-block seams since
@@ -198,6 +208,7 @@ const toolTotals = atom({ plugin: 'pulseline', key: 'tools' } as const, {
   counts: {},
   completedTotal: 0,
   failedTotal: 0,
+  failStreak: null,
 })
 
 const agentTimings = atom({ plugin: 'pulseline', key: 'agents' } as const, {
@@ -249,7 +260,6 @@ const paneWanted = atom({ plugin: 'pulseline', key: 'pane' } as const, {
 const binaryChoice = atom({ plugin: 'pulseline', key: 'binary' } as const, null)
 
 const drawnOutput = atom({ plugin: 'pulseline', key: 'output' } as const, {
-  rows: [],
   desktopRows: [],
   paneRows: [],
   // Not `'failed'`: nothing has gone wrong yet, and the band draws the note
@@ -399,8 +409,12 @@ type Collected = {
 type State = {
   active: Map<string, ActiveTool>
   lastRunMs: number
-  bandRows: number
-  bandCols: number
+  /**
+   * The refresh that moves a long tool call's alert: armed while a tool runs
+   * on the terminal, since no event marks the minute it crosses, cancelled
+   * once none does. See `armLongCheck`.
+   */
+  longTimer: Timer | null
   /** The desktop band's box, measured apart: it is not the terminal's. */
   desktopBandRows: number
   desktopBandCols: number
@@ -1100,6 +1114,19 @@ async function syncSpend(
   return others
 }
 
+/**
+ * Keeps one refresh pending while a tool runs on the terminal: at the moment
+ * the oldest crosses `LONG_TOOL_MS`, then every `LONG_TICK_MS` so its time
+ * moves. No event marks either moment, and the band draws only what a
+ * refresh published. Each refresh re-arms it from its own reading, and one
+ * with nothing running cancels it.
+ */
+function armLongCheck(engine: EngineInterface, state: State, running: readonly ActiveTool[], now: number): void {
+  state.longTimer?.cancel()
+  const due = nextLongCheck(running, now)
+  state.longTimer = due === null ? null : engine.clock.after(due, () => void drawSoon(engine, state))
+}
+
 async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // Each refresh claims a number and only the newest may publish. Several can
   // be in flight at once — parallel tool calls, a turn event landing beside
@@ -1146,7 +1173,6 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     // and this message is the only place an install line can reach the person.
     await publish(out => ({
       ...out,
-      rows: [],
       desktopRows: [],
       paneRows: [],
       bandRun: 'failed',
@@ -1170,7 +1196,6 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     if (state.lastCollected === null) {
       await publish(out => ({
         ...out,
-        rows: [],
         desktopRows: [],
         paneRows: [],
         bandRun: 'failed',
@@ -1237,7 +1262,6 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   // The run's results are gathered locally and written once at the end: one
   // write is one redraw, where a write per field would draw the band four
   // times for a single refresh.
-  let rows: Span[][]
   let desktopRows: Span[][]
   // Normalized, because the annotation is a promise about the contract and
   // not about what the host is holding: `$.state` outlives a reload,
@@ -1250,17 +1274,16 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   let paneRows: Span[][] = held.paneRows
   let paneNote = held.paneNote
 
-  // Which bands to run. An empty roster is a `-p` run, which has always
-  // spawned the terminal's and still does; a session the desktop app hosts
-  // alone has no terminal band to draw, so it is not spawned for.
+  // Which bands to draw for. The terminal's runs no binary: it draws the
+  // alerts alone. A `-p` run has an empty roster and nothing to draw into.
   const surfaces = collected.surfaces
-  const onTerminal = surfaces.length === 0 || surfaces.includes('terminal')
+  const onTerminal = surfaces.includes('terminal')
   const onDesktop = surfaces.includes('desktop')
   const quiet = desktopLayoutOf(state.options) === QUIET
 
-  // The quiet band's strip and alert rows, and a notification for each quota
-  // window that newly passed its limit. Worked out here, never in the render
-  // hook, which may not write state.
+  // The quiet bands' alert rows, the desktop's strip, and a notification for
+  // each quota window that newly passed its limit. Worked out here, never in
+  // the render hook, which may not write state.
   const drawsQuiet = onDesktop && quiet
   // `?? null` / `?? []`: an atom written before the runway existed has neither.
   // The last turn's sample, not this reading's `context.tokens`: the
@@ -1271,12 +1294,18 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
     ctxAt === null || autoCompact === null || !autoCompact.enabled
       ? null
       : runwayOf(ctxAt, facts.ctxDeltas ?? [], autoCompact.threshold)
-  const alerts: Alert[] = drawsQuiet ? desktopAlerts(collected.usage, facts.tokens, runway) : []
+  const alerts: Alert[] =
+    onTerminal || drawsQuiet
+      ? alertsOf(collected.usage, facts.tokens, runway, totals.failStreak ?? null, running, collected.now)
+      : []
+  // The newest refresh only: an older one finishing late holds an older list.
+  if (onTerminal && seq === state.runSeq) armLongCheck(engine, state, running, collected.now)
   let strip = drawsQuiet ? stripOf(collected.usage, collected.now) : null
-  // Every desktop session says what it spends, whatever its layout, so a
-  // quiet one counts the rest; only the quiet band draws the share.
+  // Every session with a surface says what it spends, whatever it draws, so
+  // a quiet desktop one counts the rest, terminal ones included; only the
+  // quiet desktop band draws the share.
   let spendFault: string | null = null
-  if (onDesktop) {
+  if (surfaces.length > 0) {
     const usd = collected.usage.cost?.usd
     try {
       const others = await syncSpend(engine, collected.sessionId, usd, collected.now)
@@ -1298,46 +1327,18 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
   }
   for (const text of toNotify) void notifyOrToast(engine, text)
 
-  // The two band runs are independent, so they run together: in sequence, a
-  // hanging binary held both bands for two timeouts before either updated.
-  const [terminalRun, desktopRun] = await Promise.all([
-    onTerminal
-      ? runRows(engine, payload, [
-          binary.path,
-          '--rows',
-          String(state.bandRows),
-          '--columns',
-          String(state.bandCols),
-          // The band is not a second statusline. `activity` is the one layout
-          // that draws no identity and no budget row — those belong to the
-          // statusline, which is always on screen and is the only path that can
-          // sample tokens often enough to rate them. What is left is the turn in
-          // flight, led by the running tools so `--rows 2` outside fullscreen
-          // cuts the cumulative counts rather than the live row. Without this the
-          // band drew whatever layout the person configured: the statusline's own
-          // rows, stacked above the prompt while the statusline drew them below.
-          '--layout',
-          'activity',
-        ])
-      : null,
-    // A run of its own, because the desktop band is a different layout in a
-    // different face: the `desktopLayout` setting (see `DESKTOP_LAYOUTS`),
-    // with no Nerd Font glyphs.
-    // The quiet band draws from the reading itself, so it spawns nothing.
-    onDesktop && !quiet ? runDesktopBand(engine, payload, binary.path, state) : null,
-  ])
+  // A run of its own, because the desktop band is a different layout in a
+  // different face: the `desktopLayout` setting (see `DESKTOP_LAYOUTS`), with
+  // no Nerd Font glyphs. The quiet band draws from the reading itself, so it
+  // spawns nothing.
+  const desktopRun = onDesktop && !quiet ? await runDesktopBand(engine, payload, binary.path, state) : null
 
-  rows = terminalRun?.rows ?? []
   desktopRows = desktopRun?.rows ?? []
-  // Zero rows with a zero exit is the idle band, not a fault — which is why
+  // Zero rows with a zero exit is an idle band, not a fault — which is why
   // the health of the run is tracked apart from the count of its rows.
   const done: string[] = []
   const faults: string[] = []
-  if (terminalRun !== null) {
-    if (terminalRun.fault === null) {
-      done.push(`${rows.length}r band ${state.bandRows}x${state.bandCols}`)
-    } else faults.push(terminalRun.fault)
-  }
+  if (onTerminal) done.push(`${alerts.length} alert(s) terminal`)
   if (spendFault !== null) done.push(spendFault)
   if (drawsQuiet) {
     done.push(`strip + ${alerts.length} alert(s) desktop quiet`)
@@ -1400,7 +1401,6 @@ async function refresh(engine: EngineInterface, state: State): Promise<void> {
 
   const notified = [...state.notified]
   await publish(() => ({
-    rows,
     desktopRows,
     alerts,
     strip,
@@ -1495,8 +1495,7 @@ export const register: Register = (on, options) => {
   const state: State = {
     active: new Map(),
     lastRunMs: 0,
-    bandRows: 3,
-    bandCols: 120,
+    longTimer: null,
     desktopBandRows: 3,
     desktopBandCols: 120,
     desktopBandMeasured: false,
@@ -1540,7 +1539,7 @@ export const register: Register = (on, options) => {
       // reads, and since Phase E the band draws one only for `'failed'`. The
       // `refresh` on the next line replaces both fields the moment the binary
       // answers, which is the right lifetime for it: the band works, so it
-      // should go back to drawing activity.
+      // should go back to drawing what it draws.
       await update($, drawnOutput, (out): DrawnOutput => ({
         ...out,
         bandRun: 'failed',
@@ -1564,7 +1563,10 @@ export const register: Register = (on, options) => {
     // Bookkeeping must never throw into the tool chain: a bad event shape
     // would take the tool call down with it, and the band with that.
     try {
-      if (!NOT_TOOL_ACTIVITY.has(name)) state.active.set(id, { id, name, target: targetOf(seen) })
+      if (!NOT_TOOL_ACTIVITY.has(name)) {
+        const startedAt = await $.clock.now()
+        state.active.set(id, { id, name, target: targetOf(seen), startedAt })
+      }
       // The band's reason to exist is the tool running *now*, and the rows it
       // draws are the binary's stdout — so a running tool reaches the band
       // only if a refresh happens while its entry is still in `state.active`.
@@ -1653,6 +1655,10 @@ export const register: Register = (on, options) => {
             // must be when the tool finished rather than when the transaction
             // happened to win.
             const finishedAt = await $.clock.now()
+            // The failure run is the main loop's: a subagent's calls are its
+            // own task, and its retries are not the person's to watch.
+            const main = seen.agentId === undefined
+            const target = targetOf(seen)
             await update($, toolTotals, totals => ({
               counts: {
                 ...totals.counts,
@@ -1664,6 +1670,9 @@ export const register: Register = (on, options) => {
               },
               completedTotal: totals.completedTotal + 1,
               failedTotal: totals.failedTotal + (failed ? 1 : 0),
+              failStreak: main
+                ? nextStreak(totals.failStreak ?? null, name, failed, target)
+                : (totals.failStreak ?? null),
             }))
           }
           // Unconditional, where the way in is gated. A gated completion would
@@ -1946,7 +1955,8 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // The terminal and the desktop app, the two surfaces that raise the band.
-    // Each has rows of its own, run for its own layout and glyphs.
+    // The terminal draws alerts alone; the desktop its strip or the binary's
+    // rows, run for its own layout and glyphs.
     const desktop = e.surface === 'desktop'
     if (e.surface !== 'terminal' && !desktop) return next(e)
     // A survey owns the band while it is up; yield rather than fight it.
@@ -1964,10 +1974,10 @@ export const register: Register = (on, options) => {
     // which on the desktop is always.
     const below = await next(e)
 
-    // Measured before anything returns, so a terminal resized while nothing
-    // is running is still the width the next refresh spawns against. A
-    // closure field, not an atom, because `$.state.set` is refused while a
-    // render hook draws.
+    // Measured before anything returns, so a window resized while nothing is
+    // running is still the box the next refresh spawns against. A closure
+    // field, not an atom, because `$.state.set` is refused while a render
+    // hook draws. The terminal band spawns nothing, so it measures nothing.
     // Two cells go to the band's own collapse marker at the right edge.
     if (desktop) {
       const desktopRows = e.props.maxRows
@@ -1979,10 +1989,8 @@ export const register: Register = (on, options) => {
       state.desktopBandRows = desktopRows
       state.desktopBandCols = desktopCols
       state.desktopBandMeasured = true
-      // The terminal band lives with a box one refresh stale, because the next
-      // tool call respawns it at the width measured here. The desktop band is
-      // drawn idle as well — it carries the only context and cost the desktop
-      // shows — so a box guessed before it was measured, or one the window has
+      // The desktop band is drawn idle — it carries the only context and cost
+      // the desktop shows — so a box guessed before it was measured, or one the window has
       // since resized away from, would stand until the model next did
       // something: rows packed for 3x120, clipped rather than refitted.
       //
@@ -1991,12 +1999,7 @@ export const register: Register = (on, options) => {
       // on a change, so the redraw that write causes measures the same box and
       // does not refresh again.
       if (moved) void drawSoon($, state)
-    } else {
-      state.bandRows = e.props.maxRows
-      state.bandCols = Math.max(20, e.props.bodyColumns - 2)
     }
-    // `?? []`: an atom written before the desktop band existed has no field.
-    const bandRowsHeld = desktop ? (held.desktopRows ?? []) : held.rows
 
     // A run that failed still draws, whether or not a turn is running: a band
     // that silently disappears tells us nothing about why, and this is the
@@ -2004,10 +2007,9 @@ export const register: Register = (on, options) => {
     // nobody sees fixes nothing.
     //
     // Keyed on how the run ended rather than on how many rows it produced.
-    // The band asks for the `activity` layout, whose output is empty whenever
-    // nothing is running, so zero rows is the ordinary state between turns —
-    // and `rows.length === 0` here would pin this note over an idle prompt
-    // for the whole session.
+    // A quiet band draws nothing while nothing needs the person, so zero rows
+    // is the ordinary state — and `rows.length === 0` here would pin this note
+    // over an idle prompt for the whole session.
     if (held.bandRun === 'failed' && !DEBUG) {
       const { Box, Text } = $.ui.resolve(e)
       return (
@@ -2018,18 +2020,59 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // The quiet band: the strip, then one row for each alert, all stacked on
-    // what the mods beneath draw. Every path keeps `below`. No binary rows
-    // here, so nothing is drawn from `desktopRows`.
-    if (e.surface === 'desktop' && desktopLayoutOf(state.options) === QUIET) {
-      // `?? []` / `?? null`: an atom written before the quiet band existed
-      // has neither field.
+    // The terminal band: one row for each alert and nothing else, stacked on
+    // what the mods beneath draw. Its statusline carries the identity and the
+    // budget, and Claude Code's own transcript every tool, so a band of
+    // activity said it all twice; what is left is what needs the person.
+    // Monospaced text and a button: the terminal draws no `Svg`.
+    if (!desktop) {
+      // `?? []`: an atom written before the alerts existed has no field.
       const alerts = held.alerts ?? []
+      if (alerts.length === 0 && !DEBUG) return below
+      const { Box, Text, Button } = $.ui.resolve(e)
+      const notes = DEBUG ? [<Text mono>{held.runNote}</Text>] : []
+      const rows = alerts.map(alert => {
+        const row = alertRow(alert, state.lastRunMs)
+        return (
+          <Box flexDirection="row" gap={1}>
+            <Text color={row.color} bold mono>
+              {row.label}
+            </Text>
+            {row.detail !== '' ? (
+              // Truncated, not wrapped: a long command must not take a row
+              // the next alert was counted into.
+              <Text dimColor mono wrap="truncate-end">
+                {row.detail}
+              </Text>
+            ) : null}
+            {/* The press raises `ui.press`, handled below; this is its bottom. */}
+            {row.compact ? <Button key={COMPACT_KEY} label="/compact" onPress={() => {}} /> : null}
+          </Box>
+        )
+      })
+      // Clipped to what the band shows whole, the first alerts kept: they are
+      // ordered most pressing first (`alertsOf`).
+      return (
+        <Box flexDirection="column">
+          {[...notes, ...rows].slice(0, Math.max(1, e.props.maxRows))}
+          {below}
+        </Box>
+      )
+    }
+
+    // The quiet desktop band: the strip, then one row for each alert, all
+    // stacked on what the mods beneath draw. Every path keeps `below`. No
+    // binary rows here, so nothing is drawn from `desktopRows`.
+    if (desktopLayoutOf(state.options) === QUIET) {
+      // `?? []` / `?? null`: an atom written before the quiet band existed
+      // has neither field. The tool and pace alerts are the terminal's: the
+      // strip carries the pace, and the transcript every tool.
+      const alerts = (held.alerts ?? []).filter(onDesktopBand)
       const cells = stripCells(held.strip ?? { quota: [] }, state.lastRunMs)
       const share = held.strip?.share ?? null
       const { Box, Text, Button, Svg } = $.ui.resolve(e)
       const rows = alerts.map(alert => {
-        const row = alertRow(alert)
+        const row = alertRow(alert, state.lastRunMs)
         const parts = [
           <Text color={row.color} bold mono>
             {row.label}
@@ -2107,25 +2150,10 @@ export const register: Register = (on, options) => {
       )
     }
 
-    // Drawn whether or not a turn is running, so the band holds the state it
-    // last drew: the tools that finished, their failures, the agents that
-    // ran and the todo, every one of them marked done by the glyph the
-    // binary already puts there. `e.props.isWorking` used to gate this, and
-    // for a release it had to — the band drew the layout the person had
-    // configured, which is the identity and budget rows the statusline draws
-    // on its own line, so between turns the two were the same thing twice.
-    // Asking for `activity` ended that: what is left between turns is the
-    // turn that just happened, which the statusline never shows.
-    //
-    // Nothing more is needed to keep it there. `turn.complete` refreshes, and
-    // the `read` above subscribes this drawing to the atom that refresh
-    // writes, so the rows settle to the finished state by themselves and then
-    // stand until the next turn moves them.
-    //
-    // Zero rows still yields: before the first tool call there is nothing to
-    // hold, and the activity layout draws nothing when nothing has run.
-    // On the desktop this is only the moment before the first run: `compact`
-    // always draws its head row.
+    // The desktop's binary-drawn layouts. `compact` always draws its head
+    // row, so zero rows is only the moment before the first run.
+    // `?? []`: an atom written before the desktop band existed has no field.
+    const bandRowsHeld = held.desktopRows ?? []
     if (bandRowsHeld.length === 0 && !DEBUG) return below
 
     const { Box, Text } = $.ui.resolve(e)

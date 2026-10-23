@@ -973,7 +973,8 @@ OPTIONS:
     --layout NAME    Render with this layout
                      (none|compact|budgets|console|ledger|rail|anchor|activity)
                      activity = activity rows only, empty when idle — the
-                     above-the-prompt band's layout, not a statusline one
+                     desktop band's rows under a rail/anchor head, not a
+                     statusline layout
     --no-icons       Render without Nerd Font glyphs, for a face that has
                      none: icons become ASCII labels and powerline seams
                      half blocks; braille and gauges stay. (display.icons =

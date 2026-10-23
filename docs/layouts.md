@@ -10,9 +10,9 @@ rows. The shipping layouts:
 | `budgets` | Flat dashboard: identity row, then `CONTEXT / 5H QUOTA / 7D QUOTA` as three column-aligned equal-weight gauges, then a TOKENS + cost row. Compares burn across the three windows on a shared axis. Quota rows need `[segments.quota]` enabled. |
 | `console` | Single `╭─...─╮` outer frame with `├─┼─┤` between groups and the Identity row hoisted into the top frame title. Recommended ≥110 cols. |
 | `ledger` | Label-value pairs in a fixed-width TAG column (`ENV / CTX / TOK / COST / 5h / 7d / TOOL / AGENT / TODO`); blank rows separate groups. Tallest layout. Ships sparkline + delta-time on the CTX row by default. |
-| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. Optional `todo`/`tools` traceability cells fold into the usage-row gap. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier. See `seams`, `color_budget`, `headline`. |
-| `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge + optional `todo`/`tools` traceability. Nerd-font tier. See `seams`. |
-| `activity` | **Activity rows only.** The one layout that draws no identity and no budget row, and the one whose output is empty when nothing is running. Rows lead with the running tools, so a `--rows`/`max_total_lines` cap cuts the cumulative counts rather than the live row. Built for the above-the-prompt band, not the statusline. |
+| `rail` | **1–3 rows.** Grouped Powerline rows (identity · usage · quota): each carries one band-coloured headline; flags light past threshold. The optional `todo` cell folds into the usage-row gap; `tools` (the tool-call count) is off the default arrangement and placed through `rail_usage_order`. Tunable via `color_budget` (`signal` / `vivid` / `mono`) and `headline` (`column` / `inline`). Collapses to a single fused bar via `max_total_lines`. Nerd-font tier. See `seams`, `color_budget`, `headline`. |
+| `anchor` | **1–3 rows.** Grouped capsule+trail rows: each leads with a banded rounded-capsule hero, the rest trail as dim text where colour marks the live signal. Row 2 carries an inline gauge + optional `todo` progress (no tool-call count). Nerd-font tier. See `seams`. |
+| `activity` | **Activity rows only.** The one layout that draws no identity and no budget row, and the one whose output is empty when nothing is running. Rows lead with the running tools, so a `--rows`/`max_total_lines` cap cuts the cumulative counts rather than the live row. Built for the desktop band, which stacks it under a `rail` / `anchor` head; not for the statusline. |
 
 All share the same theme palette, segment toggles, and per-segment
 visual composition (see [Visual Composition](#visual-composition)). The
@@ -507,7 +507,7 @@ can't read, so it collapses to the ` | ` floor (NO_COLOR / dumb terminal).
 
 ---
 
-### `activity` — activity rows only (the band's layout)
+### `activity` — activity rows only (the desktop band's)
 
 ```
  Bash: cargo test --release |  Read: src/render/layout.rs
@@ -521,10 +521,10 @@ todo, then the per-tool completed counts. **No identity row, no budget row,
 no quota row** — and empty output when none of the above is happening.
 
 That makes it the wrong choice for `statusLine.command`, where it would show
-nothing most of the time. It exists for the **above-the-prompt band** that
-the plugin draws (`docs/band.md`), which sits beside the statusline rather
-than replacing it: the statusline keeps the steady state, the band keeps the
-turn in flight. Only the transcript path can sample tokens often enough to
+nothing most of the time. It exists for the plugin's **desktop band**
+(`docs/band.md`), which runs it under a `rail` / `anchor` head: the desktop
+runs no statusline, so the head keeps the steady state and this the turn in
+flight. The terminal band runs no binary at all; it draws alerts alone. Only the transcript path can sample tokens often enough to
 rate them, so TOK/s and the cache trend stay on the statusline by necessity;
 the engine events the band is fed from carry the tool arguments directly, so
 the running target and the failure marks are exact there rather than inferred.

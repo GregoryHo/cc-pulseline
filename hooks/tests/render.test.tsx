@@ -8,6 +8,7 @@ import {
   DESKTOP_PANE,
   IDLE_BAND,
   PANE,
+  STAMP,
   USER_COMMAND,
   bottom,
   isDesktopBandSpawn,
@@ -34,11 +35,221 @@ const ESC = String.fromCharCode(27)
 const warm = ($: { tool: { call: (e: never) => Promise<unknown> } }) =>
   $.tool.call({ tool: 'Read', tool_use_id: 'warm', file_path: '/n/warm' } as never)
 
+/** Three calls of one tool, each answered by the bottom's `toolResult`. */
+const thrice = async ($: { tool: { call: (e: never) => Promise<unknown> } }, tool = 'Bash') => {
+  for (const id of ['f1', 'f2', 'f3']) {
+    await $.tool.call({ tool, tool_use_id: id, command: 'cargo test --release' } as never)
+  }
+}
+
+/** The text a mounted band drew, the chain's beneath it included. */
+const drawnOf = async (ui: { drawn: () => Promise<unknown> }) => JSON.stringify(await ui.drawn())
+
 describe('the band', () => {
-  test('a span keeps BOTH its text and its colour', async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS })
+  test('while nothing needs the person it draws nothing and runs no binary', async ($, on) => {
+    const seen = bottom(on, { stdout: COLOURED_ROWS })
+    await warm($)
+    await seen.settle()
+
+    // The statusline draws the identity and the budget, and Claude Code's own
+    // transcript every tool, so a band of activity said it all twice.
+    expect(seen.spawns.filter(run => run.argv[1] !== '--version' && run.argv[0] !== 'claude')).toEqual([])
+    for (const band of [BAND, IDLE_BAND]) {
+      const ui = await $.ui.mount(band)
+      const drawn = await drawnOf(ui)
+      expect(drawn).toContain(BENEATH)
+      expect(drawn).not.toContain('M:Opus 5')
+      await ui.unmount()
+    }
+  })
+
+  test('the same tool failing three times in a row draws its row', async ($, on) => {
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
+    const ui = await $.ui.mount(BAND)
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'f1', command: 'cargo test --release' } as never)
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'f2', command: 'cargo test --release' } as never)
+    expect(await drawnOf(ui)).not.toContain('failed')
+
+    await $.tool.call({ tool: 'Bash', tool_use_id: 'f3', command: 'cargo test --release' } as never)
+    await seen.settle()
+    const texts = await ui.findAll({ type: 'Text' })
+    expect(texts.find(text => text.text === '✘ Bash failed 3× in a row')?.props.color).toBe('#d75f5f')
+    expect(texts.some(text => text.text === 'cargo test --release')).toBe(true)
+    // Drawn above what the mods beneath draw, never in its place.
+    const drawn = await drawnOf(ui)
+    expect(drawn.indexOf('failed 3×')).toBeLessThan(drawn.indexOf(BENEATH))
+    await ui.unmount()
+  })
+
+  test("a subagent's failures are not the person's run", async ($, on) => {
+    const seen = bottom(on, { toolResult: { isError: true, result: 'boom' } })
+    for (const id of ['a1', 'a2', 'a3']) {
+      await $.tool.call({ tool: 'Bash', tool_use_id: id, command: 'false', agentId: 'agent-1' } as never)
+    }
+    await seen.settle()
+    const ui = await $.ui.mount(BAND)
+    expect(await drawnOf(ui)).not.toContain('failed')
+    await ui.unmount()
+  })
+
+  test('a tool running past a minute draws its row, and its time moves', async ($, on) => {
+    const seen = bottom(on, { toolDelayMs: 120_000 })
+    const ui = await $.ui.mount(BAND)
+    const call = $.tool.call({ tool: 'Bash', tool_use_id: 'b1', command: 'cargo build --release' } as never)
+    await seen.settle()
+    expect(await drawnOf(ui)).not.toContain('running')
+
+    // No event marks the minute: the band's own timer refreshes at it.
+    await seen.advance(60_000)
+    await seen.settle()
+    expect(await drawnOf(ui)).toContain('◷ Bash running 1m')
+    expect(await drawnOf(ui)).toContain('cargo build --release')
+    await seen.advance(15_000)
+    await seen.settle()
+    expect(await drawnOf(ui)).toContain('◷ Bash running 1m 15s')
+
+    // Once it answers, the row goes.
+    await seen.advance(45_000)
+    await call
+    await seen.settle()
+    expect(await drawnOf(ui)).not.toContain('running')
+    await ui.unmount()
+  })
+
+  test('the context near its limit draws a row with the /compact button and no Svg', async ($, on) => {
+    bottom(on, { usage: { percent: 90 } })
     await warm($)
     const ui = await $.ui.mount(BAND)
+    expect(await drawnOf(ui)).toContain('CTX 90%')
+    expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
+    // The terminal draws no `Svg`: the gauge is the desktop's.
+    expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+    await ui.unmount()
+  })
+
+  test('a quota on pace to run out before its reset draws its row', async ($, on) => {
+    // Seven days in a window of seven, half used one day in: on pace for 350%.
+    const resetsAt = new Date(STAMP + 6 * 86_400_000).toISOString()
+    bottom(on, { usage: { rateLimits: [{ kind: 'seven_day', percentUsed: 50, resetsAt }] } })
+    await warm($)
+    const ui = await $.ui.mount(BAND)
+    const drawn = await drawnOf(ui)
+    expect(drawn).toContain('7d on pace to run out in ~1d')
+    expect(drawn).toContain('resets 6d')
+    await ui.unmount()
+  })
+
+  test('alerts stand most pressing first, clipped to maxRows', async ($, on) => {
+    bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { percent: 90 } })
+    await thrice($)
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 1 } })
+    const drawn = await drawnOf(ui)
+    expect(drawn).toContain('Bash failed 3× in a row')
+    expect(drawn).not.toContain('CTX 90%')
+    await ui.redraw({ ...BAND.props, maxRows: 4 })
+    const both = await drawnOf(ui)
+    expect(both.indexOf('failed 3×')).toBeLessThan(both.indexOf('CTX 90%'))
+    await ui.unmount()
+  })
+
+  test('every alert span is monospaced', async ($, on) => {
+    bottom(on, { toolResult: { isError: true, result: 'boom' }, usage: { percent: 90 } })
+    await thrice($)
+    const ui = await $.ui.mount(BAND)
+    const texts = (await ui.findAll({ type: 'Text' })).filter(text => text.text !== BENEATH)
+    expect(texts.length).toBeGreaterThan(0)
+    for (const text of texts) expect(text.props.mono, text.text).toBe(true)
+    await ui.unmount()
+  })
+
+  test('with nothing run yet it yields rather than noting that', async ($, on) => {
+    bottom(on)
+    const ui = await $.ui.mount(BAND)
+
+    // Nothing has gone wrong — the walk simply has not finished. A quiet band
+    // draws nothing while nothing needs the person, so "no rows" is the
+    // ordinary state and a note keyed on it would sit over the prompt for the
+    // session. Only a failed run speaks.
+    const drawn = JSON.stringify(await ui.drawn())
+    expect(drawn).toContain(BENEATH)
+    expect(drawn).not.toContain('pulseline:')
+
+    await ui.unmount()
+  })
+
+  test('idle with nothing to run, the band still says why', async ($, on) => {
+    const seen = bottom(on, { binaryVersion: null })
+    // A refresh first, so the ladder has run out and the note is the real
+    // one rather than "not run yet".
+    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
+    await seen.settle()
+    const ui = await $.ui.mount(IDLE_BAND)
+
+    // The one thing that outranks yielding: an install line nobody sees fixes
+    // nothing, and this is the only place a missing binary can say so.
+    const text = await ui.find({ type: 'Text' })
+    expect(text?.text).toContain('cc-pulseline not found')
+
+    await ui.unmount()
+  })
+
+  test('what the mods beneath draw stays, under the band, on both surfaces', COMPACT, async ($, on) => {
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], usage: { percent: 90 } })
+    await warm($)
+
+    // Answering with its own tree alone, the band took the whole chain's:
+    // another mod's `AbovePrompt` content vanished whenever this one had rows,
+    // which on the desktop is always. The bottom stands in for that mod.
+    for (const [band, own] of [[BAND, 'CTX 90%'], [DESKTOP_BAND, 'M:Opus 5']] as const) {
+      const ui = await $.ui.mount(band)
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn, band.surface).toContain(own)
+      expect(drawn, band.surface).toContain(BENEATH)
+      // The band's rows first, the chain's beneath them.
+      expect(drawn.indexOf(own), band.surface).toBeLessThan(drawn.indexOf(BENEATH))
+      await ui.unmount()
+    }
+  })
+
+  test('a failed run notes it above what the mods beneath draw', async ($, on) => {
+    bottom(on, { binaryVersion: null, surfaces: ['terminal', 'desktop'] })
+    await warm($)
+
+    for (const band of [IDLE_BAND, DESKTOP_BAND]) {
+      const ui = await $.ui.mount(band)
+      const drawn = JSON.stringify(await ui.drawn())
+      expect(drawn, band.surface).toContain('pulseline:')
+      expect(drawn, band.surface).toContain(BENEATH)
+      await ui.unmount()
+    }
+  })
+
+  test('a survey owns the band, so the mod yields', async ($, on) => {
+    bottom(on, { usage: { percent: 90 } })
+    await warm($)
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
+
+    const tree = JSON.stringify(await ui.drawn())
+    expect(tree).not.toContain('CTX 90%')
+    // What the chain beneath drew stands instead, which is what yielding means.
+    expect(tree).toContain(BENEATH)
+
+    await ui.unmount()
+  })
+})
+
+/**
+ * The binary's rows as the desktop's `compact` band draws them: the one band
+ * that still draws them, so the cases about turning ANSI into spans are its.
+ */
+const DESKTOP = { stdout: COLOURED_ROWS, surfaces: ['desktop'] } as const
+const IDLE_DESKTOP_BAND = { ...DESKTOP_BAND, props: { ...DESKTOP_BAND.props, isWorking: false } } as const
+
+describe("the desktop band's rows", () => {
+  test('a span keeps BOTH its text and its colour', COMPACT, async ($, on) => {
+    bottom(on, DESKTOP)
+    await warm($)
+    const ui = await $.ui.mount(DESKTOP_BAND)
 
     const texts = await ui.findAll({ type: 'Text' })
     expect(texts.length).toBeGreaterThan(0)
@@ -66,10 +277,10 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('no escape sequence reaches a Text child', async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS })
+  test('no escape sequence reaches a Text child', COMPACT, async ($, on) => {
+    bottom(on, DESKTOP)
     await warm($)
-    const ui = await $.ui.mount(BAND)
+    const ui = await $.ui.mount(DESKTOP_BAND)
 
     const tree = JSON.stringify(await ui.drawn())
     expect(tree).not.toContain(ESC)
@@ -79,16 +290,16 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('braille, box drawing and a plane-15 Nerd Font glyph all land', async ($, on) => {
+  test('braille, box drawing and a plane-15 Nerd Font glyph all land', COMPACT, async ($, on) => {
     // The width-1 BMP restriction in the contract is the cell grid's, on its
     // `cells` field, and that grid is not what the band uses: `TextProps`
     // carries no code-point restriction. So the gauges, the box drawing and
     // the Nerd Font icons the binary emits all pass through as text. What is
     // refused is a control character, which `stripControls` removes.
-    const glyphs = '\u{F0CCD} ⣀⣄⣦ ╭─╮ ▰─ 6'
-    bottom(on, { stdout: glyphs })
+    const glyphs = '\u{F0CCD} ⣀⣄⣦ ╭─╮ ▰─ 6'
+    bottom(on, { ...DESKTOP, stdout: glyphs })
     await warm($)
-    const ui = await $.ui.mount(BAND)
+    const ui = await $.ui.mount(DESKTOP_BAND)
 
     const drawn = (await ui.find({ type: 'Text' }))?.text ?? ''
     expect(drawn).toContain('\u{F0CCD}') // a plane-15 Nerd Font glyph
@@ -100,12 +311,12 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('it clips to maxRows, and redraws to a new one', async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS })
+  test('it clips to maxRows, and redraws to a new one', COMPACT, async ($, on) => {
+    bottom(on, DESKTOP)
     await warm($)
 
     // Four rows of output into a band that shows two.
-    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 2 } })
+    const ui = await $.ui.mount({ ...DESKTOP_BAND, props: { ...DESKTOP_BAND.props, maxRows: 2 } })
     const rowsAt = async () => {
       const tree = await ui.drawn()
       // The outer Box is a column of row Boxes.
@@ -117,36 +328,20 @@ describe('the band', () => {
 
     expect(await rowsAt()).toBe(2)
 
-    await ui.redraw({ ...BAND.props, maxRows: 4 })
+    await ui.redraw({ ...DESKTOP_BAND.props, maxRows: 4 })
     expect(await rowsAt()).toBe(4)
 
-    await ui.redraw({ ...BAND.props, maxRows: 1 })
+    await ui.redraw({ ...DESKTOP_BAND.props, maxRows: 1 })
     expect(await rowsAt()).toBe(1)
 
     await ui.unmount()
   })
 
-  test('the width it was given is the width the binary is told', async ($, on) => {
-    const seen = bottom(on, { stdout: COLOURED_ROWS })
-    await warm($)
-
-    const ui = await $.ui.mount(BAND)
-    // Narrow the band, then drive another refresh so the new width is used.
-    await ui.redraw({ ...BAND.props, bodyColumns: 60 })
-    await $.tool.call({ tool: 'Read', tool_use_id: 'narrow', file_path: '/n/narrow' })
-    await seen.settle()
-
-    const argv = seen.spawns.filter(run => run.argv[1] !== '--version').at(-1)?.argv ?? []
-    // Two cells go to the band's own collapse marker.
-    expect(argv[argv.indexOf('--columns') + 1]).toBe('58')
-
-    await ui.unmount()
-  })
-
-  test('a panic on stderr still reaches the band as a note', async ($, on) => {
+  test('a panic on stderr still reaches the band as a note', COMPACT, async ($, on) => {
     const seen = bottom(on, {
+      surfaces: ['desktop'],
       exitCode: 101,
-      stderr: '\u001b[31mthread \u2018main\u2019 panicked\u001b[0m\nat src/main.rs:1:1',
+      stderr: '\u001b[31mthread ‘main’ panicked\u001b[0m\nat src/main.rs:1:1',
     })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
     await seen.settle()
@@ -155,7 +350,7 @@ describe('the band', () => {
     // line: `ui.render (AbovePrompt) refused: a text child holds a control
     // character (an escape sequence); the engine drew its own` — so the note
     // explaining the failure was the thing the failure removed.
-    const ui = await $.ui.mount(BAND)
+    const ui = await $.ui.mount(DESKTOP_BAND)
     const text = (await ui.find({ type: 'Text' }))?.text ?? ''
     expect(text).toContain('exit 101')
     expect(text).toContain('panicked')
@@ -165,145 +360,18 @@ describe('the band', () => {
     await ui.unmount()
   })
 
-  test('with nothing run yet it yields rather than noting that', async ($, on) => {
-    bottom(on)
-    const ui = await $.ui.mount(BAND)
-
-    // Nothing has gone wrong — the walk simply has not finished. The band
-    // asks for the `activity` layout, whose output is empty whenever nothing
-    // is running, so "no rows" is the ordinary state and a note keyed on it
-    // would sit over the prompt for the session. Only a failed run speaks.
-    const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain(BENEATH)
-    expect(drawn).not.toContain('pulseline:')
-
-    await ui.unmount()
-  })
-
-  test('a run that failed draws its note even with nothing running', async ($, on) => {
-    const seen = bottom(on, { exitCode: 2, stderr: 'boom' })
+  test('a run that failed draws its note even with nothing running', COMPACT, async ($, on) => {
+    const seen = bottom(on, { surfaces: ['desktop'], exitCode: 2, stderr: 'boom' })
     await warm($)
 
     // The one thing the band says while idle. A binary that is missing or
     // broken raises no event of its own, so if this draw yielded too there
     // would be no surface left to say so on.
-    const ui = await $.ui.mount(IDLE_BAND)
+    const ui = await $.ui.mount(IDLE_DESKTOP_BAND)
     const text = await ui.find({ type: 'Text' })
     expect(text?.text).toContain('pulseline:')
     expect(text?.text).toContain('exit 2')
     expect(seen.spawns.length).toBeGreaterThan(0)
-
-    await ui.unmount()
-  })
-
-  test('a band with rows draws them while a turn runs', async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS })
-    await warm($)
-
-    const ui = await $.ui.mount(BAND)
-    const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('T:Read: .../main.rs')
-    // Stacked over what the mods beneath drew, never in its place.
-    expect(drawn).toContain(BENEATH)
-
-    await ui.unmount()
-  })
-
-  test('the band asks for the activity layout, not the configured one', async ($, on) => {
-    const seen = bottom(on, { stdout: COLOURED_ROWS })
-    // Mounted first, so the spawn is sized from the band's measured box
-    // rather than the pre-measurement default.
-    const ui = await $.ui.mount(BAND)
-    await warm($)
-    await seen.settle()
-
-    const bandArgv = seen.spawns.filter(run => !isPaneSpawn(run)).at(-1)?.argv ?? []
-    // Without this the band drew whatever layout the person had configured —
-    // the statusline's own identity and budget rows, stacked above the prompt
-    // while the statusline drew them below. `activity` is the one layout that
-    // draws neither, which is what makes the band a second canvas rather than
-    // a copy of one.
-    expect(bandArgv[bandArgv.indexOf('--layout') + 1]).toBe('activity')
-    // And still told its own box, not the pane's.
-    expect(bandArgv[bandArgv.indexOf('--rows') + 1]).toBe('4')
-    expect(bandArgv[bandArgv.indexOf('--columns') + 1]).toBe('118')
-
-    await ui.unmount()
-  })
-
-  test('idle, the band holds the state it last drew', async ($, on) => {
-    const seen = bottom(on, { stdout: COLOURED_ROWS })
-    await warm($)
-
-    // `e.props.isWorking` gated this for a release, because the band drew the
-    // layout the person had configured — the identity and budget rows the
-    // statusline draws on its own line, which stacked made the two the same
-    // thing twice. Asking for `activity` ended that: between turns the band
-    // holds the turn that just happened, which the statusline never shows.
-    const ui = await $.ui.mount(IDLE_BAND)
-    const drawn = JSON.stringify(await ui.drawn())
-    expect(drawn).toContain('T:Read: .../main.rs')
-    expect(drawn).toContain(BENEATH)
-    expect(seen.spawns.length).toBeGreaterThan(0)
-    await ui.unmount()
-  })
-
-  test('idle with nothing to run, the band still says why', async ($, on) => {
-    const seen = bottom(on, { binaryVersion: null })
-    // A refresh first, so the ladder has run out and the note is the real
-    // one rather than "not run yet".
-    await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
-    await seen.settle()
-    const ui = await $.ui.mount(IDLE_BAND)
-
-    // The one thing that outranks yielding: an install line nobody sees fixes
-    // nothing, and this is the only place a missing binary can say so.
-    const text = await ui.find({ type: 'Text' })
-    expect(text?.text).toContain('cc-pulseline not found')
-
-    await ui.unmount()
-  })
-
-  test('what the mods beneath draw stays, under the band, on both surfaces', COMPACT, async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
-    await warm($)
-
-    // Answering with its own tree alone, the band took the whole chain's:
-    // another mod's `AbovePrompt` content vanished whenever this one had rows,
-    // which on the desktop is always. The bottom stands in for that mod.
-    for (const band of [BAND, DESKTOP_BAND]) {
-      const ui = await $.ui.mount(band)
-      const drawn = JSON.stringify(await ui.drawn())
-      expect(drawn, band.surface).toContain('M:Opus 5')
-      expect(drawn, band.surface).toContain(BENEATH)
-      // The band's rows first, the chain's beneath them.
-      expect(drawn.indexOf('M:Opus 5'), band.surface).toBeLessThan(drawn.indexOf(BENEATH))
-      await ui.unmount()
-    }
-  })
-
-  test('a failed run notes it above what the mods beneath draw', async ($, on) => {
-    bottom(on, { exitCode: 2, stderr: 'boom', surfaces: ['terminal', 'desktop'] })
-    await warm($)
-
-    for (const band of [IDLE_BAND, DESKTOP_BAND]) {
-      const ui = await $.ui.mount(band)
-      const drawn = JSON.stringify(await ui.drawn())
-      expect(drawn, band.surface).toContain('pulseline:')
-      expect(drawn, band.surface).toContain(BENEATH)
-      await ui.unmount()
-    }
-  })
-
-  test('a survey owns the band, so the mod yields', async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS })
-    await warm($)
-    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
-
-    const tree = JSON.stringify(await ui.drawn())
-    expect(tree).not.toContain('M:Opus 5')
-    // What the chain beneath drew stands instead, which is what yielding means.
-    expect(tree).toContain(BENEATH)
 
     await ui.unmount()
   })
@@ -456,9 +524,12 @@ describe('the pane', () => {
     expect((await pane.findAll({ type: 'Button' })).length).toBe(4)
     await pane.unmount()
 
-    // The band is unaffected by the pane coming and going.
+    // The band is unaffected by the pane coming and going: it draws what the
+    // mods beneath draw, the pane's rows nowhere in it.
     const band = await $.ui.mount(BAND)
-    expect((await band.findAll({ type: 'Text' })).some(text => text.text === 'M:Opus 5')).toBe(true)
+    const drawn = JSON.stringify(await band.drawn())
+    expect(drawn).toContain(BENEATH)
+    expect(drawn).not.toContain('M:Opus 5')
     await band.unmount()
   })
 })
@@ -488,24 +559,18 @@ describe('the desktop app', () => {
     expect(desktopRun?.argv[desktopRun.argv.indexOf('--rows') + 1]).toBe('3')
     expect(desktopRun?.argv[desktopRun.argv.indexOf('--columns') + 1]).toBe('88')
 
-    // The terminal beside it keeps its own run, unchanged.
-    const terminalRun = renders(seen.spawns)
-      .filter(run => layoutOf(run) === 'activity')
-      .at(-1)
-    expect(terminalRun?.argv).not.toContain('--no-icons')
-    expect(terminalRun?.argv[terminalRun.argv.indexOf('--rows') + 1]).toBe('4')
-    expect(terminalRun?.argv[terminalRun.argv.indexOf('--columns') + 1]).toBe('118')
+    // The terminal beside it runs nothing: its band draws alerts alone.
+    expect(renders(seen.spawns).every(isDesktopBandSpawn)).toBe(true)
 
     await terminal.unmount()
     await desktop.unmount()
   })
 
-  test('a terminal session makes no desktop run', async ($, on) => {
+  test('a terminal session makes no band run at all', COMPACT, async ($, on) => {
     const terminalOnly = bottom(on, { stdout: COLOURED_ROWS })
     await warm($)
     await terminalOnly.settle()
-    expect(renders(terminalOnly.spawns).filter(isDesktopBandSpawn)).toEqual([])
-    expect(renders(terminalOnly.spawns).some(run => layoutOf(run) === 'activity')).toBe(true)
+    expect(renders(terminalOnly.spawns)).toEqual([])
   })
 
   test('measuring the desktop band refits it, and only when the box moves', COMPACT, async ($, on) => {
@@ -551,7 +616,7 @@ describe('the desktop app', () => {
   })
 
   test('every span is monospaced, on both surfaces', COMPACT, async ($, on) => {
-    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'] })
+    bottom(on, { stdout: COLOURED_ROWS, surfaces: ['terminal', 'desktop'], usage: { percent: 90 } })
     await warm($)
 
     // The desktop draws a Text in a proportional face unless told otherwise,
@@ -564,7 +629,6 @@ describe('the desktop app', () => {
       for (const text of texts) {
         expect(text.props.mono, `${band.surface}: ${text.text}`).toBe(true)
       }
-      expect(JSON.stringify(await ui.drawn())).toContain('M:Opus 5')
       await ui.unmount()
     }
   })

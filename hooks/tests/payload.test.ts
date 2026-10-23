@@ -131,8 +131,8 @@ describe('buildPayload', () => {
   test('running tools keep their order and null their missing target', () => {
     const payload = built({
       active: [
-        { id: 't1', name: 'Read', target: '/work/src/main.rs' },
-        { id: 't2', name: 'Bash', target: undefined },
+        { id: 't1', name: 'Read', target: '/work/src/main.rs', startedAt: 0 },
+        { id: 't2', name: 'Bash', target: undefined, startedAt: 0 },
       ],
     })
     expect(payload.activity?.tools).toEqual([

@@ -111,12 +111,19 @@ describe('the version gate', () => {
   })
 })
 
+/**
+ * A spawn to read the binary off: the desktop `compact` band's. The terminal
+ * band draws alerts alone and runs no binary.
+ */
+const DRAWN = { options: { desktopLayout: 'compact' } }
+const DESKTOP = { surfaces: ['desktop'] } as const
+
 describe('probing', () => {
   test(
     'a hit on the first rung stops the walk',
-    { options: { binaryPath: '/custom/cc-pulseline' } },
+    { options: { binaryPath: '/custom/cc-pulseline', desktopLayout: 'compact' } },
     async ($, on) => {
-      const seen = bottom(on)
+      const seen = bottom(on, DESKTOP)
       await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
       await seen.settle()
 
@@ -129,9 +136,10 @@ describe('probing', () => {
     },
   )
 
-  test('the ladder is walked in order until something answers', async ($, on) => {
+  test('the ladder is walked in order until something answers', DRAWN, async ($, on) => {
     // Only the installed rung has a binary on it.
     const seen = bottom(on, {
+      ...DESKTOP,
       home: '/home/me',
       binaryAt: ['/home/me/.claude/pulseline/cc-pulseline'],
     })
@@ -146,13 +154,14 @@ describe('probing', () => {
     expect(argv[0]).toBe('/home/me/.claude/pulseline/cc-pulseline')
   })
 
-  test('a too-old rung does not stop the walk', async ($, on) => {
+  test('a too-old rung does not stop the walk', DRAWN, async ($, on) => {
     // This is the real shape of the machine this was written on: an older
     // `cargo install` copy on PATH while the dev build is current. A ladder
     // that stopped at the first thing to answer would have picked the old
     // one and drawn the classic layout into the band at the wrong width —
     // the failure the version gate exists to catch.
     const seen = bottom(on, {
+      ...DESKTOP,
       home: '/home/me',
       binaryVersions: {
         '/home/me/.claude/pulseline/cc-pulseline': '1.6.0',
@@ -196,8 +205,8 @@ describe('probing', () => {
     expect(seen.probes).toContain('/elsewhere/target/release/cc-pulseline')
   })
 
-  test('the moved root is the one the binary is told about', async ($, on) => {
-    const seen = bottom(on, { root: '/work' })
+  test('the moved root is the one the binary is told about', DRAWN, async ($, on) => {
+    const seen = bottom(on, { ...DESKTOP, root: '/work' })
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
     await seen.settle()
     expect(seen.lastPayload().cwd).toBe('/work')
@@ -277,8 +286,8 @@ describe('what the band says when it cannot draw', () => {
     await ui.unmount()
   })
 
-  test('a failed walk is retried, so an install inside the session is found', async ($, on) => {
-    const options: BottomOptions = { binaryVersion: null }
+  test('a failed walk is retried, so an install inside the session is found', DRAWN, async ($, on) => {
+    const options: BottomOptions = { ...DESKTOP, binaryVersion: null }
     const seen = bottom(on, options)
     await $.tool.call({ tool: 'Read', tool_use_id: 'r1', file_path: '/n/one' })
     const renders = () => seen.spawns.filter(run => run.argv[1] !== '--version').length

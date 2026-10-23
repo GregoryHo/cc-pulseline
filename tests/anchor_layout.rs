@@ -297,30 +297,15 @@ fn with_activity(
 
 #[test]
 fn traceability_cells_trail_the_context_row() {
-    // anchor has no render_bar gap — activity folds into the context row's
-    // trail tail (shed-from-end), honest uncapped totals, `✘M` lights on failure.
+    // anchor has no render_bar gap — task progress folds into the context
+    // row's trail tail (shed-from-end). No tool-use count: Claude Code's own
+    // transcript already counts the tool calls.
     let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 1, 5, 91, 2);
     let ctx_row = strip_ansi(&render(&f, &anchor_config())[1]);
     assert!(ctx_row.contains("1/5"), "todo on context trail: {ctx_row}");
     assert!(
-        ctx_row.contains("91 \u{2718}2"),
-        "tools on context trail: {ctx_row}"
-    );
-}
-
-#[test]
-fn traceability_failure_mark_degrades_to_ascii() {
-    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
-    let mut c = anchor_config();
-    c.glyph_mode = GlyphMode::Ascii;
-    let ctx_row = strip_ansi(&render(&f, &c)[1]);
-    assert!(
-        ctx_row.contains("91 x2"),
-        "ascii failure mark `x2`: {ctx_row}"
-    );
-    assert!(
-        !ctx_row.contains('\u{2718}'),
-        "no raw ✘ in ascii: {ctx_row}"
+        !ctx_row.contains("91") && !ctx_row.contains('\u{2718}'),
+        "no tool count on context trail: {ctx_row}"
     );
 }
 

@@ -62,8 +62,10 @@ const IDENTITY_CELLS: [&str; 5] = ["model", "effort", "cwd", "git", "version"];
 // inter-cluster gap (left of the `cost` hero) and shed first under width
 // pressure. They render only when their data exists AND the segment toggle is
 // on; the order filter in `render()` drops them when `show_todo`/`show_tools`
-// is off (build_cell has no config handle).
-const USAGE_CELLS: [&str; 7] = ["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"];
+// is off (build_cell has no config handle). `tools` is not in the default
+// arrangement: Claude Code's own transcript and turn summary already count the
+// tool calls. It stays in `ALL_CELLS`, so a `rail_*_order` can place it.
+const USAGE_CELLS: [&str; 6] = ["ctx", "compact", "tokens", "cache", "todo", "cost"];
 const QUOTA_CELLS: [&str; 2] = ["5h", "7d"];
 
 /// Global cell vocabulary — every buildable cell name. A configured

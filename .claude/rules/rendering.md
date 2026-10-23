@@ -28,8 +28,8 @@ Semantic colors are fields on `ThemePalette` (e.g., `p.stable_blue`, `p.alert_re
 
 - **L1 + L3**: always render (identity, budget) — core metrics. The one
   exception is `LayoutStyle::Activity`, which draws no core rows at all: it
-  renders the activity area alone, for the plugin's above-the-prompt band
-  rather than for the statusline. It owns its pipeline
+  renders the activity area alone, for the plugin's desktop band (stacked
+  under a `rail` / `anchor` head) rather than for the statusline. It owns its pipeline
   (`render/frames/activity.rs`) and leads with the running-tools row, so its
   own height cap truncates the cumulative counts instead of the live row
 - **L2** config counts: opt-in — gated by `[segments.config] enabled` (default off)

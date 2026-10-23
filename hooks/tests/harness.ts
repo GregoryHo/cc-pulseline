@@ -224,6 +224,11 @@ export type BottomOptions = {
    * spawn is recorded as it is made, before the wait.
    */
   renderDelayMs?: number
+  /**
+   * Milliseconds the tool beneath runs on the clock before it answers, so a
+   * case can hold a call in flight and move the clock past it.
+   */
+  toolDelayMs?: number
   /** Exit code the stand-in binary answers a render with; 0 when not given. */
   exitCode?: number
   /** What the stand-in binary writes to stderr on a render. */
@@ -315,7 +320,8 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
   // than counting creations. Ids are `task-1`, `task-2`, … in call order, so
   // a case can name one without reading it back.
   let createdTasks = 0
-  on('tool.call', ($, e) => {
+  on('tool.call', async ($, e) => {
+    if (options.toolDelayMs !== undefined) await clock.sleep(options.toolDelayMs)
     if (options.toolThrows !== undefined) throw new Error(options.toolThrows)
     if (options.toolResult !== undefined) return options.toolResult
     if (e.tool === 'TaskCreate') {
@@ -517,7 +523,7 @@ export function bottom(on: On, options: BottomOptions = {}): Recorder {
     lastPayload: () => parse(binaryRuns().at(-1), 'for the band'),
     payloads: () =>
       binaryRuns()
-        .filter(run => !isPaneSpawn(run) && !isDesktopBandSpawn(run))
+        .filter(run => !isPaneSpawn(run))
         .map(run => JSON.parse(run.stdin) as PayloadShape),
     lastPanePayload: () => parse(binaryRuns().filter(isPaneSpawn).at(-1), 'for the pane'),
     advance: ms => clock.advance(ms),

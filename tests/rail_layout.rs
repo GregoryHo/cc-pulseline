@@ -677,8 +677,7 @@ fn empty_arrangement_equals_built_in_default() {
     let default = render(&f, &rail_config());
     let mut explicit = rail_config();
     explicit.rail_identity_order = order(&["model", "effort", "cwd", "git", "version"]);
-    explicit.rail_usage_order =
-        order(&["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"]);
+    explicit.rail_usage_order = order(&["ctx", "compact", "tokens", "cache", "todo", "cost"]);
     explicit.rail_quota_order = order(&["5h", "7d"]);
     explicit.rail_identity_hero = "model".into();
     explicit.rail_usage_hero = "cost".into();
@@ -841,12 +840,32 @@ fn todo_cell_absent_when_no_todo_state() {
     );
 }
 
+/// The tools cell is out of the default usage row; these cases place it.
+fn tools_config() -> RenderConfig {
+    let mut config = rail_config();
+    config.rail_usage_order =
+        order(&["ctx", "compact", "tokens", "cache", "todo", "tools", "cost"]);
+    config
+}
+
+#[test]
+fn default_usage_row_draws_no_tools_cell() {
+    // Claude Code's own transcript already counts the tool calls, so the
+    // default arrangement leaves the count (and its failure mark) out.
+    let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
+    let usage = strip_ansi(&render(&f, &rail_config())[1]);
+    assert!(
+        !usage.contains("91") && !usage.contains('\u{2718}'),
+        "no tools cell by default: {usage}"
+    );
+}
+
 #[test]
 fn tools_cell_shows_honest_uncapped_total_and_lights_on_failure() {
     // The tools cell reads the uncapped frame totals: 91 with 2 failures shows
     // `91 ✘2` and lights its alert band. (91 avoids colliding with `$3.47`.)
     let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
-    let lines = render(&f, &rail_config());
+    let lines = render(&f, &tools_config());
     let usage_raw = &lines[1];
     let usage = strip_ansi(usage_raw);
     assert!(
@@ -863,7 +882,7 @@ fn tools_cell_shows_honest_uncapped_total_and_lights_on_failure() {
 #[test]
 fn tools_cell_is_quiet_with_no_failures() {
     let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 0);
-    let usage = strip_ansi(&render(&f, &rail_config())[1]);
+    let usage = strip_ansi(&render(&f, &tools_config())[1]);
     assert!(usage.contains("91"), "count present: {usage}");
     assert!(
         !usage.contains('\u{2718}'),
@@ -875,7 +894,7 @@ fn tools_cell_is_quiet_with_no_failures() {
 fn tools_failure_mark_degrades_to_ascii() {
     // Under the ASCII floor the `✘` must become `x` (no raw dingbat).
     let f = with_activity(frame("high", 43, 62.0, 41.0, false, true), 0, 0, 91, 2);
-    let mut config = rail_config();
+    let mut config = tools_config();
     config.glyph_mode = GlyphMode::Ascii;
     let usage = strip_ansi(&render(&f, &config)[1]);
     assert!(usage.contains("91 x2"), "ascii failure mark `x2`: {usage}");

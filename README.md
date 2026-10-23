@@ -81,19 +81,20 @@ repository's plugin, so one install gets both it and the setup commands:
 /plugin install pulseline --marketplace GregoryHo/cc-pulseline
 ```
 
-The band draws the turn — the tool running now and its target, subagents,
-todo progress, per-tool completed counts — and holds that state between
-turns; `/pulseline` opens a pane with the full ledger. The two surfaces are a
-division of labour rather than a replacement: the band draws no identity,
-context or cost row, so keep your `statusLine` setting, which stays the
-steady-state summary. In the Claude Code desktop app, which runs no
+The band draws only what needs you — the same tool failing three times in a
+row, a call running past a minute, a quota on pace to run out before its
+reset, the context near autocompact (with a `/compact` button), a cache
+rebuilding — and nothing otherwise; `/pulseline` opens a pane with the full
+ledger. The two surfaces are a division of labour rather than a replacement:
+the band draws no identity, context or cost row, so keep your `statusLine`
+setting, which stays the steady-state summary. In the Claude Code desktop app, which runs no
 statusline, the band carries the identity and budget row itself — see
 [the desktop app](docs/band.md#the-desktop-app).
 
 Requires cc-pulseline **1.7.0 or newer** on the machine. The plugin finds the
 binary on its own — a path you configure, `~/.claude/pulseline/`, `PATH`, or
 a local build — and says what is missing when none of them answers. See
-[the activity band](docs/band.md) for the full picture.
+[the band](docs/band.md) for the full picture.
 
 ## Configuration
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 cc-pulseline is a high-performance CLI tool that renders a multi-line statusline for Claude Code. It reads JSON from stdin (the Claude Code statusline payload) and outputs formatted text lines to stdout. The binary is designed to be called repeatedly by the Claude Code statusline hook.
 
-The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. The desktop runs no statusline; its default band (`quiet`) keeps one thin strip of `Svg` quota gauges with each window's pace, and cost and `$/h`, with this session's share of what the active desktop sessions spend (each writes its own `$.store` key), plus alert rows for context (with a `/compact` button, opening early when autocompact is 5 turns or fewer off) and a cold cache; the `compact` / `rail` / `anchor` layouts carry the identity and budget rows. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
+The same binary also drives the `pulseline` plugin (`hooks/`), which draws above the prompt and in a pane on the terminal and in the Claude Code desktop app. On the terminal the band runs no binary and draws alert rows only — the same tool failing 3× in a row, a call running past a minute, a quota on pace to run out, context near autocompact (with a `/compact` button), a cold cache — and nothing otherwise. The desktop runs no statusline; its default band (`quiet`) keeps one thin strip of `Svg` quota gauges with each window's pace, and cost and `$/h`, with this session's share of what the active sessions spend (each, terminal ones included, writes its own `$.store` key), plus alert rows for context (with a `/compact` button, opening early when autocompact is 5 turns or fewer off) and a cold cache; the `compact` / `rail` / `anchor` layouts carry the identity and budget rows. **Supported surfaces, glyph tiers and the hooks-module rules: `.claude/rules/plugin-mod.md`.**
 
 ## Build & Test Commands
 
@@ -25,7 +25,7 @@ The repository is also a Claude Code plugin, rooted at the repository root
 
 ```bash
 claude plugin validate .        # static scan: hooks, $ calls, $.state keys, .catch coverage
-command claude plugin test .    # the 205 hook tests, run against the engine (needs `command`)
+command claude plugin test .    # the 216 hook tests, run against the engine (needs `command`)
 tsc -p .                        # type-check; needs the engine-written .claude-plugin/types/
 ```
 
@@ -44,8 +44,8 @@ cc-pulseline --select-theme   # Interactively select and apply a theme
 cc-pulseline --palette-map    # Show palette field → UI element mapping
 cc-pulseline --layout rail    # Render with this layout
                               # (none|compact|budgets|console|ledger|rail|anchor|activity)
-                              # activity = activity rows only, empty when idle — the
-                              # plugin band's layout, not a statusline one
+                              # activity = activity rows only, empty when idle — what the
+                              # desktop band stacks under a rail/anchor head, not a statusline one
 cc-pulseline --columns 120    # Render for a box N cells wide (overrides COLUMNS)
 cc-pulseline --rows 3         # Render at most N rows (overrides max_total_lines)
 cc-pulseline --no-icons       # No Nerd Font glyphs (GlyphMode::Unicode): ASCII labels, half-block seams, braille kept
@@ -113,9 +113,9 @@ Full layout × visual reference: `docs/layouts.md`.
 
 > **L1 and L3 always render, except under `--layout activity`** — the one
 > layout that draws no core rows, so its output is activity only and empty
-> when nothing is running. It exists for the plugin's above-the-prompt band
-> (`docs/band.md`), which sits beside the statusline rather than replacing
-> it. Everything below describes the statusline's own rows.
+> when nothing is running. It exists for the plugin's desktop band, which
+> stacks it under a `rail` / `anchor` head (`docs/band.md`); the terminal
+> band runs no binary. Everything below describes the statusline's own rows.
 
 - **L1**: `M:{model} | E:{effort} | [T] | AG:{agent} | S:{style} | CC:{version} | P:{path} | G:{branch}[*] [↑n] [↓n] [!n +n ✘n ?n] (WT)`
 - **L2**: `1 CLAUDE.md | 1 AGENTS.md | 2 rules | 3 memories | 1 hooks | 2 MCPs | 2 skills | 1 plugins | 1h` (value-first format; **opt-in** — `[segments.config] enabled` defaults to false, individual `show_*` toggles apply once enabled)

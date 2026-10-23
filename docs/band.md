@@ -1,9 +1,9 @@
-# The activity band
+# The band
 
 The half of the `pulseline` plugin that draws from engine events instead of
 the statusline hook — a **mod**, in the engine's sense: behaviour that lives
-in a hooks module. It paints a band above the prompt while a turn is working,
-and a pane on `/pulseline`.
+in a hooks module. It paints a band above the prompt when something needs
+you, and a pane on `/pulseline`.
 
 It ships inside the same plugin as the statusline's commands, so there is one
 thing to install and one version to track. The statusline path is untouched
@@ -193,12 +193,13 @@ return. Read it before adding a test.
 
 | Site | When | Rows | Layout |
 | --- | --- | --- | --- |
-| `AbovePrompt` band | always, once something has run | up to `maxRows`, which is small outside fullscreen | `activity` — activity rows only, asked for by name |
+| `AbovePrompt` band (terminal) | while an alert is open | one per alert, up to `maxRows`, which is small outside fullscreen | none — no binary run, alert rows only |
 | `Pane` | while it is open | opened asking for 12; drawn at the box it gets (`scroll.bodyRows`), less the switcher's row | switchable: ledger / budgets / compact / rail |
 
-Both sites run the binary themselves, because one row count cannot serve a
-small band and a twelve-row pane. The pane run only happens while the pane
-is open.
+The pane runs the binary itself, and only while it is open. The terminal
+band runs nothing: it draws from what `refresh` works out
+(`hooks/desktop.ts`), and the desktop's band is described under **The
+desktop app**.
 
 **The band stacks on the chain, never replaces it.** The hook awaits
 `next(e)` first and draws its rows above whatever the mods beneath it drew
@@ -207,48 +208,34 @@ nobody else's band. `maxRows` clips only pulseline's own rows; a taller tree
 scrolls in the engine's window, and with the terminal's two rows outside
 fullscreen, what lies beneath can start scrolled out of view.
 
-**The band's argv names the `activity` layout** (`--layout activity`), the one
-layout that draws no identity and no budget row. That is what makes the two
-sites a division of labour rather than a copy:
+**The terminal band draws only what needs you.** The statusline draws the
+identity and the budget, and Claude Code's own transcript, spinner and turn
+summary show every tool, so a band of activity rows (`✓ 12 tools`) said it
+all twice. What is left is one row per alert, most pressing first:
 
-| | statusline | band |
-| --- | --- | --- |
-| identity, context, tokens, TOK/s, cache trend, cost, quota | ✅ | — |
-| running tools and their targets | — | ✅ |
-| per-tool completed counts and failure marks | — | ✅ |
-| agents and their real elapsed time | — | ✅ |
-| todo | — | ✅ |
+| alert | opens at | row | action |
+| --- | --- | --- | --- |
+| failures | the same tool failing 3 times in a row on the main loop | `✘ Bash failed 3× in a row` in red, the last target dim | none |
+| long call | one call running a minute | `◷ Bash running 2m 10s` in amber, its target dim | none |
+| context | as on the desktop: 70%, or 5 turns or fewer before autocompact | `CTX 78%`, `~4 turns to autocompact` | the `/compact` button |
+| quota pace | a window on pace to run out before its reset (see **The quiet band**) | `7d on pace to run out in ~3d2h`, `resets 6d9h` | none |
+| cache | the `C:%` "rebuilding" rung | `cache 22%`, the share written | none |
 
-The split is not a preference. TOK/s and the cache hit-rate trend need two
-samples less than two seconds apart (`update_output_speed`), and only the
-transcript path sees usage per API call — the mod sees it once per turn, so
-those two can only live on the statusline. In the other direction the engine
-events carry the tool's own arguments, so the running target and the
-`isError` failure mark are exact on the band where the transcript path has
-to infer them from a 50-line field table.
+A failure of another tool starts the run over at one, a success of the
+failing tool ends it, and a success of another tool leaves it be. A
+subagent's calls are not counted: its retries are its own task. The run is
+held in the `tools` atom (`failStreak`), so a reload keeps it.
 
-`activity` leads with the running tools, so the `--rows 2` the band gets
-outside fullscreen cuts the cumulative counts rather than the live row. See
-[`docs/layouts.md`](layouts.md#activity--activity-rows-only-the-bands-layout)
-for the row-by-row ladder.
+A long call's time moves although no event marks it: while a tool runs on
+the terminal, `refresh` keeps one `$.clock.after` pending, due when the
+oldest running call crosses the minute and every 15 seconds after, and a
+refresh with nothing running cancels it.
 
-**Between turns the band holds the state it last drew** — the tools that
-finished with their counts and failure marks, the agents that ran, the todo.
-Nothing reads as in flight that is not: the binary marks a finished item with
-`✓` and a running one with the tool's own glyph and no tick, so a resident
-band is a record of the turn that just happened rather than a claim about now.
-
-That costs the rows it occupies: outside fullscreen `maxRows` is 2, and after
-the first tool call those two rows are the band's for the session. The trade
-was the other way for one release — `e.props.isWorking` gated the draw,
-because the band then drew the layout the person had configured, which is the
-identity and budget rows the statusline draws on its own line. Stacked, the
-two were the same thing twice. Asking for `activity` ended that, and with the
-duplication gone the gate had nothing left to prevent.
-
-**Zero rows still yields.** `activity`'s output is empty when nothing has run,
-which is the ordinary state at the start of a session rather than a fault, and
-an empty box above the prompt says less than no box at all.
+The rows are monospaced `Text` and a `Button`; the terminal draws no `Svg`.
+A target is truncated rather than wrapped, so a long command takes no row
+the next alert was counted into, and past `maxRows` the last alerts go.
+With no alert open the band draws only what the mods beneath draw, so it
+takes no rows at all.
 
 **`/clear` takes the band down, and that is right.** A `/clear` ends the
 conversation and the process goes on under a new session id (`SessionEndInput`
@@ -260,19 +247,18 @@ the conversation they belonged to. The band comes back on the next tool call:
 has to re-run `session.start` — which is just as well, because no
 `session.start` fires after a `/clear`.
 
-Keeping it there needs no extra invalidation: `turn.complete` refreshes, and
-the render hook's `read` of the output atom subscribes that drawing, so the
-rows settle to the finished state by themselves and then stand until the next
-turn moves them. A terminal resized while nothing is running redraws from the
-same rows — they were packed for the old box, so the band clips them until
-the next refresh spawns at the width this hook just measured.
+Drawing needs no extra invalidation: every event the alerts follow
+refreshes, and the render hook's `read` of the output atom subscribes that
+drawing, so a row opens and closes by itself.
 
 **A failed run still draws.** A missing or too-old binary raises no event of
 its own, and an install line nobody sees fixes nothing, so that note is drawn
 whether or not a turn is running. It is keyed on how the run ended
 (`bandRun: 'never' | 'ok' | 'failed'` on the output atom), never on the row
-count — with `activity` zero rows is normal, and a note keyed on it would sit
-over an idle prompt for the whole session.
+count — on a quiet band zero rows is normal, and a note keyed on it would sit
+over an idle prompt for the whole session. The terminal's alerts wait on the
+binary too, though they do not run it: `refresh` resolves it before it reads
+the session, so a missing one shows its install line in their place.
 
 ## The desktop app
 
@@ -283,13 +269,14 @@ there are not the terminal's, and each changes what the band asks for:
 | | terminal | desktop |
 | --- | --- | --- |
 | statusline under the prompt | yes | **no** — the Code tab does not run the `statusLine` command |
-| band layout | `activity` | the `desktopLayout` setting: `quiet` (default — no binary run; a strip and alerts, see below), `compact` (identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
+| band layout | none — alerts only, no binary run | the `desktopLayout` setting: `quiet` (default — no binary run; a strip and alerts, see below), `compact` (identity and budget in one head row, activity under it), or the powerline `rail` / `anchor` as a head with `activity` run under it in the rows the head leaves (every row but one goes to the head) |
 | glyphs | Nerd Font icons | Unicode (`--no-icons`): no Private Use Area glyphs, which the app's face lacks — icons become ASCII labels and powerline seams half blocks `▐▌`; braille, gauges and `✓✘` stay |
-| idle band | yields until something has run | always draws: `quiet` its strip of quota and cost (only what the mods beneath draw when it has no reading at all); the others their head row, the only place context and cost show |
+| idle band | yields until an alert opens | always draws: `quiet` its strip of quota and cost (only what the mods beneath draw when it has no reading at all); the others their head row, the only place context and cost show |
 
 The split in **What it draws** above is a terminal fact. On the desktop it
 would leave context, cost and quota nowhere at all, so the desktop band draws
-them itself. TOK/s and the cache sparkline stay missing there, for the reason
+them itself. Of the terminal's alerts it keeps the context and the cache: its
+strip carries the quota pace, and its transcript every tool. TOK/s and the cache sparkline stay missing there, for the reason
 they are missing from the band anywhere (**Known gaps**).
 
 ### The quiet band
@@ -317,8 +304,9 @@ average, so a seven-day window reads it with the nights folded in.
 
 Quota is the account's, shared by every session at once, so a dim line
 under the gauges says which session is burning it:
-`this session ~40% of spend · 2 others active`. Each desktop session,
-whatever its layout, writes its own `$.store` key on the refresh path,
+`this session ~40% of spend · 2 others active`. Each session on a surface,
+terminal or desktop and whatever its layout, writes its own `$.store` key on
+the refresh path,
 `session.<id>` = `{ usd, at }` (the API-equivalent cost and `$.clock.now()`),
 when the cost moved or 30 seconds after its last write. The throttle reads
 the key back rather than remembering the write, so a key another session's
@@ -377,9 +365,8 @@ Every span is drawn with `mono`. The desktop draws a `Text` in a proportional
 face by default and the binary packs its columns for a monospaced one; the
 terminal is always monospaced and ignores the prop.
 
-Each surface gets a run of its own, chosen by `$.session.surfaces()`: a
-session the desktop hosts alone spawns no terminal band, a terminal session
-spawns no desktop one. A desktop that attaches mid-session gets its run from
+The desktop band's run is chosen by `$.session.surfaces()`: a terminal
+session spawns none, and the terminal band never spawns one. A desktop that attaches mid-session gets its run from
 `session.attach`, rather than waiting for the next tool call. The two share
 one `bandRun` and `runNote`, so a failure on either is said on both. The pane
 is one run for whichever surfaces show it, with `--no-icons` whenever the
@@ -514,11 +501,10 @@ hook draws.
 | --- | --- |
 | tok/s, and the cache trend's *sparkline* | the token breakdown arrives once per turn, not per API call, so there is nothing to plot a per-call hit rate from — the dedup by `message.id` that the transcript path does needs the transcript. The CACHE row's cumulative total is **not** missing: the mod sums it per turn and sends `activity.cache_read_total` |
 | Sub-agent todo aggregation | each `TodoWrite` is seen, but the fold is not written |
-| The band's first draw of a session, at the measured width | `session.start` refreshes before anything has drawn, so that spawn uses the closure's initial `3x120`. The render hook measures `maxRows` and `bodyColumns` but cannot act on it: `$.state.set` is refused while a drawing is in flight, and no `$` call answers the band's geometry from outside a render — `viewport` is on the render event's envelope only. So unlike the pane, which `ui.open` resolves "once drawn" and can therefore refresh against, the band converges on the next refresh instead. That is now the next tool call's spawn on the way in rather than a completion, so the window is one tool call of a turn the band only appears during |
 | `--rows` in the pane, where the layout is `ledger` | the pane tells the binary the box it got, but the ledger returns before the height ladder — `--layout ledger --rows 4` still emits eleven rows (`src/render/layout.rs`'s comment says so: the ledger owns its pipeline and `ledger_dense` is its height lever). The pane's body is a window over the tree, so nothing is lost — it scrolls — but the switcher sits under the rows and goes below the fold in a short dock. Closing it properly means either the ledger honouring the cap or wiring `ledger_dense`, both inside `src/render/`, which the band does not touch |
 | The API-error badge, in practice | the mod sends `last_api_error_ms` and the Rust side carries it into the frame, but the badge is emitted from one place — `src/render/layout.rs` — so the layouts that own their own pipeline never draw it, the band's and the pane's `ledger` among them. Closing it means editing `src/render/`, which the band does not touch; it is tracked as separate work |
 | Pane geometry with the pane open on two surfaces | one pane run serves every surface that shows it, sized from whichever surface drew it last — so with the pane open in a terminal and on the desktop at once (Remote Control), one of them gets rows packed for the other's box |
-| A failure on one surface hides the other's rows | `bandRun` and `runNote` are shared: a failing desktop run puts its note on the terminal band in place of that band's healthy rows, and the reverse |
+| A failure on one surface hides the other's rows | `bandRun` and `runNote` are shared: a failing desktop run puts its note on the terminal band in place of that band's alerts |
 
 `classic.*` events close what the engine's own events do not: effort rides
 on the classic hook inputs that fire within a tool-use context — not
