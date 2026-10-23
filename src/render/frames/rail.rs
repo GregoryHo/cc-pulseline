@@ -37,7 +37,9 @@
 
 use crate::config::{ColorBudget, GlyphMode, Headline, RenderConfig};
 use crate::render::color::{colorize, extract_ansi_code, fg_code, visible_width, ThemePalette};
-use crate::render::fmt::{burn_rate_per_hour, format_number, format_reset_duration};
+use crate::render::fmt::{
+    burn_rate_per_hour, format_duration, format_number, format_reset_duration,
+};
 use crate::render::frames::powerline::{self, RampLevel, SeamTier, Segment};
 use crate::render::icons::{
     fail_mark, glyph, ICON_COMPACT, ICON_CONTEXT, ICON_EFFORT, ICON_GIT, ICON_MODEL, ICON_PROJECT,
@@ -49,6 +51,11 @@ use crate::types::{Line1Metrics, Line3Metrics, RenderFrame};
 
 const CTX_TINT_AT: u64 = 55; // first ctx_marks() mark
 const QUOTA_TINT_AT: f64 = 50.0; // first quota mark
+/// Quota window lengths, for the pace after each reset.
+const FIVE_HOUR_MIN: u64 = 5 * 60;
+const SEVEN_DAY_MIN: u64 = 7 * 24 * 60;
+/// No pace before 5% of a window has gone: the band's `PACE_FROM`.
+const PACE_FROM_PERMILLE: u64 = 50;
 /// Cache lights its EFFICIENCY band only on genuinely good reuse — the same
 /// boundary `color_for_cache_hit_pct` uses for its green band. Below it the
 /// cache cell stays a quiet Context ramp (a cold cache is never lit, never red).
@@ -372,6 +379,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&id_order),
+            has_pace_rung(&id_order),
             &ctx,
         ),
         // usage row drops the lone hero when there's no detail (pre-API `$0.00`).
@@ -389,6 +397,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&us_order),
+            has_pace_rung(&us_order),
             &ctx,
         ),
     ];
@@ -409,6 +418,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&qu_order),
+            has_pace_rung(&qu_order),
             &ctx,
         ));
     }
@@ -418,19 +428,26 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
     out
 }
 
-/// Render one grouped row. `mono` emits the flat (undropped) cells directly;
+/// Render one grouped row. `mono` emits the flat (undropped) cells directly,
+/// shedding only a quota cell's pace (`pace_rung`) past the target;
 /// signal/vivid run the width-fit → placement → `render_bar` path. Under the
 /// ASCII floor the budget is moot (no fills), so segments are mapped as `signal`
 /// — which keeps `to_segment`'s `mono` arm unreachable.
 fn render_row(
     build: impl Fn(usize) -> (Vec<RailCell>, Vec<RailCell>),
     max_drops: usize,
+    pace_rung: bool,
     ctx: &RailCtx,
 ) -> String {
     if ctx.mono {
-        let (mut cells, right) = build(0);
-        cells.extend(right); // mono is one flat run — no headline column.
-        return emit_mono_line(&cells, ctx.tier, ctx.mode, ctx.color, ctx.palette);
+        let mono = |rung: usize| {
+            let (mut cells, right) = build(rung);
+            cells.extend(right); // mono is one flat run — no headline column.
+            emit_mono_line(&cells, ctx.tier, ctx.mode, ctx.color, ctx.palette)
+        };
+        let line = mono(0);
+        let over = ctx.target.is_some_and(|w| visible_width(&line) > w);
+        return if pace_rung && over { mono(1) } else { line };
     }
     let seg_budget = if ctx.tier == SeamTier::AsciiFloor {
         ColorBudget::Signal
@@ -493,6 +510,7 @@ fn build_cell(
     palette: &ThemePalette,
     color: bool,
     mode: GlyphMode,
+    pace: bool,
 ) -> Option<RailCell> {
     let l1 = &frame.line1;
     let l3 = &frame.line3;
@@ -581,21 +599,23 @@ fn build_cell(
             RailCell::flag("", "", format!("${cost:.2}"), band, true)
         }),
         "5h" => q.five_hour_pct.map(|pct| {
-            RailCell::flag(
-                ICON_QUOTA,
-                "",
-                quota_text("5H", pct, q.five_hour_reset_minutes),
-                code(palette.color_for_quota_pct(pct)),
-                pct >= QUOTA_TINT_AT,
+            quota_cell(
+                "5H",
+                pct,
+                q.five_hour_reset_minutes,
+                FIVE_HOUR_MIN,
+                pace,
+                palette,
             )
         }),
         "7d" => q.seven_day_pct.map(|pct| {
-            RailCell::flag(
-                ICON_QUOTA,
-                "",
-                quota_text("7D", pct, q.seven_day_reset_minutes),
-                code(palette.color_for_quota_pct(pct)),
-                pct >= QUOTA_TINT_AT,
+            quota_cell(
+                "7D",
+                pct,
+                q.seven_day_reset_minutes,
+                SEVEN_DAY_MIN,
+                pace,
+                palette,
             )
         }),
         _ => None,
@@ -619,13 +639,20 @@ fn drop_priority(name: &str) -> Option<usize> {
     }
 }
 
-/// The fit ladder's depth for a row = its deepest droppable cell.
+/// The fit ladder's depth for a row = its deepest droppable cell, plus the
+/// pace rung when it holds a quota cell.
 fn max_drops(order: &[String]) -> usize {
-    order
+    let cells = order
         .iter()
         .filter_map(|n| drop_priority(n))
         .max()
-        .unwrap_or(0)
+        .unwrap_or(0);
+    cells + usize::from(has_pace_rung(order))
+}
+
+/// Whether a row's first rung sheds a quota cell's pace, before any cell drops.
+fn has_pace_rung(order: &[String]) -> bool {
+    order.iter().any(|n| QUOTA_CELLS.contains(&n.as_str()))
 }
 
 /// Validate a configured order against the GLOBAL vocabulary (`ALL_CELLS`) plus
@@ -690,8 +717,17 @@ fn assemble(
     palette: &ThemePalette,
     color: bool,
     mode: GlyphMode,
-    drops: usize,
+    rung: usize,
 ) -> (Vec<RailCell>, Vec<RailCell>) {
+    // A row holding a quota cell spends its first rung on the pace alone,
+    // before any cell drops.
+    let pace_rung = has_pace_rung(order);
+    let pace = !pace_rung || rung == 0;
+    let drops = if pace_rung {
+        rung.saturating_sub(1)
+    } else {
+        rung
+    };
     let split = order.iter().position(|s| s == CLUSTER_SPLIT);
     // No-marker right-hug: the last real (non-marker) cell.
     let last = order.iter().rposition(|s| s != CLUSTER_SPLIT);
@@ -716,7 +752,7 @@ fn assemble(
                 }
             }
         }
-        let Some(mut cell) = build_cell(name, frame, palette, color, mode) else {
+        let Some(mut cell) = build_cell(name, frame, palette, color, mode, pace) else {
             continue;
         };
         if is_hero {
@@ -734,12 +770,65 @@ fn assemble(
     (left, right)
 }
 
-fn quota_text(label: &str, pct: f64, reset_min: Option<u64>) -> String {
+/// A quota window as a SATURATION Flag, with its pace after the reset when
+/// `show_pace`. A window on pace to run out before its reset lights at least
+/// the warn band, whatever its percent, because that is the one that needs
+/// the person; the band stays when the text is shed for width.
+fn quota_cell(
+    label: &str,
+    pct: f64,
+    reset_min: Option<u64>,
+    window_min: u64,
+    show_pace: bool,
+    palette: &ThemePalette,
+) -> RailCell {
+    let pace = reset_min.and_then(|m| pace_of(pct, m, window_min));
     let pct_u = pct.round() as u64;
     let reset = reset_min
         .map(|m| format!(" {}", format_reset_duration(m)))
         .unwrap_or_default();
-    format!("{label} {pct_u}%{reset}")
+    let pace_text = match pace.filter(|_| show_pace) {
+        Some(Pace::FullIn(min)) => format!(" → full ~{}", format_duration(min).replace(' ', "")),
+        Some(Pace::AtReset(projected)) => format!(" →{projected}%"),
+        None => String::new(),
+    };
+    let short = matches!(pace, Some(Pace::FullIn(_)));
+    let band = if short && pct < QUOTA_TINT_AT {
+        palette.ctx_warn()
+    } else {
+        palette.color_for_quota_pct(pct)
+    };
+    RailCell::flag(
+        ICON_QUOTA,
+        "",
+        format!("{label} {pct_u}%{reset}{pace_text}"),
+        code(band),
+        short || pct >= QUOTA_TINT_AT,
+    )
+}
+
+/// Where a quota window is heading at its current rate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Pace {
+    /// It runs out this many minutes from now, before its reset.
+    FullIn(u64),
+    /// It stays under the limit and ends near this percent.
+    AtReset(u64),
+}
+
+/// The band's `paceOf` (`hooks/desktop.ts`) over minutes: no projection
+/// before `PACE_FROM_PERMILLE` of the window has gone, or with nothing used.
+fn pace_of(pct: f64, reset_min: u64, window_min: u64) -> Option<Pace> {
+    let gone = window_min.checked_sub(reset_min)?;
+    if pct <= 0.0 || gone * 1000 < window_min * PACE_FROM_PERMILLE {
+        return None;
+    }
+    let projected = pct * window_min as f64 / gone as f64;
+    if projected < 100.0 {
+        return Some(Pace::AtReset(projected.round() as u64));
+    }
+    let full_in = ((100.0 - pct).max(0.0) * gone as f64 / pct).round() as u64;
+    Some(Pace::FullIn(full_in))
 }
 
 /// CTX cell as a SATURATION Flag: the *whole* value lights `color_for_ctx_pct`

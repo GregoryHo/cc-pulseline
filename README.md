@@ -81,10 +81,11 @@ repository's plugin, so one install gets both it and the setup commands:
 /plugin install pulseline --marketplace GregoryHo/cc-pulseline
 ```
 
-The band draws only what needs you — the same tool failing three times in a
-row, a call running past a minute, a quota on pace to run out before its
-reset, the context near autocompact (with a `/compact` button), a cache
-rebuilding — and nothing otherwise; `/pulseline` opens a pane with the full
+The band draws only what needs you and the statusline cannot know — the
+same tool failing three times in a row, a call running past a minute, how
+many turns are left before autocompact (with a `/compact` button) — and
+nothing otherwise; the `rail` statusline's `5H` / `7D` cells carry each
+window's pace; `/pulseline` opens a pane with the full
 ledger. The two surfaces are a division of labour rather than a replacement:
 the band draws no identity, context or cost row, so keep your `statusLine`
 setting, which stays the steady-state summary. In the Claude Code desktop app, which runs no

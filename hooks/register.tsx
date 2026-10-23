@@ -32,6 +32,7 @@ import {
   nextLongCheck,
   nextStreak,
   onDesktopBand,
+  onTerminalBand,
   quotaKey,
   quotaNotice,
   quotaPast,
@@ -43,6 +44,7 @@ import {
   stripCells,
   stripOf,
   stripRows,
+  terminalRow,
 } from './desktop'
 import type { SessionSpend, StripCell } from './desktop'
 import { buildPayload } from './payload'
@@ -2026,13 +2028,15 @@ export const register: Register = (on, options) => {
     // activity said it all twice; what is left is what needs the person.
     // Monospaced text and a button: the terminal draws no `Svg`.
     if (!desktop) {
-      // `?? []`: an atom written before the alerts existed has no field.
-      const alerts = held.alerts ?? []
+      // `?? []`: an atom written before the alerts existed has no field. The
+      // filter also drops a kind an older version wrote and this one no
+      // longer draws.
+      const alerts = (held.alerts ?? []).filter(onTerminalBand)
       if (alerts.length === 0 && !DEBUG) return below
       const { Box, Text, Button } = $.ui.resolve(e)
       const notes = DEBUG ? [<Text mono>{held.runNote}</Text>] : []
       const rows = alerts.map(alert => {
-        const row = alertRow(alert, state.lastRunMs)
+        const row = terminalRow(alert, state.lastRunMs)
         return (
           <Box flexDirection="row" gap={1}>
             <Text color={row.color} bold mono>
@@ -2065,8 +2069,8 @@ export const register: Register = (on, options) => {
     // binary rows here, so nothing is drawn from `desktopRows`.
     if (desktopLayoutOf(state.options) === QUIET) {
       // `?? []` / `?? null`: an atom written before the quiet band existed
-      // has neither field. The tool and pace alerts are the terminal's: the
-      // strip carries the pace, and the transcript every tool.
+      // has neither field. The tool alerts are the terminal's: the strip
+      // carries the pace, and the transcript every tool.
       const alerts = (held.alerts ?? []).filter(onDesktopBand)
       const cells = stripCells(held.strip ?? { quota: [] }, state.lastRunMs)
       const share = held.strip?.share ?? null

@@ -152,10 +152,10 @@ export function nextStreak(
 }
 
 /**
- * Every alert for one reading, in the order the terminal band draws them:
- * what failed, what is running long, the context, the quota pace, the cache.
- * The tools first, because they are this turn's and the rest can wait for
- * its end. `now` is `$.clock.now()`.
+ * Every alert for one reading, most pressing first: what failed, what is
+ * running long, the context, the cache. The tools first, because they are
+ * this turn's and the rest can wait for its end. Each band filters the list
+ * (`onTerminalBand`, `onDesktopBand`). `now` is `$.clock.now()`.
  */
 export function alertsOf(
   usage: SessionUsage,
@@ -172,16 +172,26 @@ export function alertsOf(
     const { name, target, startedAt } = tool
     alerts.push({ kind: 'long', tool: name, startedAt, ...(target !== undefined ? { target } : {}) })
   }
-  const desktop = desktopAlerts(usage, tokens, runway)
-  alerts.push(...desktop.filter(alert => alert.kind === 'ctx'))
-  for (const quota of quotaWindows(usage)) {
-    const fullInMs = paceOf(quota, now)?.fullInMs
-    if (fullInMs === undefined) continue
-    const { window, resetsAt } = quota
-    alerts.push({ kind: 'pace', window, fullInMs, ...(resetsAt !== undefined ? { resetsAt } : {}) })
-  }
-  alerts.push(...desktop.filter(alert => alert.kind === 'cache'))
+  alerts.push(...desktopAlerts(usage, tokens, runway))
   return alerts
+}
+
+/**
+ * Whether the terminal band draws an alert. Its statusline carries the
+ * quota pace, the context percent and the cache, so what is left is what
+ * only the mod knows: a failure run, a long call, and how many turns are
+ * left before autocompact.
+ */
+export function onTerminalBand(alert: Alert): boolean {
+  // The desktop also opens it at 70%; the terminal's statusline has that.
+  if (alert.kind === 'ctx') return alert.runway !== undefined && alert.runway <= RUNWAY_TURNS
+  return alert.kind === 'fails' || alert.kind === 'long'
+}
+
+/** One alert as the terminal band draws it: the context row is its runway alone. */
+export function terminalRow(alert: Alert, now: number): AlertRow {
+  const row = alertRow(alert, now)
+  return alert.kind === 'ctx' ? { ...row, gauge: null, label: row.detail, detail: '' } : row
 }
 
 /**
@@ -358,7 +368,7 @@ type Pace = {
 }
 
 /** `null` for a window of unknown length, with no reset, too early in, or unused. */
-export function paceOf(quota: QuotaWindow, now: number): Pace | null {
+function paceOf(quota: QuotaWindow, now: number): Pace | null {
   const length = WINDOW_MS[quota.window]
   if (length === undefined || quota.resetsAt === undefined || quota.percent <= 0) return null
   const gone = length - (quota.resetsAt * 1000 - now)
@@ -410,17 +420,6 @@ export function alertRow(alert: Alert, now: number): AlertRow {
         detail: alert.target ?? '',
         compact: false,
       }
-    case 'pace': {
-      const span = formatSpan(Math.round(alert.fullInMs / 60_000) * 60_000).replace(' ', '')
-      const reset = resetsIn(alert.resetsAt, now)
-      return {
-        gauge: null,
-        label: `${windowLabel(alert.window)} on pace to run out in ~${span}`,
-        color: AMBER,
-        detail: reset === null ? '' : `resets ${reset.replace(' ', '')}`,
-        compact: false,
-      }
-    }
     case 'ctx': {
       const label = `CTX ${Math.round(alert.percent)}%`
       return {
