@@ -379,6 +379,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&id_order),
+            has_pace_rung(&id_order),
             &ctx,
         ),
         // usage row drops the lone hero when there's no detail (pre-API `$0.00`).
@@ -396,6 +397,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&us_order),
+            has_pace_rung(&us_order),
             &ctx,
         ),
     ];
@@ -416,6 +418,7 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
                 )
             },
             max_drops(&qu_order),
+            has_pace_rung(&qu_order),
             &ctx,
         ));
     }
@@ -425,19 +428,26 @@ pub fn render(frame: &RenderFrame, config: &RenderConfig, palette: &ThemePalette
     out
 }
 
-/// Render one grouped row. `mono` emits the flat (undropped) cells directly;
+/// Render one grouped row. `mono` emits the flat (undropped) cells directly,
+/// shedding only a quota cell's pace (`pace_rung`) past the target;
 /// signal/vivid run the width-fit → placement → `render_bar` path. Under the
 /// ASCII floor the budget is moot (no fills), so segments are mapped as `signal`
 /// — which keeps `to_segment`'s `mono` arm unreachable.
 fn render_row(
     build: impl Fn(usize) -> (Vec<RailCell>, Vec<RailCell>),
     max_drops: usize,
+    pace_rung: bool,
     ctx: &RailCtx,
 ) -> String {
     if ctx.mono {
-        let (mut cells, right) = build(0);
-        cells.extend(right); // mono is one flat run — no headline column.
-        return emit_mono_line(&cells, ctx.tier, ctx.mode, ctx.color, ctx.palette);
+        let mono = |rung: usize| {
+            let (mut cells, right) = build(rung);
+            cells.extend(right); // mono is one flat run — no headline column.
+            emit_mono_line(&cells, ctx.tier, ctx.mode, ctx.color, ctx.palette)
+        };
+        let line = mono(0);
+        let over = ctx.target.is_some_and(|w| visible_width(&line) > w);
+        return if pace_rung && over { mono(1) } else { line };
     }
     let seg_budget = if ctx.tier == SeamTier::AsciiFloor {
         ColorBudget::Signal
@@ -629,17 +639,20 @@ fn drop_priority(name: &str) -> Option<usize> {
     }
 }
 
-/// The fit ladder's depth for a row = its deepest droppable cell.
+/// The fit ladder's depth for a row = its deepest droppable cell, plus the
+/// pace rung when it holds a quota cell.
 fn max_drops(order: &[String]) -> usize {
     let cells = order
         .iter()
         .filter_map(|n| drop_priority(n))
         .max()
         .unwrap_or(0);
-    // A quota cell sheds its pace at the first rung (`assemble`), so a row
-    // holding one has that rung even with nothing else to drop.
-    let pace = usize::from(order.iter().any(|n| QUOTA_CELLS.contains(&n.as_str())));
-    cells.max(pace)
+    cells + usize::from(has_pace_rung(order))
+}
+
+/// Whether a row's first rung sheds a quota cell's pace, before any cell drops.
+fn has_pace_rung(order: &[String]) -> bool {
+    order.iter().any(|n| QUOTA_CELLS.contains(&n.as_str()))
 }
 
 /// Validate a configured order against the GLOBAL vocabulary (`ALL_CELLS`) plus
@@ -704,8 +717,17 @@ fn assemble(
     palette: &ThemePalette,
     color: bool,
     mode: GlyphMode,
-    drops: usize,
+    rung: usize,
 ) -> (Vec<RailCell>, Vec<RailCell>) {
+    // A row holding a quota cell spends its first rung on the pace alone,
+    // before any cell drops.
+    let pace_rung = has_pace_rung(order);
+    let pace = !pace_rung || rung == 0;
+    let drops = if pace_rung {
+        rung.saturating_sub(1)
+    } else {
+        rung
+    };
     let split = order.iter().position(|s| s == CLUSTER_SPLIT);
     // No-marker right-hug: the last real (non-marker) cell.
     let last = order.iter().rposition(|s| s != CLUSTER_SPLIT);
@@ -730,8 +752,7 @@ fn assemble(
                 }
             }
         }
-        // A quota cell's pace is the row's first shed, with traceability.
-        let Some(mut cell) = build_cell(name, frame, palette, color, mode, drops == 0) else {
+        let Some(mut cell) = build_cell(name, frame, palette, color, mode, pace) else {
             continue;
         };
         if is_hero {
