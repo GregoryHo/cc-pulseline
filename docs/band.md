@@ -221,7 +221,7 @@ pressing first:
 | --- | --- | --- | --- |
 | failures | the same tool failing 3 times in a row on the main loop | `✘ Bash failed 3× in a row` in red, the last target dim | none |
 | long call | one call running a minute | `◷ Bash running 2m 10s` in amber, its target dim | none |
-| autocompact runway | as on the desktop, and only once there is a runway to read (`autoCompact` on, two turns sampled) | `~4 turns to autocompact` in amber, no percent | the `/compact` button |
+| autocompact runway | 5 turns or fewer before autocompact, once there is a runway to read (`autoCompact` on, two turns sampled); never on the percent alone | `~4 turns to autocompact` in amber, no percent | the `/compact` button |
 
 A failure of another tool starts the run over at one, a success of the
 failing tool ends it, and a success of another tool leaves it be. A

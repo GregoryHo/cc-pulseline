@@ -761,6 +761,10 @@ describe('the terminal alerts', () => {
     expect(onTerminalBand(none!)).toBe(false)
     const [ctx] = alertsOf(near, null, 4, null, [], STAMP)
     expect(onTerminalBand(ctx!)).toBe(true)
+    // Open on the desktop at 90%, but 20 turns off is not the terminal's to say.
+    const [far] = alertsOf(near, null, 20, null, [], STAMP)
+    expect(far).toMatchObject({ kind: 'ctx', runway: 20 })
+    expect(onTerminalBand(far!)).toBe(false)
     expect(terminalRow(ctx!, STAMP)).toMatchObject({ gauge: null, label: '~4 turns to autocompact', detail: '', compact: true })
   })
 

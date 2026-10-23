@@ -183,7 +183,8 @@ export function alertsOf(
  * left before autocompact.
  */
 export function onTerminalBand(alert: Alert): boolean {
-  if (alert.kind === 'ctx') return alert.runway !== undefined
+  // The desktop also opens it at 70%; the terminal's statusline has that.
+  if (alert.kind === 'ctx') return alert.runway !== undefined && alert.runway <= RUNWAY_TURNS
   return alert.kind === 'fails' || alert.kind === 'long'
 }
 
