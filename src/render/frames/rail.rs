@@ -500,6 +500,7 @@ fn build_cell(
     palette: &ThemePalette,
     color: bool,
     mode: GlyphMode,
+    pace: bool,
 ) -> Option<RailCell> {
     let l1 = &frame.line1;
     let l3 = &frame.line3;
@@ -587,12 +588,26 @@ fn build_cell(
                 code(palette.color_for_burn_rate(burn_rate_per_hour(cost, l3.total_duration_ms)));
             RailCell::flag("", "", format!("${cost:.2}"), band, true)
         }),
-        "5h" => q
-            .five_hour_pct
-            .map(|pct| quota_cell("5H", pct, q.five_hour_reset_minutes, FIVE_HOUR_MIN, palette)),
-        "7d" => q
-            .seven_day_pct
-            .map(|pct| quota_cell("7D", pct, q.seven_day_reset_minutes, SEVEN_DAY_MIN, palette)),
+        "5h" => q.five_hour_pct.map(|pct| {
+            quota_cell(
+                "5H",
+                pct,
+                q.five_hour_reset_minutes,
+                FIVE_HOUR_MIN,
+                pace,
+                palette,
+            )
+        }),
+        "7d" => q.seven_day_pct.map(|pct| {
+            quota_cell(
+                "7D",
+                pct,
+                q.seven_day_reset_minutes,
+                SEVEN_DAY_MIN,
+                pace,
+                palette,
+            )
+        }),
         _ => None,
     }
 }
@@ -616,11 +631,15 @@ fn drop_priority(name: &str) -> Option<usize> {
 
 /// The fit ladder's depth for a row = its deepest droppable cell.
 fn max_drops(order: &[String]) -> usize {
-    order
+    let cells = order
         .iter()
         .filter_map(|n| drop_priority(n))
         .max()
-        .unwrap_or(0)
+        .unwrap_or(0);
+    // A quota cell sheds its pace at the first rung (`assemble`), so a row
+    // holding one has that rung even with nothing else to drop.
+    let pace = usize::from(order.iter().any(|n| QUOTA_CELLS.contains(&n.as_str())));
+    cells.max(pace)
 }
 
 /// Validate a configured order against the GLOBAL vocabulary (`ALL_CELLS`) plus
@@ -711,7 +730,8 @@ fn assemble(
                 }
             }
         }
-        let Some(mut cell) = build_cell(name, frame, palette, color, mode) else {
+        // A quota cell's pace is the row's first shed, with traceability.
+        let Some(mut cell) = build_cell(name, frame, palette, color, mode, drops == 0) else {
             continue;
         };
         if is_hero {
@@ -729,14 +749,16 @@ fn assemble(
     (left, right)
 }
 
-/// A quota window as a SATURATION Flag, with its pace after the reset. A
-/// window on pace to run out before its reset lights at least the warn band,
-/// whatever its percent, because that is the one that needs the person.
+/// A quota window as a SATURATION Flag, with its pace after the reset when
+/// `show_pace`. A window on pace to run out before its reset lights at least
+/// the warn band, whatever its percent, because that is the one that needs
+/// the person; the band stays when the text is shed for width.
 fn quota_cell(
     label: &str,
     pct: f64,
     reset_min: Option<u64>,
     window_min: u64,
+    show_pace: bool,
     palette: &ThemePalette,
 ) -> RailCell {
     let pace = reset_min.and_then(|m| pace_of(pct, m, window_min));
@@ -744,7 +766,7 @@ fn quota_cell(
     let reset = reset_min
         .map(|m| format!(" {}", format_reset_duration(m)))
         .unwrap_or_default();
-    let pace_text = match pace {
+    let pace_text = match pace.filter(|_| show_pace) {
         Some(Pace::FullIn(min)) => format!(" → full ~{}", format_duration(min).replace(' ', "")),
         Some(Pace::AtReset(projected)) => format!(" →{projected}%"),
         None => String::new(),

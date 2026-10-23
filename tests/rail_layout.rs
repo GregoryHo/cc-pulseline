@@ -833,6 +833,31 @@ fn quota_cell_draws_no_pace_early_in_a_window() {
 }
 
 #[test]
+fn quota_cells_shed_their_pace_before_the_row_overflows() {
+    // Both windows paced and long resets: 63 cells wide with the pace.
+    let mut f = frame("high", 43, 88.0, 63.0, false, true);
+    f.quota.five_hour_reset_minutes = Some(2 * 60 + 58);
+    f.quota.seven_day_reset_minutes = Some(3 * 1440 + 23 * 60 + 58);
+    let narrow = RenderConfig {
+        terminal_width: Some(64), // → 60 after the CC margin
+        ..rail_config()
+    };
+    let lines = render(&f, &narrow);
+    let row = lines.last().expect("quota row");
+    assert!(visible_width(row) <= 60, "fits 60: {}", strip_ansi(row));
+    let plain = strip_ansi(row);
+    assert!(
+        plain.contains("5H 88% 2h 58m") && plain.contains("7D 63% 3d 23h 58m"),
+        "{plain}"
+    );
+    assert!(!plain.contains('→'), "pace shed: {plain}");
+
+    // With room, it comes back.
+    let wide = quota_row(&f, &rail_config());
+    assert!(wide.contains("→ full ~1d18h"), "{wide}");
+}
+
+#[test]
 fn quota_cell_lights_warn_when_running_out_below_the_tint_mark() {
     let p = rail_config().palette;
     // 40% used 100 minutes into 5h: on pace for 120%.

@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `→ full ~2d6h` when the window runs out before its reset (the cell lights
   at least the warn band, whatever its percent), or `→47%` for where it ends
   when it stays under; nothing before 5% of the window has gone. The math is
-  the quiet desktop strip's.
+  the quiet desktop strip's. Under width pressure the pace text is the row's
+  first shed, so the quota row never outgrows its target.
 - **The terminal band keeps only what the statusline cannot know:** the
   failure run, the long call, and the autocompact runway. The quota pace row
   and the cache row are gone, and the context row is the runway alone
